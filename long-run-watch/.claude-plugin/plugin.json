@@ -1,0 +1,10 @@
+{
+  "name": "long-run-watch",
+  "version": "0.3.0",
+  "description": "작업마다 예상 소요 시간(지난 실행 기록·설명 속 '약 N분')을 상태줄에 보이고, 예상을 넘기면 알린다. 백그라운드는 예상 시간이 지나면 확인하라고 알린다 · Shows an estimate for long Bash commands and warns when they run over.",
+  "author": {
+    "name": "Shin-junyeob",
+    "url": "https://github.com/Shin-junyeob"
+  },
+  "license": "MIT"
+}

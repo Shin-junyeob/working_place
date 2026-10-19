@@ -1,0 +1,34 @@
+{
+  "name": "pane-tools",
+  "version": "0.5.0",
+  "description": "/mods 모드 허브 — 세션의 컨텍스트·비용 게이지와 메모·테트리스·포켓몬. tmux 패널·새 창·사용자 명령(cmux 등) 중 원하는 곳에 띄운다. Mods hub with gauges, memo and games, opened where you choose.",
+  "author": { "name": "Shin-junyeob", "url": "https://github.com/Shin-junyeob" },
+  "license": "MIT",
+  "userConfig": {
+    "launcher": {
+      "type": "string",
+      "title": "허브를 띄울 곳 · Where to open the hub",
+      "description": "auto: tmux 가 돌고 있으면 tmux, 아니면 새 터미널 창 · tmux: tmux 패널 · window: 새 터미널 창(WSL 은 Windows Terminal, macOS 는 Terminal) · command: 아래 '사용자 명령'",
+      "options": ["auto", "tmux", "window", "command"],
+      "default": "auto"
+    },
+    "tmuxTarget": {
+      "type": "string",
+      "title": "tmux 패널 · tmux pane",
+      "description": "tmux 모드에서 허브를 띄울 패널(예: dev:0.3 — 빈 셸이거나 허브일 때만 갈아 끼운다). 비우면 지금 창을 오른쪽으로 나눠 새 패널. Empty = split the current window.",
+      "default": ""
+    },
+    "followPane": {
+      "type": "string",
+      "title": "따라갈 tmux 패널 · Follow a tmux pane",
+      "description": "허브·메모가 이 tmux 패널에 열린 Claude 세션을 따라간다(예: dev:0.0 의 claude agents). 비우면 /mods 를 입력한 세션. Empty = the session that ran /mods.",
+      "default": ""
+    },
+    "command": {
+      "type": "string",
+      "title": "사용자 명령 · Custom command",
+      "description": "command 모드: {cmd} 자리에 허브 실행 명령(따옴표로 감싼 한 덩어리)이 들어가 bash 로 실행된다. 예: wezterm cli split-pane -- bash -lc {cmd} · zellij run -- bash -lc {cmd} · cmux 등 각 도구의 '새 패널에서 명령 실행' 문법",
+      "default": ""
+    }
+  }
+}
