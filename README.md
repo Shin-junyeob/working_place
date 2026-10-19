@@ -43,6 +43,7 @@ Claude Code 프롬프트에서:
 | | `command` | 내 명령으로 — `command` 의 `{cmd}` 자리에 허브 실행 명령(따옴표로 감싼 한 덩어리)이 들어가 bash 로 돈다 |
 | `followPane` | 비움 (기본) | 허브·메모가 **`/mods` 를 입력한 세션**을 따라간다 |
 | | 예: `dev:0.0` | 그 tmux 패널에 열린 Claude 세션(예: `claude agents`)을 따라간다 — 세션을 바꾸면 허브도 바뀐다 |
+| | 예: `cmux:0` | cmux 에서는 패널 번호로 — 허브가 떠 있는 워크스페이스의 0번 패널에 열린 세션을 따라간다(cmux 를 다시 켜도 번호는 그대로) |
 
 `command` 예:
 - WezTerm: `wezterm cli split-pane -- bash -lc {cmd}`
@@ -82,7 +83,7 @@ MIT — `LICENSE`. (포켓몬 관련 명칭과 PokeAPI 데이터는 이 라이�
 **working_place** is a Claude Code mod set. Type `/mods` (works even while the session is busy) to open a hub showing the session's context/cost/rate-limit gauges and buttons for small tools: a memo you can send to the session (queued until it is idle), Tetris (with hold), and an unofficial Pokémon collection game fed by the tokens you spend. `long-run-watch` estimates long Bash commands and warns when they overrun. The `[ 한/EN ]` button switches every screen between Korean and English.
 
 **Install:** `/plugin install pane-tools --marketplace Shin-junyeob/working_place` (and `long-run-watch`), then `/mods`. Requires `python3`.
-**Where it opens:** `/config` → pane-tools → `launcher` = `auto` · `tmux` (split, or replace `tmuxTarget`) · `window` (Windows Terminal / macOS Terminal / x-terminal-emulator) · `command` (your own command with a `{cmd}` placeholder, e.g. `wezterm cli split-pane -- bash -lc {cmd}`). `followPane` makes the hub follow the Claude session shown in a tmux pane; empty = the session that ran `/mods`.
+**Where it opens:** `/config` → pane-tools → `launcher` = `auto` · `tmux` (split, or replace `tmuxTarget`) · `window` (Windows Terminal / macOS Terminal / x-terminal-emulator) · `command` (your own command with a `{cmd}` placeholder, e.g. `wezterm cli split-pane -- bash -lc {cmd}`). `followPane` makes the hub follow the Claude session shown in a pane (tmux `dev:0.0`, or cmux `cmux:0` = pane 0 of the hub's workspace); empty = the session that ran `/mods`.
 **Add a mode:** drop `pane-tools/bin/<name>.py` (a curses program); the hub shows a `[ <name> ]` button.
 **Pokémon notice:** unofficial, non-commercial fan project, not affiliated with or endorsed by Nintendo, Creatures, GAME FREAK or The Pokémon Company. No Pokémon data ships in this repo; it is downloaded from [PokeAPI](https://pokeapi.co/) on first use. It will be taken down on request from the rights holders.
 **License:** MIT (Pokémon names and PokeAPI data are not covered).

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """메모장 — 따라가는 Claude 세션으로 메모를 보낸다.
 
-따라갈 세션은 current_target() 이 정한다: PANE_TOOLS_FOLLOW(tmux 패널) 가 있으면 그 패널 제목(세션 이름)을,
+따라갈 세션은 current_target() 이 정한다: PANE_TOOLS_FOLLOW(tmux 패널, 또는 cmux:<패널 번호>) 가 있으면 그 패널 제목(세션 이름)을,
 없고 PANE_TOOLS_SESSION 이 있으면 그 세션 하나를, 둘 다 없으면 예전처럼 dev:0.0 패널을 따라간다.
 세션별 메모를 바꿔 보여 주고, [send] 를 누르면 받는 세션의
 수신함(~/.claude/pane-tools/inbox/<sessionId>.json)에 넣는다. 실제로 프롬프트에 넣는 건
@@ -187,12 +187,29 @@ def poll_sessions():
 
 
 def pane_title(target=WATCH):
-    """tmux 패널 제목. 그 패널(또는 tmux)이 없으면 None."""
+    """패널 제목. target 은 tmux 대상(예: dev:0.0) 또는 cmux:<번호>. 그 패널(또는 tmux·cmux)이 없으면 None."""
+    if target.startswith('cmux:'):
+        return cmux_title(target[5:])
     try:
         r = subprocess.run(['tmux', 'display', '-p', '-t', target, '#{pane_title}'], capture_output=True, text=True)
     except OSError:
         return None
     return r.stdout.strip() if r.returncode == 0 else None
+
+
+def cmux_title(index, run=subprocess.run):
+    """cmux 에서 이 워크스페이스의 index 번째 패널에 보이는 탭 제목.
+    패널 번호로 찾는 이유: surface:N 같은 이름은 cmux 를 다시 켤 때마다 바뀌지만 레이아웃 안의 순서는 그대로다.
+    워크스페이스는 CMUX_WORKSPACE_ID(허브가 떠 있는 패널의 것)를 쓰고, 없으면 cmux 가 지금 고른 곳."""
+    ws = os.environ.get('CMUX_WORKSPACE_ID')
+    scope = ['--workspace', ws] if ws else []
+    try:
+        panes = json.loads(run(['cmux', 'list-panes', *scope, '--json'], capture_output=True, text=True, timeout=5).stdout)['panes']
+        pane = next(p['ref'] for p in panes if p['index'] == int(index))
+        tabs = json.loads(run(['cmux', 'list-panels', *scope, '--json'], capture_output=True, text=True, timeout=5).stdout)['surfaces']
+        return next(t['title'] for t in tabs if t['pane_ref'] == pane and t.get('selected_in_pane'))
+    except (OSError, ValueError, KeyError, StopIteration, subprocess.TimeoutExpired):
+        return None
 
 
 _want = [None]  # 지난번 따라가던 대상 — 바뀌면 세션 목록을 바로 다시 읽는다
@@ -401,6 +418,19 @@ def selftest():
     pane_title = lambda t=WATCH: None  # tmux 에 dev:0.0 이 없다 → /mods 안내
     assert current_target({})[:2] == (None, None) and '/mods' in current_target({})[3]
     pane_title, sessions = real_title, {}
+    # cmux:<번호> — 패널 순서로 찾아 그 패널에서 지금 보이는 탭의 제목을 준다(같은 패널의 다른 탭은 무시)
+    def fake_cmux(cmd, **_):
+        out = {'list-panes': {'panes': [{'index': 0, 'ref': 'pane:7'}, {'index': 2, 'ref': 'pane:9'}]},
+               'list-panels': {'surfaces': [{'pane_ref': 'pane:7', 'title': 'other tab', 'selected_in_pane': False},
+                                            {'pane_ref': 'pane:7', 'title': '◑ settings', 'selected_in_pane': True},
+                                            {'pane_ref': 'pane:9', 'title': 'zsh', 'selected_in_pane': True}]}}[cmd[1]]
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(out), '')
+    def no_cmux(*_, **__):
+        raise OSError
+    assert cmux_title('0', fake_cmux) == '◑ settings' and title_name(cmux_title('0', fake_cmux)) == 'settings'
+    assert cmux_title('2', fake_cmux) == 'zsh'
+    assert cmux_title('5', fake_cmux) is None  # 없는 패널
+    assert cmux_title('0', no_cmux) is None    # cmux 가 없거나 안 떠 있음
     print('memo selftest ok')
 
 
