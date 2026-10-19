@@ -6,7 +6,7 @@
 - 나오는 순서: 스타팅·피카츄·이브이 → 일반(원작 포획률 높은 = 흔한 것부터) → 전설 → 환상. 앞쪽 WINDOW 마리 중 무작위.
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
 - 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나오고(BOXED_WEIGHT), 나오면 잡지 않고 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
-- 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤.
+- 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤, 이미 가방에 있는 모습으로는 진화하지 않는다.
 상태는 ~/.claude/pane-tools/pokemon.json. 허브는 summary() 로 동료를 보여 준다.
 `python3 pokemon.py --selftest` 로 규칙을 점검한다(데이터가 없으면 먼저 받는다).
 """
@@ -177,10 +177,17 @@ def dupe_balls(n):
     return 1 if cap >= 190 else 2 if cap >= 90 else 3 if cap >= 45 else 4
 
 
-def evolutions(st, n):
-    """지금 열린 세대 안에서 진화할 수 있는 다음 모습들."""
+def opened_evolutions(st, n):
+    """지금 열린 세대 안의 다음 모습들(가방 상태와 무관)."""
     g = current_gen(st) or GENS
     return [c for c in CHILDREN.get(n, []) if gen(c) <= g]
+
+
+def evolutions(st, n):
+    """진화할 수 있는 다음 모습들 — 열린 세대 안에서, 가방에 아직 없는 것만. 이상해풀이 가방에 있으면 이상해씨는
+    진화하지 않는다: 같은 모습이 두 마리가 되지 않고, 이상해씨는 가방에 남아 야생에서 계속 1/10 로만 나온다."""
+    boxed = {m['id'] for m in st['box']}
+    return [c for c in opened_evolutions(st, n) if c not in boxed]
 
 
 def need_xp(n):
@@ -271,14 +278,23 @@ def dex_text(st):
 
 
 def evo_status(st, t):
-    """동료의 진화 상태: ('final',) · ('locked',) · ('ready',) · ('progress', 경험치, 필요치)."""
+    """동료의 진화 상태: ('final',) · ('locked',) · ('blocked', 진화형들) · ('ready',) · ('progress', 경험치, 필요치)."""
     n = st['box'][st['partner']]['id']
     if n not in CHILDREN:
         return ('final',)
-    if not evolutions(st, n):
+    opened = opened_evolutions(st, n)
+    if not opened:
         return ('locked',)
+    if not evolutions(st, n):
+        return ('blocked', opened)  # 진화형이 이미 가방에 있다
     xp, need = partner_xp(st, t), need_xp(n)
     return ('ready',) if xp >= need else ('progress', xp, need)
+
+
+def blocked_text(opened):
+    if len(opened) == 1:
+        return L(f'{name(opened[0])}(이)가 가방에 있어 진화 못 함', f"can't evolve — {name(opened[0])} is already in the bag")
+    return L('진화형이 모두 가방에 있어 진화 못 함', "can't evolve — every evolution is already in the bag")
 
 
 def summary(root=ROOT):
@@ -298,6 +314,8 @@ def summary(root=ROOT):
             lines.append((p + L('최종 진화', 'fully evolved'), False, None))
         elif ev[0] == 'locked':
             lines.append((p + L('다음 세대가 열리면 진화', 'evolves once the next generation opens'), False, None))
+        elif ev[0] == 'blocked':
+            lines.append((p + blocked_text(ev[1]), False, None))
         elif ev[0] == 'ready':
             lines.append((p + L('✨ 진화 가능!', '✨ ready to evolve!'), True, 1.0))
         else:
@@ -376,6 +394,8 @@ def main(scr):
                 elif ev[0] == 'locked':
                     put(scr, y + 1, 1, L('진화형은 다음 세대 도감이 열리면 만날 수 있다.',
                                           'Its evolution unlocks with the next generation.'), curses.A_DIM)
+                elif ev[0] == 'blocked':
+                    put(scr, y + 1, 1, blocked_text(ev[1]), curses.A_DIM)
                 elif ev[0] == 'ready':
                     x = put(scr, y + 1, 1, L('✨ 진화할 수 있다!', '✨ It can evolve!'), curses.A_BOLD)
                     button(y + 1, x + 3, L('진화 v', 'evolve v'), 'evolve')
@@ -557,6 +577,18 @@ def selftest():
     # 경험치: 15만 넘으면 이상해씨 → 이상해풀, 다음은 40만
     assert not can_evolve(st, t + 149_999) and can_evolve(st, t + 150_000)
     assert evolve(st, t + 150_000, rng) == 2 and 2 in st['caught'] and partner_xp(st, t + 150_000) == 0
+    # 바리케이드: 이상해풀이 가방에 있으면 새로 잡은 이상해씨는 경험치가 차도 진화 못 함 → 빠지면 다시 가능
+    bar_st = new_state()
+    bar_st['box'], bar_st['caught'], bar_st['partner'] = [{'id': 1, 'xp': 10**9}, {'id': 2, 'xp': 0}], [1, 2], 0
+    assert evo_status(bar_st, 0) == ('blocked', [2]) and not can_evolve(bar_st, 0) and evolve(bar_st, 0) is None
+    bar_st['box'][1]['id'] = 3  # 이상해풀 → 이상해꽃
+    assert can_evolve(bar_st, 0) and evolve(bar_st, 0) == 2
+    # 이브이: 샤미드가 가방에 있으면 남은 둘 중에서만
+    bar_st['box'] = [{'id': 133, 'xp': 10**9}, {'id': 134, 'xp': 0}]
+    bar_st['partner'] = 0
+    assert sorted(evolutions(bar_st, 133)) == [135, 136]
+    bar_st['box'] += [{'id': 135, 'xp': 0}, {'id': 136, 'xp': 0}]
+    assert evo_status(bar_st, 0) == ('blocked', [134, 135, 136])
     assert need_xp(2) == 400_000 and need_xp(3) is None and need_xp(83) is not None  # 파오리 → 대파무사(8세대)
     # 나중 세대 베이비는 단계에 안 친다: 피카츄 1단계(15만), 라이츄 2단계, 에레키블(4세대)은 에레키드부터 3단계
     assert (depth(25), depth(26), depth(172), depth(466)) == (0, 1, 0, 2) and need_xp(25) == 150_000
