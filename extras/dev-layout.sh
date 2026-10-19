@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 SESSION=dev
-WORK_DIR="${SETT_DIR:-$HOME}"  # 패널들이 시작할 폴더 — ~/.bashrc 에서 export SETT_DIR=... 로 바꾼다
+WORK_DIR="${SETT_DIR:-$HOME}"  # 패널들이 시작할 폴더 — 셸 설정(~/.bashrc, macOS 는 ~/.zshrc)에서 export SETT_DIR=... 로 바꾼다
 
 # 레이아웃 (패널 0~3)
 #   0 좌     60%  전체높이   claude agents
