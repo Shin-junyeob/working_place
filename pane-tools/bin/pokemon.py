@@ -5,7 +5,7 @@
 - 도감은 세대별(1~9세대). 데이터는 처음 열 때 PokeAPI 에서 받아 ~/.claude/pane-tools/pokedex.json 에 둔다(_pokedata.py). 지금 세대를 다 채우면 다음 세대가 열리고, 야생에선 지금 세대 포켓몬만 나온다.
 - 나오는 순서: 스타팅·피카츄·이브이 → 일반(원작 포획률 높은 = 흔한 것부터) → 전설 → 환상. 앞쪽 WINDOW 마리 중 무작위.
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
-- 지금 가방에 있는 종은 야생에 안 나온다(진화시켜 빠지면 다시 나옴). 그래도 나오면 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
+- 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나오고(BOXED_WEIGHT), 나오면 잡지 않고 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
 - 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤.
 상태는 ~/.claude/pane-tools/pokemon.json. 허브는 summary() 로 동료를 보여 준다.
 `python3 pokemon.py --selftest` 로 규칙을 점검한다(데이터가 없으면 먼저 받는다).
@@ -28,6 +28,7 @@ ENCOUNTER_EVERY = 30_000
 STAGE_XP = [150_000, 400_000]  # 1→2단계, 2→3단계
 BALLS = 3
 WINDOW = 4  # 순서상 앞쪽 몇 마리 중에서 나오나
+BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다(wild_odds)
 
 DEX, GENS, GEN_SIZE, CHILDREN = {}, 0, {}, {}  # load_dex() 가 채운다
 
@@ -96,16 +97,25 @@ def current_gen(st):
 
 
 def wild_pool(st):
-    """지금 세대에서 나올 차례인 포켓몬들, 순서대로. 아직 못 잡은 같은 세대 진화형이 남은 계열도 계속 나온다.
-    단, 지금 가방에 있는 종은 뺀다 — 진화형은 동료 진화로만 얻으니 또 나와 봐야 볼로 바뀔 뿐이고,
-    맨 앞 WINDOW 칸을 막아 같은 포켓몬만 계속 나왔다. 진화시켜 가방에서 빠지면 다시 나온다."""
+    """지금 세대에서 나올 차례인 포켓몬들, 순서대로. 아직 못 잡은 같은 세대 진화형이 남은 계열도 계속 나온다."""
     g, caught = current_gen(st), set(st['caught'])
     if g is None:
         return []
-    boxed = {m['id'] for m in st['box']}
-    pool = [n for n in DEX if gen(n) == g and wild_ok(n) and n not in boxed
+    pool = [n for n in DEX if gen(n) == g and wild_ok(n)
             and (n not in caught or any(gen(d) == g and d not in caught for d in descendants(n)))]
     return sorted(pool, key=order_key)
+
+
+def wild_odds(st):
+    """이번 탐색의 후보와 가중치 [(번호, 가중치)] — 가방에 없는 앞쪽 WINDOW 마리는 1, 그 사이에 낀 가방 속 종은
+    BOXED_WEIGHT. 가방 속 종은 진화형을 동료 진화로만 얻으니 나와 봐야 볼로 바뀔 뿐인데, 그대로 두면 맨 앞 칸을
+    막아 같은 포켓몬만 나왔다(진화 전 스타팅 3종이 4칸 중 3칸). 아예 빼지는 않고 드물게만 나오게 한다."""
+    pool, boxed = wild_pool(st), {m['id'] for m in st['box']}
+    fresh = [n for n in pool if n not in boxed][:WINDOW]
+    if not fresh:  # 남은 게 전부 가방 속 종이면 그것들끼리
+        return [(n, 1) for n in pool[:WINDOW]]
+    front = pool[:pool.index(fresh[-1]) + 1]
+    return [(n, BOXED_WEIGHT if n in boxed else 1) for n in front]
 
 
 def name(n):
@@ -193,11 +203,11 @@ def _mark(st, key, n):
 def explore(st, t, rng=random):
     if st['wild'] or tickets(st, t) <= 0:
         return None
-    pool = wild_pool(st)
-    if not pool:
+    odds = wild_odds(st)
+    if not odds:
         return None
     st['used'] += 1
-    n = rng.choice(pool[:WINDOW])
+    n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     _mark(st, 'seen', n)
     if any(m['id'] == n for m in st['box']):  # 이미 가방에 있다 → 몬스터볼로
         k = dupe_balls(n)
@@ -535,11 +545,13 @@ def selftest():
     assert (dupe_balls(10), dupe_balls(1), dupe_balls(144), dupe_balls(151)) == (1, 3, 5, 5)
     dup = new_state()
     dup['box'], dup['caught'] = [{'id': 25, 'xp': 0}], [25]
-    assert 25 not in wild_pool(dup)  # 가방에 있으면 후보에서 빠진다
+    # 가방 속 피카츄는 앞쪽에 남되 1/10 — 새 종 WINDOW 마리는 그대로 1
+    odds = dict(wild_odds(dup))
+    assert odds[25] == BOXED_WEIGHT and sorted(odds.values()).count(1) == WINDOW, odds
     dup['box'] = []
-    assert 25 in wild_pool(dup)  # 진화시켜 가방에서 빠지면 다시 나온다 — 라이츄를 아직 못 얻었으니
+    assert dict(wild_odds(dup)).get(25) == 1  # 진화시켜 가방에서 빠지면 다시 보통 확률
     dup['box'] = [{'id': 25, 'xp': 0}]
-    pick = type('R', (), {'choice': lambda s, xs: 25})()
+    pick = type('R', (), {'choices': lambda s, xs, weights: [25]})()
     assert explore(dup, ENCOUNTER_EVERY, pick) == (25, dupe_balls(25)) and dup['wild'] is None
     assert dup['balls'] == dupe_balls(25) and dup['used'] == 1
     # 경험치: 15만 넘으면 이상해씨 → 이상해풀, 다음은 40만
