@@ -192,12 +192,24 @@ def main(scr):
     global pokemon
     pk_stamp = 0
     me = os.path.abspath(__file__)
-    my_stamp = os.path.getmtime(me)
+    my_stamp = seen = os.path.getmtime(me)
+    seen_at = time.time()
     while True:
-        if os.path.getmtime(me) != my_stamp:  # 허브 자신이 바뀌면 같은 인자로 다시 뜬다 — 오래 켜 두니 옛 코드로 남지 않게
-            kitty_hide(free=True)
-            curses.endwin()
-            os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
+        # 허브 자신이 바뀌면 같은 인자로 다시 뜬다 — 오래 켜 두니 옛 코드로 남지 않게. 단 두 가지를 지킨다(2026-10-20 실측):
+        # git switch → pull 사이 몇 초 동안 파일이 옛 버전이었는데 그 순간 옮겨 타서, 이 재시작 코드가 없는 옛 허브에
+        # 갇혔다(그 뒤 파일이 돌아와도 모름). 그래서 파일이 5초 동안 안 바뀐 뒤에만, 그리고 새 파일에도 재시작 코드가
+        # 있을 때만 옮겨 탄다.
+        m = os.path.getmtime(me)
+        if m != seen:
+            seen, seen_at = m, time.time()
+        elif m != my_stamp and time.time() - seen_at >= 5:
+            with open(me, encoding='utf-8') as f:
+                restartable = 'os.execv(' in f.read()
+            if restartable:
+                kitty_hide(free=True)
+                curses.endwin()
+                os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
+            my_stamp = m  # 재시작 못 하는 버전이면 지금 코드로 계속 — 파일이 다시 바뀌면 그때 본다
         name, sid, busy, note = memo.current_target()
         art = None
 
