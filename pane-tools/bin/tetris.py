@@ -138,6 +138,17 @@ def main(scr):
     for c in range(1, 8):
         curses.init_pair(c, c, -1)
 
+    pairs = {}
+
+    def half(fg, bg):
+        """반높이 칸용 (글자색, 배경색) 쌍 — 처음 쓸 때 만든다."""
+        if (fg, bg) not in pairs:
+            pairs[(fg, bg)] = n = 8 + len(pairs)
+            curses.init_pair(n, fg, bg)
+        return curses.color_pair(pairs[(fg, bg)])
+
+    ghost_color = 8 if curses.COLORS > 8 else 7  # 회색이 없으면 흰색
+
     g = Game()
     paused = False
     fall_at = time.time() + g.gravity()
@@ -145,24 +156,41 @@ def main(scr):
     while True:
         h, w = scr.getmaxyx()
         scr.erase()
-        if h < H + 2 or w < 2 * W + 20:
-            put(scr, 0, 0, L(f'창이 작습니다 ({H + 2}줄 필요) — q 닫기', f'Window too small (needs {H + 2} rows) — q to close'))
+        # cmux 3번 패널(19줄)처럼 판(22줄)이 안 들어가면 ▀▄ 로 두 줄을 한 줄에 그린다 — 판 12줄
+        compact = h < H + 2
+        bw, bh = (W, H // 2) if compact else (2 * W, H)
+        if h < bh + 2 or w < bw + 22:
+            put(scr, 0, 0, L(f'창이 작습니다 ({H // 2 + 2}줄 필요) — q 닫기', f'Window too small (needs {H // 2 + 2} rows) — q to close'))
         else:
             ox = 1
-            scr.addstr(0, ox, '┌' + '─' * (2 * W) + '┐')
-            scr.addstr(H + 1, ox, '└' + '─' * (2 * W) + '┘')
+            scr.addstr(0, ox, '┌' + '─' * bw + '┐')
+            scr.addstr(bh + 1, ox, '└' + '─' * bw + '┘')
             cur = {(g.x + cx, g.y + cy) for cx, cy in g.cells}
             ghost = {(g.x + cx, g.ghost_y() + cy) for cx, cy in g.cells}
-            for y in range(H):
+
+            def color(x, y):
+                kind = g.board[y][x] or (g.kind if (x, y) in cur else None)
+                if kind:
+                    return COLOR[kind]
+                return ghost_color if (x, y) in ghost and not g.over else None
+
+            for y in range(bh):
                 scr.addstr(y + 1, ox, '│')
                 for x in range(W):
-                    kind = g.board[y][x] or (g.kind if (x, y) in cur else None)
-                    if kind:
-                        scr.addstr(y + 1, ox + 1 + 2 * x, '██', curses.color_pair(COLOR[kind]))
-                    elif (x, y) in ghost and not g.over:
-                        scr.addstr(y + 1, ox + 1 + 2 * x, '░░', curses.A_DIM)
-                scr.addstr(y + 1, ox + 1 + 2 * W, '│')
-            sx = ox + 2 * W + 4
+                    if compact:
+                        top, bot = color(x, 2 * y), color(x, 2 * y + 1)
+                        if top and bot:
+                            scr.addstr(y + 1, ox + 1 + x, '▀', half(top, bot))
+                        elif top or bot:
+                            scr.addstr(y + 1, ox + 1 + x, '▀' if top else '▄', half(top or bot, -1))
+                    else:
+                        kind = g.board[y][x] or (g.kind if (x, y) in cur else None)
+                        if kind:
+                            scr.addstr(y + 1, ox + 1 + 2 * x, '██', curses.color_pair(COLOR[kind]))
+                        elif (x, y) in ghost and not g.over:
+                            scr.addstr(y + 1, ox + 1 + 2 * x, '░░', curses.A_DIM)
+                scr.addstr(y + 1, ox + 1 + bw, '│')
+            sx = ox + bw + 4
             put(scr, 1, sx, L('다음', 'Next'))
             n, cells = PIECES[g.next]
             for cx, cy in cells:
@@ -178,12 +206,13 @@ def main(scr):
             for i, t in enumerate(L(('←→ 이동  ↑ 회전', '↓ 한 칸  Space 바로', 'c 보관  p 멈춤', 'q 닫기'),
                                     ('←→ move  ↑ rotate', '↓ step  Space drop', 'c hold  p pause', 'q close'))):
                 put(scr, 15 + i, sx, t, curses.A_DIM)
-            close_btn = (H, sx, sx + 9)
-            scr.addstr(H, sx, '[ close ]', curses.A_BOLD | curses.A_REVERSE)
+            cy = min(H, h - 1)
+            close_btn = (cy, sx, sx + 9)
+            put(scr, cy, sx, '[ close ]', curses.A_BOLD | curses.A_REVERSE)
             if g.over:
-                put(scr, H // 2, ox + 3, L(' 게임 오버 · r 다시 ', ' Game over · r retry'), curses.A_REVERSE)
+                put(scr, bh // 2, ox + 1, L(' 게임 오버 · r 다시 ', ' Game over · r retry'), curses.A_REVERSE)
             elif paused:
-                put(scr, H // 2, ox + 6, L(' 멈춤 · p ', ' Paused · p '), curses.A_REVERSE)
+                put(scr, bh // 2, ox + 1, L(' 멈춤 · p ', ' Paused · p '), curses.A_REVERSE)
         scr.refresh()
 
         wait = 0.5 if (paused or g.over) else max(0.0, fall_at - time.time())
