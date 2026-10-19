@@ -2,6 +2,8 @@
 > Claude Code 에서 `/mods` 한 번으로 여는 **모드 허브** — 세션의 컨텍스트·비용 게이지, 세션에 보낼 메모장, 기다리는 동안의 테트리스·포켓몬.
 > 한국어 / English — 허브의 `[ 한/EN ]` 버튼 하나로 mods 전체 글자가 바뀝니다. *(English summary below.)*
 
+![Claude 옆에 뜬 모드 허브](docs/images/hub-ko.png)
+
 ## 들어 있는 것
 | 플러그인 | 하는 일 |
 |------|---------|
@@ -10,6 +12,8 @@
 | ├ `tetris` | 테트리스. `c` 로 블럭 1개 보관 |
 | └ `pokemon` | 쓴 토큰만큼 포켓몬을 발견·포획·진화시켜 1~9세대 도감을 채운다(비공식 팬메이드 — 아래 참고) |
 | `long-run-watch` | 오래 걸리는 Bash 명령에 예상 시간·초과 경고·끝남 알림 |
+
+<p><img src="docs/images/pokemon-caught.png" alt="포켓몬" width="48%"> <img src="docs/images/tetris-en.png" alt="테트리스" width="36%"></p>
 
 새 모드는 `pane-tools/bin/<이름>.py` (curses 프로그램) 하나만 두면 허브에 `[ <이름> ]` 버튼이 저절로 생긴다. `_` 로 시작하는 파일은 버튼이 안 된다. 글자는 `from _lang import L` 후 `L('한국어', 'English')`.
 
@@ -27,6 +31,10 @@ Claude Code 프롬프트에서:
 그다음 아무 세션에서 `/mods`.
 
 ## 허브를 어디에 띄울지 — `/config` → pane-tools
+설치할 때도 같은 설정 화면이 나온다.
+
+![설치 중 설정 화면](docs/images/install-config.png)
+
 | 설정 | 값 | 동작 |
 |------|----|------|
 | `launcher` | `auto` (기본) | tmux 가 돌고 있으면 tmux, 아니면 새 터미널 창 |
@@ -60,6 +68,7 @@ bash ~/.claude/mods/install.sh --pokemon-backup    # (선택) 매일 17:59 포�
 - 권리자의 요청이 있으면 이 모드는 내립니다.
 
 ## 점검
+스크린샷은 빈 홈 폴더의 새 사용자 환경에서 마켓 설치 → `/mods` 로 찍었다(포켓몬 탐색 기회만 시험용 토큰 기록으로 채움).
 `python3 pane-tools/bin/<이름>.py --selftest`, `claude plugin test pane-tools`, `claude plugin test long-run-watch`
 
 ## 라이선스
@@ -68,6 +77,8 @@ MIT — `LICENSE`. (포켓몬 관련 명칭과 PokeAPI 데이터는 이 라이�
 ---
 
 ## English summary
+![The mods hub in English](docs/images/hub-en.png)
+
 **working_place** is a Claude Code mod set. Type `/mods` (works even while the session is busy) to open a hub showing the session's context/cost/rate-limit gauges and buttons for small tools: a memo you can send to the session (queued until it is idle), Tetris (with hold), and an unofficial Pokémon collection game fed by the tokens you spend. `long-run-watch` estimates long Bash commands and warns when they overrun. The `[ 한/EN ]` button switches every screen between Korean and English.
 
 **Install:** `/plugin install pane-tools --marketplace Shin-junyeob/working_place` (and `long-run-watch`), then `/mods`. Requires `python3`.
