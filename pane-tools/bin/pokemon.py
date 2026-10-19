@@ -18,6 +18,7 @@ import os
 import random
 import sys
 
+import _lang
 import _pokedata
 from _lang import L
 from memo import put  # 한글 2칸 폭을 맞춰 그리는 함수 — 메모장과 같이 쓴다
@@ -301,6 +302,12 @@ def summary(root=ROOT):
     return lines
 
 
+def partner_id(root=ROOT):
+    """허브에 그림을 띄울 동료의 번호 — 없으면 None."""
+    st = load(root)
+    return None if st['partner'] is None else st['box'][st['partner']]['id']
+
+
 # ── 화면 ──
 def bar(frac, width):
     f = round(max(0.0, min(1.0, frac)) * width)
@@ -387,6 +394,8 @@ def main(scr):
             put(scr, 9, 1, msg)
             x = button(h - 1, 1, L('도감 d', 'dex d'), 'dex')
             x = button(h - 1, x, L('가방 e', 'bag e'), 'box')
+            gray = _lang.get('sprite') == 'gray'  # 허브의 동료 그림 색 — PC마다 따로(settings.json)
+            x = button(h - 1, x, L('회색 c', 'gray c') if gray else L('컬러 c', 'color c'), 'sprite')
             button(h - 1, x, 'close q', 'close')
         else:
             open_gen = current_gen(st) or GENS
@@ -425,7 +434,7 @@ def main(scr):
         key = scr.getch()
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close',
                ord('s'): 'explore', ord('b'): 'throw', ord('r'): 'run', ord('v'): 'evolve',
-               ord('d'): 'dex', ord('e'): 'box'}.get(key)
+               ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite'}.get(key)
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top = max(1, min(GENS, dg + (1 if key == curses.KEY_RIGHT else -1))), 0
         if view == 'box' and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
@@ -447,6 +456,10 @@ def main(scr):
                 pass
         if act == 'close':
             break
+        if act == 'sprite' and view == 'main':
+            gray = _lang.put('sprite', 'color' if _lang.get('sprite') == 'gray' else 'gray') == 'gray'
+            msg = L('허브의 동료 그림을 회색으로 보여 줍니다.', 'Partner art in the hub is now grayscale.') if gray else \
+                L('허브의 동료 그림을 컬러로 보여 줍니다.', 'Partner art in the hub is now in color.')
         if act in ('dex', 'box'):
             view, top, dg = act, 0, current_gen(st) or GENS
             sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
@@ -484,7 +497,9 @@ def main(scr):
 
 def selftest():
     global DEX
+    import struct
     import tempfile
+    import zlib
     assert len(DEX) == 1025 and GENS == 9 and GEN_SIZE[1] == 151
     root = tempfile.mkdtemp()
     os.makedirs(f'{root}/usage')
@@ -565,6 +580,24 @@ def selftest():
         assert len(summary(root)) == 1 and '[ pokemon ]' in summary(root)[0][0]
     finally:
         DEX = real
+    # 그림: 팔레트 4비트 + 투명색 PNG 를 직접 만들어 해독 → 여백을 잘라 낸다
+    raw = b''.join(b'\x00' + bytes(r) for r in ([0x01, 0x10], [0x00, 0x22]))  # 4×2, 칸마다 팔레트 0/1/2
+    chunk = lambda k, b: struct.pack('>I', len(b)) + k + b + struct.pack('>I', zlib.crc32(k + b))  # noqa: E731
+    png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 4, 2, 4, 3, 0, 0, 0))
+           + chunk(b'PLTE', bytes([0, 0, 0, 255, 0, 0, 0, 0, 255])) + chunk(b'tRNS', b'\x00')
+           + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+    px = _pokedata.decode_png(png)
+    assert [[c[3] for c in r] for r in px] == [[0, 255, 255, 0], [0, 0, 255, 255]]
+    assert px[0][1][:3] == (255, 0, 0) and px[1][3][:3] == (0, 0, 255)
+    red, blue = (255, 0, 0), (0, 0, 255)
+    assert _pokedata.shrink(px, 12, 16) == [[red, red, None], [None, blue, blue]]  # 왼쪽 빈 열을 잘라 냄
+    assert (_pokedata.xterm256(*red), _pokedata.xterm256(*blue)) == (196, 21)
+    assert (_pokedata.gray256(0, 0, 0), _pokedata.gray256(255, 255, 255), _pokedata.gray256(128, 128, 128)) == (16, 231, 244)
+    assert _pokedata.shrink([[(0, 0, 0, 0)]], 12, 16) == []
+    # Kitty 그래픽용: 여백을 잘라 PNG 로 다시 쓰면 그대로 읽힌다 · 회색은 밝기만
+    cut = _pokedata.crop(px)
+    assert len(cut) == 2 and len(cut[0]) == 3 and _pokedata.decode_png(_pokedata.encode_png(cut)) == cut
+    assert _pokedata.crop(px, gray=True)[0][1] == (76, 76, 76, 255)  # 빨강의 밝기 0.299 × 255
     print('pokemon selftest ok')
 
 

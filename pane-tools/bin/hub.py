@@ -7,19 +7,28 @@
 `python3 hub.py --selftest` 로 버튼 목록·게이지 계산을 점검한다.
 """
 import argparse
+import base64
 import curses
+import fcntl
 import importlib
 import json
 import locale
 import os
+import re
+import select
+import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
+import tty
 
 BIN = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BIN)
 import memo  # noqa: E402 — 세션 따라가기·한글 폭 계산을 같이 쓴다
+import _lang  # noqa: E402
+import _pokedata  # noqa: E402 — 동료 그림(Kitty 용 PNG · ▀▄ 용 256색)
 from _lang import L, toggle  # noqa: E402
 try:
     import pokemon  # noqa: E402 — 메인 화면에 동료 포켓몬을 띄운다
@@ -38,6 +47,97 @@ def tools(folder=BIN):
 def bar(frac, width):
     filled = round(max(0.0, min(1.0, frac)) * width)
     return '█' * filled + '░' * (width - filled)
+
+
+_pairs = {}
+
+
+def draw_sprite(scr, y, x, grid, gray=False):
+    """(r, g, b) 그림을 ▀▄ 반높이 칸으로 — 한 줄에 그림 두 줄. gray 면 밝기만(포켓몬 모드의 [ 그림 c ]).
+    색 쌍은 처음 쓸 때 16번부터 만든다."""
+    to = _pokedata.gray256 if gray else _pokedata.xterm256
+    grid = [[c and to(*c) for c in row] for row in grid]
+
+    def pair(fg, bg):
+        if (fg, bg) not in _pairs:
+            if len(_pairs) + 17 >= curses.COLOR_PAIRS:  # 쌍이 모자라면 처음부터 다시 쓴다(이전 그림의 쌍)
+                _pairs.clear()
+            _pairs[(fg, bg)] = 16 + len(_pairs)
+            curses.init_pair(_pairs[(fg, bg)], fg, bg)
+        return curses.color_pair(_pairs[(fg, bg)])
+    for r in range(0, len(grid), 2):
+        bot = grid[r + 1] if r + 1 < len(grid) else [None] * len(grid[r])
+        for k, (a, b) in enumerate(zip(grid[r], bot)):
+            if a is None and b is None:
+                continue
+            ch, attr = ('▀', pair(a, -1 if b is None else b)) if a is not None else ('▄', pair(b, -1))
+            try:
+                scr.addstr(y + r // 2, x + k, ch, attr)
+            except curses.error:
+                pass
+
+
+KITTY = False  # __main__ 이 curses 를 켜기 전에 kitty_ok() 로 정한다
+_sent, _placed = set(), [None]  # 터미널에 보내 둔 그림 번호들 · 지금 화면에 놓인 그림 번호
+
+
+def kitty_ok():
+    """터미널이 Kitty 그래픽을 지원하나 — 질의 뒤 장치 속성(DA1)보다 OK 가 먼저 오면(cmux 확인, 2026-10-20).
+    tmux 안에선 통과 설정이 따로 필요해 쓰지 않는다 — 그땐 ▀▄ 로 그린다."""
+    if os.environ.get('TMUX') or not sys.stdin.isatty():
+        return False
+    fd, got = sys.stdin.fileno(), b''
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        os.write(sys.stdout.fileno(), b'\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c')
+        end = time.time() + 1
+        while time.time() < end and not re.search(rb'\x1b\[\?[\d;]*c', got):
+            if select.select([fd], [], [], 0.05)[0]:
+                got += os.read(fd, 1024)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return b'\x1b_Gi=31;OK' in got
+
+
+def kitty_cols(pw, ph, rows):
+    """pw×ph 픽셀 그림을 rows 줄에 넣을 때 비율이 맞는 칸 수 — 칸의 픽셀 크기는 터미널에 묻는다(모르면 1:2)."""
+    try:
+        r, c, xp, yp = struct.unpack('HHHH', fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b'\0' * 8))
+        ratio = (yp / r) / (xp / c) if xp and yp else 2
+    except OSError:
+        ratio = 2
+    return max(1, round(pw / ph * rows * ratio))
+
+
+def kitty_show(y, x, key, png, cols, rows):
+    """PNG 를 key 번 그림으로 처음 한 번만 보내 두고, (y, x) 칸에 cols×rows 로 놓는다.
+    매 화면마다 다시 놓는다 — curses 가 화면을 통째로 지워도 그림이 돌아오게(같은 자리 표시는 바꿔 끼워진다)."""
+    out = []
+    if _placed[0] not in (None, key):  # 동료가 바뀌면 전 그림을 내린다
+        out.append(f'\x1b_Ga=d,d=i,i={_placed[0]},q=2\x1b\\')
+    if key not in _sent:
+        data = base64.b64encode(png).decode()
+        parts = [data[i:i + 4096] for i in range(0, len(data), 4096)]  # Kitty 는 4096바이트씩 받는다
+        for i, part in enumerate(parts):
+            head = f'a=t,f=100,i={key},q=2,' if i == 0 else ''
+            out.append(f'\x1b_G{head}m={int(i < len(parts) - 1)};{part}\x1b\\')
+        _sent.add(key)
+    out.append(f'\x1b7\x1b[{y + 1};{x + 1}H\x1b_Ga=p,i={key},p=1,c={cols},r={rows},C=1,q=2\x1b\\\x1b8')
+    sys.stdout.write(''.join(out))
+    sys.stdout.flush()
+    _placed[0] = key
+
+
+def kitty_hide(free=False):
+    """놓인 그림을 내린다. free 면 보내 둔 데이터까지 — 다른 모드로 넘어가거나 허브를 닫을 때."""
+    if free and _sent:
+        sys.stdout.write('\x1b_Ga=d,d=A,q=2\x1b\\')
+        _sent.clear()
+    elif _placed[0] is not None:
+        sys.stdout.write(f'\x1b_Ga=d,d=i,i={_placed[0]},q=2\x1b\\')
+    sys.stdout.flush()
+    _placed[0] = None
 
 
 def level_attr(frac):
@@ -91,8 +191,15 @@ def main(scr):
 
     global pokemon
     pk_stamp = 0
+    me = os.path.abspath(__file__)
+    my_stamp = os.path.getmtime(me)
     while True:
+        if os.path.getmtime(me) != my_stamp:  # 허브 자신이 바뀌면 같은 인자로 다시 뜬다 — 오래 켜 두니 옛 코드로 남지 않게
+            kitty_hide(free=True)
+            curses.endwin()
+            os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
         name, sid, busy, note = memo.current_target()
+        art = None
 
         h, w = scr.getmaxyx()
         scr.erase()
@@ -144,11 +251,35 @@ def main(scr):
                         if os.path.exists(f))
             if pokemon and stamp != pk_stamp:
                 pokemon, pk_stamp = importlib.reload(pokemon), stamp
-            for text, hot, frac in pokemon.summary() if pokemon else []:
-                x = put(y, 1, text, curses.A_BOLD if hot else 0)
-                if frac is not None and not hot:
-                    put(y, x + 1, bar(frac, 12), curses.A_DIM)
-                y += 1
+            lines = pokemon.summary() if pokemon else []
+            n = pokemon.partner_id() if lines and w >= 44 else None
+            gray = _lang.get('sprite') == 'gray'
+            # 동료 그림: Kitty 그래픽이 되면 원본 도트를 3줄에, 아니면 ▀▄ 반높이 칸으로
+            png = _pokedata.sprite_png(n, gray) if n and KITTY else None
+            grid = _pokedata.sprite(n) if n and not KITTY and curses.COLORS >= 256 else None
+            if png or grid:  # 왼쪽에 동료 그림, 오른쪽엔 ' · ' 로 나눈 짧은 줄들
+                top = y
+                if png:
+                    cols, used = kitty_cols(png[1], png[2], 3), 3
+                    art = (y, 1, n * 2 + gray, png[0], cols, used)
+                else:
+                    cols, used = len(grid[0]), (len(grid) + 1) // 2
+                    draw_sprite(scr, y, 1, grid, gray)
+                sx = cols + 3
+                for text, hot, frac in lines:
+                    parts = text.split(' · ')
+                    for i, part in enumerate(parts):
+                        x = put(y, sx, part, curses.A_BOLD if hot else 0)
+                        if i == len(parts) - 1 and frac is not None and not hot:
+                            put(y, x + 1, bar(frac, 10), curses.A_DIM)
+                        y += 1
+                y = max(y, top + used)
+            else:
+                for text, hot, frac in lines:
+                    x = put(y, 1, text, curses.A_BOLD if hot else 0)
+                    if frac is not None and not hot:
+                        put(y, x + 1, bar(frac, 12), curses.A_DIM)
+                    y += 1
             y += 1
         except Exception:
             pass
@@ -167,6 +298,10 @@ def main(scr):
             put(by, x0, btn, curses.A_BOLD | curses.A_REVERSE)
         put(h - 1, lang_btn[2] + 2, L('클릭·숫자키 · l 언어 · q 닫기', 'click/number · l lang · q close'), curses.A_DIM)
         scr.refresh()
+        if art:
+            kitty_show(*art)
+        else:
+            kitty_hide()
 
         key = scr.getch()
         pick = None
@@ -191,6 +326,7 @@ def main(scr):
                 continue
             pick = next((t for by, x0, x1, t in buttons if my == by and x0 <= mx < x1), None)
         if pick:
+            kitty_hide(free=True)
             curses.endwin()
             subprocess.run([sys.executable, os.path.join(BIN, pick + '.py')])
             scr.clear()
@@ -231,4 +367,8 @@ if __name__ == '__main__':
     else:
         locale.setlocale(locale.LC_ALL, '')
         os.environ.setdefault('ESCDELAY', '25')
-        curses.wrapper(main)
+        KITTY = kitty_ok()
+        try:
+            curses.wrapper(main)
+        finally:
+            kitty_hide(free=True)
