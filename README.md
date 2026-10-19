@@ -10,7 +10,7 @@
 | `pane-tools` | `/mods` 를 입력하면(세션이 작업 중이어도 바로) 허브가 뜬다. 위에는 세션의 컨텍스트·비용·사용 한도 게이지와 동료 포켓몬, 아래에는 모드 버튼 |
 | ├ `memo` | 세션에 보낼 메모장. [send] 하면 그 세션이 작업 중이면 끝난 뒤 들어간다. 세션마다 메모가 따로 |
 | ├ `tetris` | 테트리스. `c` 로 블럭 1개 보관. 패널이 22줄보다 낮으면 판을 반높이(12줄)로 그린다 |
-| └ `pokemon` | 쓴 토큰만큼 포켓몬을 발견·포획·진화시켜 1~9세대 도감을 채운다(비공식 팬메이드 — 아래 참고). 가방에 있는 종은 야생에 다시 안 나오고(진화시키면 다시 나옴), 잡을 때마다 몬스터볼 +1 |
+| └ `pokemon` | 쓴 토큰만큼 포켓몬을 발견·포획·진화시켜 1~9세대 도감을 채운다(비공식 팬메이드 — 아래 참고). 가방에 있는 종은 야생에 다시 안 나오고(진화시키면 다시 나옴), 잡을 때마다 몬스터볼 +1. 허브에 동료 그림(도트)을 3줄 크기로 띄우고(Kitty 그래픽이 되는 터미널 — cmux·Ghostty·kitty — 은 원본 그대로, 아니면 `▀▄` 칸으로), 포켓몬 모드의 `c` 로 컬러/회색을 PC마다 고른다 |
 | `long-run-watch` | 오래 걸리는 Bash 명령에 예상 시간·초과 경고·끝남 알림 |
 
 <p><img src="docs/images/pokemon-caught.png" alt="포켓몬" width="48%"> <img src="docs/images/tetris-en.png" alt="테트리스" width="36%"></p>
@@ -61,7 +61,7 @@ bash ~/.claude/mods/install.sh --pokemon-backup    # (선택) 매일 17:59 포�
 고친 것은 `git pull` / `git push` 로 PC 끼리 맞춘다. 다른 사람은 fork 나 Pull Request 로 제안할 수 있다.
 
 ## 기록은 어디에 (저장소에 안 들어감)
-`~/.claude/pane-tools/` — `settings.json`(한/영), `pokemon.json`(포켓몬 진행), `pokedex.json`(PokeAPI 에서 받은 도감), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).
+`~/.claude/pane-tools/` — `settings.json`(한/영·동료 그림 컬러/회색), `pokemon.json`(포켓몬 진행), `pokedex.json`(PokeAPI 에서 받은 도감), `sprites/`(동료 그림 — 필요할 때 한 장씩 받음), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).
 
 ## 포켓몬 — 비공식 팬메이드
 - 이 프로젝트는 **비공식 팬메이드**이며 Nintendo · Creatures · GAME FREAK · The Pokémon Company 와 관계가 없고, 이들의 승인이나 후원을 받지 않았습니다. 포켓몬과 각 포켓몬 이름은 해당 권리자의 상표입니다. 비영리 목적으로만 만들었습니다.
