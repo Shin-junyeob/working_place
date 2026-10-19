@@ -20,8 +20,8 @@
     },
     "followPane": {
       "type": "string",
-      "title": "따라갈 tmux 패널 · Follow a tmux pane",
-      "description": "허브·메모가 이 tmux 패널에 열린 Claude 세션을 따라간다(예: dev:0.0 의 claude agents). 비우면 /mods 를 입력한 세션. Empty = the session that ran /mods.",
+      "title": "따라갈 패널 · Follow a pane",
+      "description": "허브·메모가 이 패널에 열린 Claude 세션을 따라간다 — tmux 는 dev:0.0, cmux 는 cmux:0(이 워크스페이스의 0번 패널) 처럼. 비우면 /mods 를 입력한 세션. Empty = the session that ran /mods.",
       "default": ""
     },
     "command": {

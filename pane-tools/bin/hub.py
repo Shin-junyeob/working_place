@@ -219,7 +219,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--selftest', action='store_true')
     ap.add_argument('--session', help='따라갈 세션 id(고정)')
-    ap.add_argument('--follow-pane', help='제목(세션 이름)을 따라갈 tmux 패널, 예: dev:0.0')
+    ap.add_argument('--follow-pane', help='제목(세션 이름)을 따라갈 패널 — tmux 는 dev:0.0, cmux 는 cmux:0(이 워크스페이스의 0번 패널)')
     a = ap.parse_args()
     if a.session:  # 자식 도구(memo 등)도 같은 세션을 쓰게 환경변수로 넘긴다
         os.environ['PANE_TOOLS_SESSION'] = a.session
