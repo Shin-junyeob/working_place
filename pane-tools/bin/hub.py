@@ -13,6 +13,7 @@ import fcntl
 import importlib
 import json
 import locale
+import math
 import os
 import re
 import select
@@ -28,7 +29,7 @@ BIN = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BIN)
 import memo  # noqa: E402 — 세션 따라가기·한글 폭 계산을 같이 쓴다
 import _lang  # noqa: E402
-import _pokedata  # noqa: E402 — 동료 그림(Kitty 용 PNG · ▀▄ 용 256색)
+import _pokedata  # noqa: E402 — 동료 그림(Kitty 용 PNG · Sixel · ▀▄ 용 256색)
 from _lang import L, toggle  # noqa: E402
 try:
     import pokemon  # noqa: E402 — 메인 화면에 동료 포켓몬을 띄운다
@@ -140,6 +141,50 @@ def kitty_hide(free=False):
     _placed[0] = None
 
 
+SIXEL = False  # 터미널이 Sixel 이미지를 받으면 True — __main__ 이 sixel_ok() 로 정한다
+_six = [None]  # 화면에 그려 둔 Sixel 그림(key). 같은 그림은 다시 보내지 않는다 — 1초마다 보내면 깜빡인다
+
+
+def sixel_ok():
+    """장치 속성(DA1) 응답에 4(Sixel)가 있나. tmux 안이면 tmux 가 대신 답한다 — terminal-features 에 sixel 이 있어야 4.
+    8칸×3줄 글자 그림으론 모양이 안 나와서(2026-10-20) Kitty 가 안 되는 터미널은 이걸로 진짜 픽셀을 그린다."""
+    if not sys.stdin.isatty():
+        return False
+    fd, got = sys.stdin.fileno(), b''
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        os.write(sys.stdout.fileno(), b'\x1b[c')
+        end = time.time() + 1
+        while time.time() < end and not re.search(rb'\x1b\[\?[\d;]*c', got):
+            if select.select([fd], [], [], 0.05)[0]:
+                got += os.read(fd, 1024)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    m = re.search(rb'\x1b\[\?([\d;]*)c', got)
+    return bool(m) and b'4' in m.group(1).split(b';')
+
+
+def cell_px():
+    """글자 칸 하나의 픽셀 크기(가로, 세로) — 터미널에 묻고, 모르면 10×20."""
+    try:
+        r, c, xp, yp = struct.unpack('HHHH', fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b'\0' * 8))
+        if xp and yp:
+            return xp / c, yp / r
+    except OSError:
+        pass
+    return 10, 20
+
+
+def sixel_show(y, x, key, data):
+    """(y, x) 칸에 Sixel 그림을 놓는다 — 이미 같은 그림이 놓여 있으면 그대로 둔다."""
+    if _six[0] == key:
+        return
+    sys.stdout.write(f'\x1b7\x1b[{y + 1};{x + 1}H{data}\x1b8')
+    sys.stdout.flush()
+    _six[0] = key
+
+
 def level_attr(frac):
     return curses.color_pair(3 if frac >= 0.8 else 2 if frac >= 0.5 else 1)
 
@@ -211,7 +256,7 @@ def main(scr):
                 os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
             my_stamp = m  # 재시작 못 하는 버전이면 지금 코드로 계속 — 파일이 다시 바뀌면 그때 본다
         name, sid, busy, note = memo.current_target()
-        art = None
+        art = art_six = None
 
         h, w = scr.getmaxyx()
         scr.erase()
@@ -268,12 +313,17 @@ def main(scr):
             gray = _lang.get('sprite') == 'gray'
             # 동료 그림: Kitty 그래픽이 되면 원본 도트를 3줄에, 아니면 ▀▄ 반높이 칸으로
             png = _pokedata.sprite_png(n, gray) if n and KITTY else None
-            grid = _pokedata.sprite(n) if n and not KITTY and curses.COLORS >= 256 else None
-            if png or grid:  # 왼쪽에 동료 그림, 오른쪽엔 ' · ' 로 나눈 짧은 줄들
+            cw_, ch_ = cell_px()
+            six = _pokedata.sprite_sixel(n, gray, int(3 * ch_)) if n and SIXEL else None
+            grid = _pokedata.sprite(n) if n and not (KITTY or SIXEL) and curses.COLORS >= 256 else None
+            if png or six or grid:  # 왼쪽에 동료 그림, 오른쪽엔 ' · ' 로 나눈 짧은 줄들
                 top = y
                 if png:
                     cols, used = kitty_cols(png[1], png[2], 3), 3
                     art = (y, 1, n * 2 + gray, png[0], cols, used)
+                elif six:
+                    cols, used = math.ceil(six[1] / cw_), 3
+                    art_six = (y, 1, (n, gray, six[2], y), six[0])
                 else:
                     cols, used = len(grid[0]), (len(grid) + 1) // 2
                     draw_sprite(scr, y, 1, grid, gray)
@@ -309,7 +359,12 @@ def main(scr):
         for by, x0, x1, btn in (close, lang_btn):
             put(by, x0, btn, curses.A_BOLD | curses.A_REVERSE)
         put(h - 1, lang_btn[2] + 2, L('클릭·숫자키 · l 언어 · q 닫기', 'click/number · l lang · q close'), curses.A_DIM)
+        if _six[0] is not None and (art_six is None or _six[0] != art_six[2]):
+            scr.clear()  # 전 그림을 지운다 — 투명 배경이라 새 그림만 덮어쓰면 옛 점이 남는다
+            _six[0] = None
         scr.refresh()
+        if art_six:
+            sixel_show(*art_six)
         if art:
             kitty_show(*art)
         else:
@@ -319,6 +374,8 @@ def main(scr):
         pick = None
         if key in (ord('q'), 27):
             break
+        if key == curses.KEY_RESIZE:
+            _six[0] = None
         if key == ord('l'):
             toggle()
             continue
@@ -342,12 +399,17 @@ def main(scr):
             curses.endwin()
             subprocess.run([sys.executable, os.path.join(BIN, pick + '.py')])
             scr.clear()
+            _six[0] = None  # 도구가 화면을 덮었으니 그림을 다시 보낸다
             curses.mousemask(curses.ALL_MOUSE_EVENTS)
 
 
 def selftest():
     import tempfile
     d = tempfile.mkdtemp()
+    # Sixel: 2×1 그림(검정·투명)을 6픽셀 높이로 → 6×6, 칠한 점만 팔레트에, 투명 배경 머리말
+    six, sw, sh = _pokedata.encode_sixel([[(0, 0, 0, 255), (0, 0, 0, 0)]], 6)
+    assert (sw, sh) == (12, 6) and six.startswith('\x1bP0;1;0q"1;1;12;6') and six.endswith('\x1b\\')
+    assert six.count('#0;2;') == 1 and '#1' not in six
     for f in ('memo.py', 'tetris.py', 'hub.py', '_lib.py', 'notes.txt'):
         open(os.path.join(d, f), 'w').close()
     assert tools(d) == ['memo', 'tetris']
@@ -380,6 +442,7 @@ if __name__ == '__main__':
         locale.setlocale(locale.LC_ALL, '')
         os.environ.setdefault('ESCDELAY', '25')
         KITTY = kitty_ok()
+        SIXEL = not KITTY and sixel_ok()
         try:
             curses.wrapper(main)
         finally:

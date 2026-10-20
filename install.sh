@@ -65,6 +65,7 @@ if [ $LAYOUT = 1 ]; then
   command -v tmux >/dev/null || warn "tmux 없음 — $hint"
   touch "$HOME/.tmux.conf"
   grep -q '^set -g mouse on' "$HOME/.tmux.conf" && ok "tmux 마우스 켜짐" || { echo 'set -g mouse on' >> "$HOME/.tmux.conf"; ok "~/.tmux.conf 에 마우스 추가"; }
+  grep -q 'sixel' "$HOME/.tmux.conf" && ok "tmux Sixel 통과 켜짐" || { echo "set -as terminal-features ',xterm*:sixel'  # 허브의 동료 그림(Sixel)을 통과시킨다" >> "$HOME/.tmux.conf"; ok "~/.tmux.conf 에 Sixel 통과 추가(tmux 에 다시 붙으면 적용)"; }
   if [ -f "$HOME/dev-layout.sh" ] && ! cmp -s "$HOME/dev-layout.sh" "$MODS/extras/dev-layout.sh"; then
     cp "$HOME/dev-layout.sh" "$HOME/dev-layout.sh.bak-$STAMP"; warn "기존 ~/dev-layout.sh 는 .bak-$STAMP 로 남김"
   fi
