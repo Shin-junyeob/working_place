@@ -271,6 +271,7 @@ def main(scr):
     curses.curs_set(0)
     scr.keypad(True)
     scr.timeout(1000)
+    memo.focus_reporting(True)  # 이 패널에 들어오면 영문 자판, 나가면 원래 자판(macOS + macism)
     curses.mousemask(curses.ALL_MOUSE_EVENTS)
     curses.mouseinterval(0)
     curses.start_color()
@@ -415,7 +416,7 @@ def main(scr):
         else:
             kitty_hide()
 
-        key = scr.getch()
+        key = memo.getkey(scr, 1000)  # 한글 자판이어도 단축키가 먹게 · 포커스 신호로 자판 전환
         pick = None
         if key in (ord('q'), 27):
             break
@@ -444,8 +445,13 @@ def main(scr):
         if pick:
             sixel_hide()
             kitty_hide(free=True)
+            memo.focus_reporting(False)  # 도구가 자기 것을 켠다 — 메모장은 안 켜니 신호가 글자로 들어가지 않게
+            if pick == 'memo':
+                memo.on_focus(False)  # 메모장은 한글을 쓰니 원래 자판으로
             curses.endwin()
             subprocess.run([sys.executable, os.path.join(BIN, pick + '.py')])
+            memo.focus_reporting(True)
+            memo.on_focus(True)  # 아직 이 패널에 있다 — 다시 영문 자판(이미 바꿔 뒀으면 그대로)
             scr.clear()
             sixel_touch()  # 도구가 화면을 덮었으니 그림을 다시 놓는다
             curses.mousemask(curses.ALL_MOUSE_EVENTS)
@@ -498,3 +504,5 @@ if __name__ == '__main__':
         finally:
             sixel_hide()
             kitty_hide(free=True)
+            memo.focus_reporting(False)
+            memo.on_focus(False)  # 허브를 닫으면 원래 자판으로
