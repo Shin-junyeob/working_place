@@ -13,6 +13,7 @@ import json
 import locale
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -259,6 +260,73 @@ def current_target(env=os.environ):
     return out
 
 
+# 두벌식 자판 자리 → 영문 키. 한글 자판인 채로 l·s·d 를 누르면 ㅣ·ㄴ·ㅇ 가 들어와 단축키가 안 먹었다.
+HANGUL_KEYS = dict(zip('ㅂㅈㄷㄱㅅㅛㅕㅑㅐㅔㅁㄴㅇㄹㅎㅗㅓㅏㅣㅋㅌㅊㅍㅠㅜㅡㅃㅉㄸㄲㅆㅒㅖ',
+                       'qwertyuiopasdfghjklzxcvbnmQWERTOP'))
+
+
+# 한글 자판에선 자모 하나가 입력기 안에서 '조합 중'으로 머물다 다음 키를 눌러야 프로그램에 온다(ㄴ → ㄴㄴ 해야 선택,
+# 2026-10-20 실측) — 프로그램 쪽에서 고칠 수 없다. 그래서 macOS 에 macism 이 있으면, 단축키 화면 패널에 포커스가
+# 들어올 때 영문 자판으로 바꾸고 나갈 때 들어오기 전 자판으로 되돌린다(cmux 는 패널마다 ESC[I / ESC[O 를 보낸다 — 확인함).
+# 들어오기 전 자판은 파일에 둬서 허브와 허브가 띄운 모드가 같이 쓴다. macism 이 없으면(다른 PC) 아무것도 안 한다.
+ENGLISH = 'com.apple.keylayout.ABC'
+SAVED = f'{ROOT}/input-source.saved'
+MACISM = shutil.which('macism') if sys.platform == 'darwin' else None
+
+
+def focus_reporting(on):
+    """터미널의 포커스 들어옴/나감 신호를 켜고 끈다 — 자판 전환을 쓸 수 있을 때만."""
+    if MACISM:
+        sys.stdout.write('\x1b[?1004h' if on else '\x1b[?1004l')
+        sys.stdout.flush()
+
+
+def on_focus(inside):
+    """패널에 들어오면 영문 자판으로(이미 영문이면 그대로), 나가면 들어오기 전 자판으로 되돌린다."""
+    if not MACISM:
+        return
+    try:
+        if inside and not os.path.exists(SAVED):
+            cur = subprocess.run([MACISM], capture_output=True, text=True, timeout=2).stdout.strip()
+            if cur and cur != ENGLISH:
+                with open(SAVED, 'w') as f:
+                    f.write(cur)
+                subprocess.run([MACISM, ENGLISH], capture_output=True, timeout=2)
+        elif not inside and os.path.exists(SAVED):
+            with open(SAVED) as f:
+                prev = f.read().strip()
+            os.remove(SAVED)
+            if prev:
+                subprocess.run([MACISM, prev], capture_output=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def getkey(scr, wait=-1):
+    """getch 처럼 키 번호(시간 초과면 -1)를 돌려주되, 한글 자판으로 친 자모는 같은 자리의 영문 키로 바꾸고,
+    포커스 신호(ESC[I / ESC[O)는 자판을 바꾼 뒤 -1 로 삼킨다. wait 는 이 화면이 scr.timeout 에 준 값 —
+    신호 뒷부분을 짧게 기다린 뒤 되돌린다. 단축키 화면(허브·포켓몬·테트리스)용 — 메모장 편집엔 쓰지 않는다."""
+    try:
+        k = scr.get_wch()
+    except curses.error:
+        return -1
+    if k == '\x1b':  # Esc 키이거나 포커스 신호의 시작
+        scr.timeout(30)
+        try:
+            seq = scr.get_wch() + scr.get_wch()
+        except (curses.error, TypeError):
+            seq = ''
+        scr.timeout(wait)
+        if seq in ('[I', '[O'):
+            on_focus(seq == '[I')
+            return -1
+        return 27
+    if isinstance(k, str):
+        k = HANGUL_KEYS.get(k, k)
+        return ord(k) if len(k) == 1 else -1
+    return k
+
+
 def put(win, y, x, text, attr=0):
     h, w = win.getmaxyx()
     if not 0 <= y < h or x >= w:
@@ -441,6 +509,32 @@ def selftest():
     assert cmux_title('2', fake_cmux) == 'zsh'
     assert cmux_title('5', fake_cmux) is None  # 없는 패널
     assert cmux_title('0', no_cmux) is None    # cmux 가 없거나 안 떠 있음
+    # 한글 자판 단축키: ㅣ→l, ㄲ(Shift+r)→R, 영문·특수 키는 그대로, 시간 초과는 -1
+    class Fake:
+        def __init__(self, k): self.k = k
+        def get_wch(self):
+            if self.k is None:
+                raise curses.error
+            return self.k
+    assert [getkey(Fake(k)) for k in ('ㅣ', 'ㄴ', 'ㄲ', 'l', ' ', curses.KEY_UP, None)] == \
+        [ord('l'), ord('s'), ord('R'), ord('l'), 32, curses.KEY_UP, -1]
+
+    # Esc 와 포커스 신호: 차례로 돌려주는 가짜 화면
+    class Seq:
+        def __init__(self, keys): self.keys = list(keys)
+        def timeout(self, ms): pass
+        def get_wch(self):
+            if not self.keys:
+                raise curses.error
+            return self.keys.pop(0)
+    seen = []
+    real, globals()['on_focus'] = on_focus, seen.append
+    try:
+        assert getkey(Seq('\x1b')) == 27  # Esc 혼자
+        assert getkey(Seq('\x1b[I')) == -1 and getkey(Seq('\x1b[O')) == -1 and seen == [True, False]
+    finally:
+        globals()['on_focus'] = real
+    assert len(HANGUL_KEYS) == 33 and HANGUL_KEYS['ㅔ'] == 'p' and HANGUL_KEYS['ㅖ'] == 'P'
     print('memo selftest ok')
 
 
