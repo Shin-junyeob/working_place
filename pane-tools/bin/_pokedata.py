@@ -164,6 +164,34 @@ def crop(px, gray=False):
     return [[g(c) if gray else c for c in r[x0:x1]] for r in px[y0:y1]]
 
 
+def encode_sixel(px, height):
+    """RGBA 행렬 → Sixel(높이 height 픽셀로 늘이거나 줄여서, 칠하지 않은 점은 투명). (문자열, 가로, 세로).
+    글자 칸으로는 8칸×3줄에 모양이 안 나와서(2026-10-20 비교) 진짜 픽셀로 그린다 — Windows Terminal 1.22+·WezTerm·foot 등.
+    회색 그림이면 32단계, 컬러면 6×6×6 색으로 줄인다."""
+    s = height / len(px)
+    w = max(1, round(len(px[0]) * s))
+    img = [[px[min(len(px) - 1, int(y / s))][min(len(px[0]) - 1, int(x / s))] for x in range(w)] for y in range(height)]
+    gray = all(c[0] == c[1] == c[2] for row in px for c in row if c[3] > 127)
+    key = (lambda c: (c[0] * 31 // 255,) * 3) if gray else (lambda c: tuple(v * 5 // 255 for v in c[:3]))  # noqa: E731
+    top = 31 if gray else 5
+    pal, idx = {}, [[None] * w for _ in range(height)]
+    for y, row in enumerate(img):
+        for x, c in enumerate(row):
+            if c[3] > 127:
+                idx[y][x] = pal.setdefault(key(c), len(pal))
+    out = ['\x1bP0;1;0q"1;1;%d;%d' % (w, height)]
+    out += ['#%d;2;%d;%d;%d' % ((i,) + tuple(round(v * 100 / top) for v in k)) for k, i in pal.items()]
+    for band in range(0, height, 6):
+        for i in pal.values():
+            row = ''.join(chr(63 + sum(1 << k for k in range(6) if band + k < height and idx[band + k][x] == i))
+                          for x in range(w))
+            if row.strip('?'):
+                out.append('#%d%s$' % (i, row))
+        out.append('-')
+    out.append('\x1b\\')
+    return ''.join(out), w, height
+
+
 _sprites, _fetching = {}, set()
 
 
@@ -200,6 +228,19 @@ def sprite_png(n, gray=False):
         with open(path, 'rb') as f:
             px = crop(decode_png(f.read()), gray)
         _sprites[key] = (encode_png(px), len(px[0]), len(px)) if px else None
+    return _sprites[key]
+
+
+def sprite_sixel(n, gray, height):
+    """Sixel 용 (문자열, 가로 픽셀, 세로 픽셀) — 여백을 잘라 height 픽셀 높이로. 아직 그림을 안 받았으면 None."""
+    key = ('sixel', n, gray, height)
+    if key not in _sprites:
+        path = _local(n)
+        if not path:
+            return None
+        with open(path, 'rb') as f:
+            px = crop(decode_png(f.read()), gray)
+        _sprites[key] = encode_sixel(px, height) if px else None
     return _sprites[key]
 
 
