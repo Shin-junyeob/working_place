@@ -142,7 +142,7 @@ def kitty_hide(free=False):
 
 
 SIXEL = False  # 터미널이 Sixel 이미지를 받으면 True — __main__ 이 sixel_ok() 로 정한다
-_six = [None]  # 화면에 그려 둔 Sixel 그림(key). 같은 그림은 다시 보내지 않는다 — 1초마다 보내면 깜빡인다
+_six = {'key': None, 't': 0.0, 'box': None}  # 그려 둔 Sixel 그림 · 보낸 시각 · 바깥 터미널 기준 자리(줄, 칸, 칸 수, 줄 수)
 
 
 def sixel_ok():
@@ -176,13 +176,58 @@ def cell_px():
     return 10, 20
 
 
-def sixel_show(y, x, key, data):
-    """(y, x) 칸에 Sixel 그림을 놓는다 — 이미 같은 그림이 놓여 있으면 그대로 둔다."""
-    if _six[0] == key:
-        return
-    sys.stdout.write(f'\x1b7\x1b[{y + 1};{x + 1}H{data}\x1b8')
+def tmux_passthrough():
+    """tmux 안이면 이 패널만 passthrough 를 켠다 — tmux 3.4 는 바깥 터미널의 칸 픽셀 크기를 몰라(0×0)
+    Sixel 을 'SIXEL IMAGE' 글자로 대신 그리므로, 그림은 tmux 를 거치지 않고 바깥 터미널로 바로 보낸다(2026-10-20)."""
+    pane = os.environ.get('TMUX_PANE')
+    if pane:
+        subprocess.run(['tmux', 'set', '-p', '-t', pane, 'allow-passthrough', 'on'], capture_output=True)
+
+
+def _outer(y, x):
+    """패널 안 (y, x) → 바깥 터미널 기준 (y, x). tmux 밖이면 그대로."""
+    pane = os.environ.get('TMUX_PANE')
+    if pane:  # 패널 위치(+ 위쪽 상태줄)만큼 옮긴다
+        info = subprocess.run(['tmux', 'display', '-p', '-t', pane, '#{pane_top} #{pane_left} #{status} #{status-position}'],
+                              capture_output=True, text=True).stdout.split()
+        if len(info) >= 2:
+            y += int(info[0]) + (1 if info[2:] == ['on', 'top'] else 0)
+            x += int(info[1])
+    return y, x
+
+
+def _send(seq):
+    """바깥 터미널로 — tmux 안이면 passthrough 로 감싸 tmux 를 건너뛴다."""
+    if os.environ.get('TMUX_PANE'):
+        seq = '\x1bPtmux;' + seq.replace('\x1b', '\x1b\x1b') + '\x1b\\'
+    sys.stdout.write(seq)
     sys.stdout.flush()
-    _six[0] = key
+
+
+def sixel_show(y, x, key, data, cols, rows):
+    """(y, x) 칸에 Sixel 그림을 놓는다. 같은 그림이면 30초에 한 번만 다시 놓는다(tmux 가 화면을 다시 그려 지웠을 때 대비)
+    — 자주 보내면 깜빡인다. 키를 누르면 바로 다시 놓는다(sixel_touch)."""
+    if _six['key'] == key and time.time() - _six['t'] < 30:
+        return
+    oy, ox = _outer(y, x)
+    if _six['box'] and _six['box'][:2] != (oy, ox):
+        sixel_hide()
+    _send(f'\x1b7\x1b[{oy + 1};{ox + 1}H{data}\x1b8')
+    _six.update(key=key, t=time.time(), box=(oy, ox, cols, rows))
+
+
+def sixel_hide():
+    """놓아 둔 그림 자리를 빈칸으로 덮어 지운다 — tmux 는 이 그림을 모르니 허브가 직접 지워야 한다."""
+    box = _six['box']
+    if box:
+        oy, ox, cols, rows = box
+        _send('\x1b7' + ''.join(f'\x1b[{oy + 1 + r};{ox + 1}H' + ' ' * cols for r in range(rows)) + '\x1b8')
+    _six.update(key=None, box=None)
+
+
+def sixel_touch():
+    """다음 화면에서 그림을 다시 놓게 한다 — 키를 눌러 화면이 바뀔 때."""
+    _six['t'] = 0.0
 
 
 def level_attr(frac):
@@ -251,6 +296,7 @@ def main(scr):
             with open(me, encoding='utf-8') as f:
                 restartable = 'os.execv(' in f.read()
             if restartable:
+                sixel_hide()
                 kitty_hide(free=True)
                 curses.endwin()
                 os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
@@ -314,7 +360,7 @@ def main(scr):
             # 동료 그림: Kitty 그래픽이 되면 원본 도트를 3줄에, 아니면 ▀▄ 반높이 칸으로
             png = _pokedata.sprite_png(n, gray) if n and KITTY else None
             cw_, ch_ = cell_px()
-            six = _pokedata.sprite_sixel(n, gray, int(3 * ch_)) if n and SIXEL else None
+            six = _pokedata.sprite_sixel(n, gray, int(1.5 * ch_)) if n and SIXEL else None  # 세로 1.5줄(사용자 요청: 절반)
             grid = _pokedata.sprite(n) if n and not (KITTY or SIXEL) and curses.COLORS >= 256 else None
             if png or six or grid:  # 왼쪽에 동료 그림, 오른쪽엔 ' · ' 로 나눈 짧은 줄들
                 top = y
@@ -322,8 +368,8 @@ def main(scr):
                     cols, used = kitty_cols(png[1], png[2], 3), 3
                     art = (y, 1, n * 2 + gray, png[0], cols, used)
                 elif six:
-                    cols, used = math.ceil(six[1] / cw_), 3
-                    art_six = (y, 1, (n, gray, six[2], y), six[0])
+                    cols, used = math.ceil(six[1] / cw_), 2
+                    art_six = (y, 1, (n, gray, six[2], y), six[0], cols, used)
                 else:
                     cols, used = len(grid[0]), (len(grid) + 1) // 2
                     draw_sprite(scr, y, 1, grid, gray)
@@ -359,9 +405,8 @@ def main(scr):
         for by, x0, x1, btn in (close, lang_btn):
             put(by, x0, btn, curses.A_BOLD | curses.A_REVERSE)
         put(h - 1, lang_btn[2] + 2, L('클릭·숫자키 · l 언어 · q 닫기', 'click/number · l lang · q close'), curses.A_DIM)
-        if _six[0] is not None and (art_six is None or _six[0] != art_six[2]):
-            scr.clear()  # 전 그림을 지운다 — 투명 배경이라 새 그림만 덮어쓰면 옛 점이 남는다
-            _six[0] = None
+        if _six['key'] is not None and (art_six is None or _six['key'] != art_six[2]):
+            sixel_hide()  # 전 그림을 지운다 — 투명 배경이라 새 그림만 덮어쓰면 옛 점이 남는다
         scr.refresh()
         if art_six:
             sixel_show(*art_six)
@@ -374,8 +419,10 @@ def main(scr):
         pick = None
         if key in (ord('q'), 27):
             break
+        if key != -1:
+            sixel_touch()
         if key == curses.KEY_RESIZE:
-            _six[0] = None
+            sixel_hide()
         if key == ord('l'):
             toggle()
             continue
@@ -395,11 +442,12 @@ def main(scr):
                 continue
             pick = next((t for by, x0, x1, t in buttons if my == by and x0 <= mx < x1), None)
         if pick:
+            sixel_hide()
             kitty_hide(free=True)
             curses.endwin()
             subprocess.run([sys.executable, os.path.join(BIN, pick + '.py')])
             scr.clear()
-            _six[0] = None  # 도구가 화면을 덮었으니 그림을 다시 보낸다
+            sixel_touch()  # 도구가 화면을 덮었으니 그림을 다시 놓는다
             curses.mousemask(curses.ALL_MOUSE_EVENTS)
 
 
@@ -443,7 +491,10 @@ if __name__ == '__main__':
         os.environ.setdefault('ESCDELAY', '25')
         KITTY = kitty_ok()
         SIXEL = not KITTY and sixel_ok()
+        if SIXEL:
+            tmux_passthrough()
         try:
             curses.wrapper(main)
         finally:
+            sixel_hide()
             kitty_hide(free=True)
