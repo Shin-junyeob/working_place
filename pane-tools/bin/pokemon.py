@@ -21,7 +21,7 @@ import sys
 import _lang
 import _pokedata
 from _lang import L
-from memo import put  # 한글 2칸 폭을 맞춰 그리는 함수 — 메모장과 같이 쓴다
+from memo import focus_reporting, getkey, put  # 한글 2칸 폭을 맞춰 그리기 · 한글 자판 단축키 — 메모장과 같이 쓴다
 
 ROOT = os.path.expanduser('~/.claude/pane-tools')
 ENCOUNTER_EVERY = 30_000
@@ -363,7 +363,7 @@ def main(scr):
             put(scr, 3, 0, L('q 를 누르면 닫습니다', 'Press q to close'), curses.A_DIM)
             scr.refresh()
             scr.timeout(-1)
-            while scr.getch() not in (ord('q'), 27):
+            while getkey(scr, -1) not in (ord('q'), 27):
                 pass
             return
     while True:
@@ -461,7 +461,7 @@ def main(scr):
                 else L('↑↓ 이동 · Space 동료로', '↑↓ move · Space set partner'), curses.A_DIM)
         scr.refresh()
 
-        key = scr.getch()
+        key = getkey(scr, 2000)
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close',
                ord('s'): 'explore', ord('b'): 'throw', ord('r'): 'run', ord('v'): 'evolve',
                ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite'}.get(key)
@@ -651,4 +651,8 @@ if __name__ == '__main__':
     else:
         locale.setlocale(locale.LC_ALL, '')
         os.environ.setdefault('ESCDELAY', '25')
-        curses.wrapper(main)
+        focus_reporting(True)  # 허브가 바꿔 둔 영문 자판을 이 패널에서 나가고 들어올 때 맞춘다
+        try:
+            curses.wrapper(main)
+        finally:
+            focus_reporting(False)

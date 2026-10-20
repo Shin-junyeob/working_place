@@ -12,7 +12,7 @@ import sys
 import time
 
 from _lang import L
-from memo import put  # 한글 2칸 폭을 맞춰 그리고, 창 끝에서 잘라 준다
+from memo import focus_reporting, getkey, put  # 한글 2칸 폭을 맞춰 그리고 창 끝에서 잘라 준다 · 한글 자판 단축키
 
 W, H = 10, 20
 # 조각: (상자 크기, 칸들 (x, y))
@@ -217,7 +217,7 @@ def main(scr):
 
         wait = 0.5 if (paused or g.over) else max(0.0, fall_at - time.time())
         scr.timeout(int(wait * 1000))
-        key = scr.getch()
+        key = getkey(scr, int(wait * 1000))
         if key in (ord('q'), 27):
             break
         if key == curses.KEY_MOUSE:
@@ -331,7 +331,9 @@ if __name__ == '__main__':
         locale.setlocale(locale.LC_ALL, '')
         os.environ.setdefault('ESCDELAY', '25')
         restore = grow_pane()
+        focus_reporting(True)  # 허브가 바꿔 둔 영문 자판을 이 패널에서 나가고 들어올 때 맞춘다
         try:
             curses.wrapper(main)
         finally:
+            focus_reporting(False)
             restore()
