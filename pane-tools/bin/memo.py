@@ -21,6 +21,16 @@ import unicodedata
 
 from _lang import L
 
+# cmux 는 TERMINFO 로 자기 터미널 설명을 주는데, 그 xterm-256color 엔 rep(같은 글자 N번 반복)가 있다. macOS 기본
+# ncurses(6.0, 2015 — Homebrew Python 도 이걸 쓴다)는 rep 로 ░ 같은 여러 바이트 글자를 보낼 때 마지막 바이트만 보내서
+# 게이지가 U+FFFD 로 깨졌다(2026-10-20, script 로 보낸 바이트 확인: E2 96 91 대신 91 + ESC[6b). 시스템 설명엔 rep 가
+# 없으니 macOS 에선 그 TERM 의 시스템 설명이 있으면 그걸 쓴다. curses 를 켜기 전(이 모듈을 불러올 때) 정해야 하고,
+# 허브·테트리스·포켓몬이 모두 이 모듈을 먼저 불러오며 허브가 띄우는 도구도 이 환경을 물려받는다.
+if sys.platform == 'darwin' and os.environ.get('TERMINFO'):
+    _term = os.environ.get('TERM', '')
+    if _term and os.path.exists(f'/usr/share/terminfo/{ord(_term[0]):x}/{_term}'):
+        del os.environ['TERMINFO']
+
 ROOT = os.path.expanduser('~/.claude/pane-tools')
 WATCH = 'dev:0.0'
 CLAUDE = os.path.expanduser('~/.npm-global/bin/claude')
