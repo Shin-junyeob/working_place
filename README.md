@@ -44,10 +44,10 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 ![Pokémon screen with showcased medals and badges](docs/images/pokemon.png)
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
-Poké Ball (`b`), Great Ball (`u`, ×1.5) and Ultra Ball (`h`, ×2). Legendaries and mythicals only fall to Ultra Balls.
+Poké Ball (`b`), Great Ball (`u`, ×1.5), Ultra Ball (`h`, ×2) and Master Ball (`m`, always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
 A species already in your bag shows up rarely and turns into Poké Balls. Trade 100 Poké Balls for an Ultra Ball in the bag (`x`).
 
-**Rewards from work** — one Great Ball on a day when three or more different sessions finish with a PR merge or a deploy (read from the `claude agents` timelines). Every third Great Ball brings an **egg** (up to three): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64.
+**Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an **egg** (up to three): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
 
 **Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. It never evolves into a form already in your bag.
 
@@ -73,7 +73,7 @@ A challenge costs two explores and plays a fully automatic battle line by line: 
 
 ![A gym battle](docs/images/battle.png)
 
-Clearing all eight gyms of a generation gives the region conquest medal, an Ultra Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and two Ultra Balls.
+Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation.
 
 Keys — `s` explore · `b`/`u`/`h` throw · `r` run · `v` evolve · `d` Pokédex · `e` bag (`Space` partner, `t` team, `x` trade) · `a` medals · `g` gyms · `c` color/gray partner art · `q` close.
 
