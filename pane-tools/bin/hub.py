@@ -301,8 +301,7 @@ def main(scr):
     curses.mouseinterval(0)
     curses.start_color()
     curses.use_default_colors()
-    for i, c in ((1, curses.COLOR_GREEN), (2, curses.COLOR_YELLOW), (3, curses.COLOR_RED)):
-        curses.init_pair(i, c, -1)
+    feed.init_colors()  # 1 녹 · 2 노 · 3 빨 · needs 색(claude agents 와 같은 220)
     threading.Thread(target=memo.poll_sessions, daemon=True).start()
 
     global pokemon
@@ -441,7 +440,8 @@ def main(scr):
         put(h - 1, setup[2] + 2, L('s 설정 · l 언어 · q 닫기', 's setup · l lang · q close'), curses.A_DIM)
         # 세션 상태(claude agents 와 같은 색) — 오른쪽 열, 왼쪽 글이 끝난 칸 뒤에만, 자리가 모자라면 이름을 자른다.
         # 깨어 있는 세션만: memo 가 뒤에서 15초마다 받는 `claude agents --json` 목록에 있는 이름(잠든 세션은 거기 없다)
-        rows = [r for r in feed.jobs() if r[0] in memo.sessions][:max(0, h - 2 - list_top)]
+        busy = {n for n, ss in memo.sessions.items() if any(x.get('status') == 'busy' for x in ss)}
+        rows = [r for r in feed.jobs(busy=busy) if r[0] in memo.sessions][:max(0, h - 2 - list_top)]
         colw = max((tw(n) for n, _ in rows), default=0)
         for i, (n, st) in enumerate(rows):
             yy = list_top + i

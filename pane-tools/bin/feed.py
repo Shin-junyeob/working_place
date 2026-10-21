@@ -22,9 +22,38 @@ ORDER = {'blocked': 0, 'needs_input': 0, 'failed': 1, 'working': 2, 'done': 3}
 MARK = {'done': '✔', 'blocked': '▲', 'needs_input': '▲', 'failed': '✖'}
 
 
-def jobs(folder=JOBS):
+def last_row(path):
+    """timeline 의 마지막 온전한 줄(끝 4KB 만 읽는다 — 쓰는 도중인 끝 줄은 건너뛴다)."""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 4096))
+            lines = f.read().splitlines()
+    except OSError:
+        return {}
+    for line in reversed(lines):
+        try:
+            return json.loads(line)
+        except ValueError:
+            pass
+    return {}
+
+
+def group(d, last=None, busy=False):
+    """claude agents 와 같은 묶음(그 안의 xo 함수를 따름). 데몬은 답을 받아 다시 일할 때 state.json 을 working 으로
+    바꾸지 않으므로(2026-10-21 KNK Pivot: blocked → 사용자 답 → done 사이 내내 blocked), 마지막 줄이 사용자 말
+    (text 가 빈 줄)이면 그 답을 처리하는 중 = working 으로 본다. busy 는 claude agents --json 의 실시간 상태."""
+    st = d.get('state') or ''
+    if busy or (last and last.get('state') != 'working' and not last.get('text')):
+        return 'working'
+    if st in ('done', 'failed'):
+        return st
+    return 'blocked' if d.get('tempo') == 'blocked' or ORDER.get(st) == 0 else 'working'
+
+
+def jobs(folder=JOBS, busy=()):
     """claude agents 목록의 세션 [(이름, 상태)] — needs → working → done, 묶음 안에선 최근 것 먼저.
-    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다."""
+    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다. busy: 지금 일하는 세션 이름들."""
     out = []
     for j in os.listdir(folder) if os.path.isdir(folder) else []:
         try:
@@ -32,18 +61,30 @@ def jobs(folder=JOBS):
                 d = json.load(f)
         except (OSError, ValueError):
             continue
-        out.append((d.get('updatedAt') or '', d.get('name') or j, d.get('state') or ''))
+        name = d.get('name') or j
+        st = group(d, last_row(os.path.join(folder, j, 'timeline.jsonl')), name in busy)
+        out.append((d.get('updatedAt') or '', name, st))
     out.sort(reverse=True)  # updatedAt 은 ISO 시각이라 글자 순 = 시간 순
     out.sort(key=lambda r: ORDER.get(r[2], 2))  # 안정 정렬 — 묶음 안에선 최근 것 먼저가 유지된다
     return [r[1:] for r in out]
 
 
+NEEDS_PAIR = 9  # claude agents 의 Needs input 색 — 256색 220(#ffd700). 기본 노랑은 Windows Terminal 에서 겨자색이라 달라 보였다
+
+
+def init_colors():
+    """색 짝 1 녹 · 2 노 · 3 빨 · NEEDS_PAIR — 허브와 피드가 같이 쓴다."""
+    for i, c in ((1, curses.COLOR_GREEN), (2, curses.COLOR_YELLOW), (3, curses.COLOR_RED),
+                 (NEEDS_PAIR, 220 if curses.COLORS >= 256 else curses.COLOR_YELLOW)):
+        curses.init_pair(i, c, -1)
+
+
 def job_attr(state):
-    """claude agents 와 같은 색 — completed 녹색, needs 노랑, working 회색 (색 짝 1 녹 · 2 노 · 3 빨)."""
+    """claude agents 와 같은 색 — completed 녹색, needs 220 노랑, working 회색."""
     if state == 'done':
         return curses.color_pair(1)
     if ORDER.get(state) == 0:
-        return curses.color_pair(2) | curses.A_BOLD
+        return curses.color_pair(NEEDS_PAIR)
     return curses.color_pair(3) if state == 'failed' else curses.A_DIM
 
 
@@ -124,11 +165,21 @@ def main(scr):
     scr.keypad(True)
     curses.start_color()
     curses.use_default_colors()
-    for i, c in ((1, curses.COLOR_GREEN), (2, curses.COLOR_YELLOW), (3, curses.COLOR_RED)):
-        curses.init_pair(i, c, -1)
+    init_colors()
+    scr.timeout(2000)  # getkey 는 이 값을 따른다 — 빠뜨리면 키를 누를 때까지 다시 그리지 않는다(2026-10-21 피드가 멈춰 있었다)
     focus_reporting(True)
     top = 0
+    me = os.path.abspath(__file__)
+    start = seen = os.path.getmtime(me)
+    seen_at = time.time()
     while True:
+        # 패널에 오래 띄워 두니, 이 파일이 바뀌면(자동 받기 등) 5초 동안 그대로인 것을 확인하고 새 코드로 다시 뜬다
+        m = os.path.getmtime(me)
+        if m != seen:
+            seen, seen_at = m, time.time()
+        elif m != start and time.time() - seen_at >= 5:
+            curses.endwin()
+            os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
         h, w = scr.getmaxyx()
         items = feed()
         top = max(0, min(top, len(items) - (h - 2)))
@@ -179,6 +230,12 @@ def selftest():
         f.write(''.join(json.dumps(r) + '\n' for r in rows[3:]) + '{"at": "9", "sta')
     assert [e[0] for e in feed(d)] == ['8', '6', '5', '3', '1'], feed(d)
     assert jobs(d) == [('B', 'working'), ('A', 'done')]
+    # 묶음: 답을 받아 일하는 중이면 state.json 이 blocked 여도 working · busy 면 working · tempo blocked 면 needs
+    assert group({'state': 'blocked', 'tempo': 'blocked'}, rows[3]) == 'working'
+    assert group({'state': 'blocked', 'tempo': 'blocked'}, rows[4]) == 'blocked'
+    assert group({'state': 'done', 'tempo': 'idle'}, rows[5], busy=True) == 'working'
+    assert group({'state': 'done', 'tempo': 'idle'}, rows[5]) == 'done'
+    assert last_row(tl)['at'] == '8'  # 쓰는 도중인 끝 줄('{"at": "9", "sta')은 건너뛴다
     t = datetime(2026, 10, 21, 2, 0).astimezone()  # 이 PC 시간대 기준으로 만든 시각
     iso = t.astimezone().isoformat()
     assert when(iso, t.date()) == '02:00' and when(iso, datetime(2030, 1, 1).date()) == '10-21 02:00'
