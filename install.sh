@@ -2,7 +2,7 @@
 # 저장소를 clone 해서 쓰는 사람용(고치고 push 하는 개발용). 그냥 쓰기만 할 거면 README 의 마켓플레이스 설치가 더 쉽다.
 #   bash install.sh                    기본: 세션마다 이 폴더의 mod 를 자동으로 불러오게 + 자체 점검
 #                                      (macOS 에 cmux 가 있으면 허브를 cmux 분할 패널에 — 이미 정해 둔 곳이 있으면 그대로)
-#   bash install.sh --tmux-layout      + tmux 마우스 · sett 레이아웃(~/dev-layout.sh, alias sett) · 허브를 dev:0.3 에, dev:0.0 세션을 따라가게
+#   bash install.sh --tmux-layout      + tmux 마우스 · sett 레이아웃(~/dev-layout.sh, alias sett — 2번 활동 피드 · 3번 허브를 바로 띄움) · 허브는 dev:0.3, dev:0.0 세션을 따라가게
 #   bash install.sh --pokemon-backup   + 매일 17:59 포켓몬 기록 백업(cron)
 #   bash install.sh --auto-pull        + 10분마다 GitHub 에서 새 커밋을 받아 온다(cron, 고치던 게 있으면 건너뜀)
 # 리눅스 · WSL · macOS 에서 돈다. 여러 번 돌려도 같은 줄을 두 번 넣지 않는다. 덮어쓰기 전엔 .bak-<시각> 으로 남긴다.

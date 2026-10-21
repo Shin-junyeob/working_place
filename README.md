@@ -57,7 +57,7 @@ Claude Code 프롬프트에서:
 ```bash
 git clone https://github.com/Shin-junyeob/working_place.git ~/.claude/mods
 bash ~/.claude/mods/install.sh                     # 세션마다 이 폴더를 자동으로 불러오게 + 자체 점검
-bash ~/.claude/mods/install.sh --tmux-layout       # (선택) tmux 마우스·sett 레이아웃·허브를 dev:0.3 에
+bash ~/.claude/mods/install.sh --tmux-layout       # (선택) tmux 마우스·sett 레이아웃(0 claude agents · 1 셸 · 2 활동 피드 · 3 허브, 둘 다 바로 뜸)
 bash ~/.claude/mods/install.sh --pokemon-backup    # (선택) 매일 17:59 포켓몬 기록 백업
 bash ~/.claude/mods/install.sh --auto-pull         # (선택) 10분마다 GitHub 에서 새 커밋을 받아 옴
 ```
