@@ -111,6 +111,9 @@ async function openHub($: EngineInterface, o: Opts) {
     'The custom command has no {cmd} placeholder — check pane-tools "command" in /config')
   if (p.slot) {
     const info = await $.process.run(['tmux', 'display', '-p', '-t', p.slot, '#{pane_current_command}\t#{pane_start_command}'])
+    // 물어보는 것 자체가 실패하면 패널이 바쁜 게 아니라 tmux 에 못 닿은 것 — 소켓 파일이 지워지면 이렇다(2026-10-21 실제로 겪음)
+    if (info.exitCode !== 0) return L($, `tmux 패널 ${p.slot} 에 연결할 수 없습니다: ${info.stderr.trim()} — 패널 이름을 확인하거나, 소켓이 사라졌다면 셸에서 pkill -USR1 -o -x tmux 로 되살리세요.`,
+      `Cannot reach tmux pane ${p.slot}: ${info.stderr.trim()} — check the pane name, or if the socket vanished run pkill -USR1 -o -x tmux.`)
     const [cur = '', start = ''] = info.stdout.trim().split('\t')
     if (!canReplace(cur, start, mark)) return L($, `패널 ${p.slot} 에서 ${cur || '다른 프로그램'}이 돌고 있어 열지 않았습니다. 끝낸 뒤 다시 입력해 주세요.`,
       `Pane ${p.slot} is running ${cur || 'another program'}, so the hub was not opened. Try again when it finishes.`)
