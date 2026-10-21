@@ -438,9 +438,10 @@ def main(scr):
         close, lang_btn, setup = layout(['[ close ]', '[ 한/EN ]', L('[ 설정 ]', '[ setup ]')], w, h - 1)
         for by, x0, x1, btn in (close, lang_btn, setup):
             put(by, x0, btn, curses.A_BOLD | curses.A_REVERSE)
-        put(h - 1, setup[2] + 2, L('클릭·숫자키 · s 설정 · l 언어 · q 닫기', 'click/number · s setup · l lang · q close'), curses.A_DIM)
-        # 세션 상태(claude agents 와 같은 색) — 오른쪽 열, 왼쪽 글이 끝난 칸 뒤에만, 자리가 모자라면 이름을 자른다
-        rows = feed.jobs()[:max(0, h - 2 - list_top)]
+        put(h - 1, setup[2] + 2, L('s 설정 · l 언어 · q 닫기', 's setup · l lang · q close'), curses.A_DIM)
+        # 세션 상태(claude agents 와 같은 색) — 오른쪽 열, 왼쪽 글이 끝난 칸 뒤에만, 자리가 모자라면 이름을 자른다.
+        # 깨어 있는 세션만: memo 가 뒤에서 15초마다 받는 `claude agents --json` 목록에 있는 이름(잠든 세션은 거기 없다)
+        rows = [r for r in feed.jobs() if r[0] in memo.sessions][:max(0, h - 2 - list_top)]
         colw = max((tw(n) for n, _ in rows), default=0)
         for i, (n, st) in enumerate(rows):
             yy = list_top + i
