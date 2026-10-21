@@ -135,3 +135,16 @@ test('pokemon 경험치: 컨텍스트가 늘어난 만큼만 쌓고, 줄어든 �
   for (let i = 0; i < 4; i++) await tick()
   expect(JSON.parse(files['/h/.claude/pane-tools/usage/S1.json'] ?? '{}').gained).toBe(4000 + 2000)
 })
+
+test('/mods 는 tmux 에 닿지 못하면 "다른 프로그램" 이 아니라 연결 문제라고 알린다',
+  { options: { launcher: 'tmux', tmuxTarget: 'dev:0.3' } }, async ($, on) => {
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? '/h' : undefined }) as never)
+  on('session.id', () => ({ value: 'S1' }))
+  on('fs.read', () => { throw new Error('없음') })
+  on('process.run', ($, e) => ({ value: e.argv[1] === 'display'
+    ? { exitCode: 1, stdout: '', stderr: 'error connecting to /tmp/tmux-1000/default', isStdoutTruncated: false, isStderrTruncated: false }
+    : { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }) as never)
+  const r = JSON.stringify(await $.command.run({ command: 'mods', args: '' } as never))
+  expect(r).toContain('연결할 수 없습니다')
+  expect(r).toContain('pkill -USR1')
+})
