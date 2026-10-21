@@ -18,12 +18,14 @@ import curses
 import glob
 import json
 import locale
+import math
 import os
 import random
 import re
 import sys
 from datetime import datetime
 
+import _gfx
 import _lang
 import _pokedata
 import feed  # 세션 기록(슈퍼볼 보상) · 금색(이로치)
@@ -412,16 +414,20 @@ def partner_id_of(st):
 
 # ── 화면 ──
 INFO = {}  # 도감 상세(_pokedata.DETAIL) — 상세 화면을 처음 열 때 읽는다
+KITTY = SIXEL = False  # 진짜 그림을 놓을 수 있나 — __main__ 이 curses 를 켜기 전에 _gfx 로 정한다
 
 
 def draw_info(scr, st, n, h, w, gold):
-    """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 이로치 그림)."""
+    """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 이로치 그림).
+    그림은 Sixel·Kitty 가 되면 원본 도트로 — 놓을 그림 (방식, y, x, 키, 데이터, 칸, 줄)을 돌려주고, 화면을 그린 뒤 놓는다."""
     if not INFO:
         put(scr, 1, 1, L('PokeAPI 에서 도감 상세를 받는 중…', 'Downloading Pokédex details from PokeAPI…'), curses.A_DIM)
         scr.refresh()
         try:
             with open(_pokedata.ensure_detail(), encoding='utf-8') as f:
                 INFO.update(json.load(f))
+            scr.move(1, 0)
+            scr.clrtoeol()  # '받는 중…' 글자가 이름 줄에 남지 않게
         except Exception as e:  # 네트워크 오류 등 — 죽지 말고 보여 준다
             put(scr, 2, 1, f'{type(e).__name__}: {e}')
             return
@@ -440,13 +446,30 @@ def draw_info(scr, st, n, h, w, gold):
                 y = 6 + i
         else:
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
-    room = h - 2 - (y + 1)
-    if room >= 4 and curses.COLORS >= 256:
-        grid = _pokedata.sprite(n + (_pokedata.SHINY if sh else 0), room * 2, w - 4)
+    room, sid, gray = h - 2 - (y + 1), n + (_pokedata.SHINY if sh else 0), _lang.get('sprite') == 'gray'
+    loading = lambda: put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM) and None  # noqa: E731
+    if room < 4:
+        return None
+    if SIXEL:  # 원본 도트를 정수 배로 — ▀▄ 칸은 평균·256색이라 흐리고 색이 틀렸다(2026-10-21)
+        cw_, ch_ = _gfx.cell_px()
+        six = _pokedata.sprite_sixel_fit(sid, gray, int((w - 2) * cw_), int(room * ch_))
+        if not six:
+            return loading()
+        cols, rows = math.ceil(six[1] / cw_), math.ceil(six[2] / ch_)
+        return ('six', y + 1, max(1, (w - cols) // 2), (sid, gray, w, room), six[0], cols, rows)
+    if KITTY:
+        png = _pokedata.sprite_png(sid, gray)
+        if not png:
+            return loading()
+        cols = _gfx.kitty_cols(png[1], png[2], room)
+        return ('kitty', y + 1, max(1, (w - cols) // 2), sid * 2 + gray, png[0], cols, room)
+    if curses.COLORS >= 256:
+        grid = _pokedata.sprite(sid, room * 2, w - 4)
         if grid:
-            _pokedata.draw_sprite(scr, y + 1, max(1, (w - len(grid[0])) // 2), grid, _lang.get('sprite') == 'gray')
+            _pokedata.draw_sprite(scr, y + 1, max(1, (w - len(grid[0])) // 2), grid, gray)
         else:
-            put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM)
+            loading()
+    return None
 
 
 def bar(frac, width):
@@ -491,6 +514,7 @@ def main(scr):
             save(st)
             msg = L(f'오늘 여러 세션이 일을 내보냈다! 슈퍼볼 {got}개를 받았다.', f'Sessions shipped work! Got {got} Great Ball(s).')
         h, w = scr.getmaxyx()
+        art = None
         scr.erase()
         put(scr, 0, 0, L(f' 포켓몬 · 누적 {fmt_tok(t)} 토큰 · ', f' Pokémon · {fmt_tok(t)} tokens total · ') + dex_text(st)
             + ' ' * w, curses.A_REVERSE)
@@ -566,7 +590,7 @@ def main(scr):
             x = button(h - 1, x, L('회색 c', 'gray c') if gray else L('컬러 c', 'color c'), 'sprite')
             button(h - 1, x, 'close q', 'close')
         elif view == 'info':
-            draw_info(scr, st, info, h, w, gold)
+            art = draw_info(scr, st, info, h, w, gold)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('←→ 앞뒤 포켓몬', '←→ prev/next'), curses.A_DIM)
         else:
@@ -608,9 +632,19 @@ def main(scr):
                 x = button(h - 1, x, L(f'하이퍼볼 교환 x (몬스터볼 {HYPER_COST})', f'Ultra Ball x ({HYPER_COST} Poké)'), 'exchange')
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation') if view == 'dex'
                 else L('↑↓ 이동 · Space 동료로', '↑↓ move · Space set partner'), curses.A_DIM)
+        if _gfx._six['key'] is not None and (not art or art[0] != 'six' or _gfx._six['key'] != art[3]):
+            _gfx.sixel_hide()  # 전 그림을 지운다 — 투명 배경이라 새 그림만 덮어쓰면 옛 점이 남는다
+        if _gfx._placed[0] is not None and (not art or art[0] != 'kitty'):
+            _gfx.kitty_hide()
         scr.refresh()
+        if art and art[0] == 'six':
+            _gfx.sixel_show(*art[1:])
+        elif art:
+            _gfx.kitty_show(*art[1:])
 
         key = getkey(scr, 2000)
+        if key != -1:
+            _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close',
                ord('s'): 'explore', ord('b'): 'throw', ord('r'): 'run', ord('v'): 'evolve',
                ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite', ord('u'): 'super', ord('h'): 'hyper',
@@ -883,7 +917,13 @@ if __name__ == '__main__':
         locale.setlocale(locale.LC_ALL, '')
         os.environ.setdefault('ESCDELAY', '25')
         focus_reporting(True)  # 허브가 바꿔 둔 영문 자판을 이 패널에서 나가고 들어올 때 맞춘다
+        KITTY = _gfx.kitty_ok()
+        SIXEL = not KITTY and _gfx.sixel_ok()
+        if SIXEL:
+            _gfx.tmux_passthrough()
         try:
             curses.wrapper(main)
         finally:
+            _gfx.sixel_hide()
+            _gfx.kitty_hide(free=True)
             focus_reporting(False)
