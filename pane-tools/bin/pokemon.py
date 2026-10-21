@@ -181,8 +181,10 @@ def check_badges(st, today=None):
         if b.startswith('gen') and int(b[3:]) not in st['charms']:
             st['charms'].append(int(b[3:]))
             tell(st, 'charm', b[3:])
-        if b.startswith('conquer') and not give_egg(st):
-            st['balls'] += 30  # 알이 가득 차 있으면 볼로
+        if b.startswith('conquer'):  # 지방 정복 — 하이퍼볼 1개와 알(관마다 하이퍼볼은 너무 많았다, 2026-10-21)
+            st['hyper'] += 1
+            if not give_egg(st):
+                st['balls'] += 30  # 알이 가득 차 있으면 볼로
     return new
 
 
@@ -419,6 +421,9 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
                      f'An egg hatched! {"✨shiny " if n["arg"].endswith("*") else ""}{name(hn)} was born!'), False
         if n['kind'] == 'egg':
             return L(f'{pn}(이)가 알을 안고 왔다!', f'{pn} brought an egg!'), False
+        if n['kind'] == 'badge' and n['arg'].startswith('conquer'):
+            return L(f'{n["arg"][7:]}세대 지방 정복! {pn}(이)가 하이퍼볼과 알을 받아 왔다!',
+                     f'Gen {n["arg"][7:]} gyms cleared! {pn} brought an Ultra Ball and an egg!'), False
         if n['kind'] == 'badge':
             return L(f'{pn}(이)가 새 훈장 [{badge_name(n["arg"])}]을 보고 좋아한다!',
                      f'{pn} admires the new medal [{badge_name(n["arg"])}]!'), False
@@ -790,7 +795,8 @@ def gym_gens(st):
 
 
 def fight(st, t, d, g, i, rng=random, today=None):
-    """체육관 도전 — 탐색 GYM_COST 회를 쓰고 자동 배틀. 팀원 모두 배틀 경험치를 받고, 처음 이기면 배지와 하이퍼볼 1개.
+    """체육관 도전 — 탐색 GYM_COST 회를 쓰고 자동 배틀. 팀원 모두 배틀 경험치를 받고, 처음 이기면 그 관의 배지
+    (하이퍼볼은 한 세대 8관을 모두 이겼을 때 지방 정복 훈장과 함께 — check_badges).
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
     team = team_of(st)
     if not team:
@@ -804,7 +810,6 @@ def fight(st, t, d, g, i, rng=random, today=None):
     key, first = f'gym:{g}-{i}', False
     if won and key not in st.setdefault('gym', {}):
         st['gym'][key] = today or datetime.now().astimezone().strftime('%Y-%m-%d')
-        st['hyper'] += 1
         tell(st, 'gym', key)
         first = True
     return won, ev, first
@@ -1076,8 +1081,8 @@ def main(scr):
             for j, line in enumerate(lines):
                 put(scr, y + 1 + j, 1, line, curses.A_BOLD if j == len(lines) - 1 else 0)
             if k >= len(ev):
-                res = (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]와 하이퍼볼을 받았다!',
-                                                  f'Got the [{badge_name(battle_now["key"])}] and an Ultra Ball!') if battle_now['first']
+                res = (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]를 받았다!',
+                                                  f'Got the [{badge_name(battle_now["key"])}]!') if battle_now['first']
                                                  else L('팀이 경험치를 얻었다.', 'Your team gained experience.'))) \
                     if battle_now['won'] else L('패배… 팀이 경험치를 얻었다. 다시 도전하자!', 'Defeat… your team gained experience.')
                 put(scr, h - 2, 1, res, curses.A_BOLD)
@@ -1548,14 +1553,14 @@ def selftest():
     gs['team'] = [0]
     assert fight(gs, ENCOUNTER_EVERY, gd, 1, 0)[0] is None and gs['used'] == 0  # 탐색 기회 1번뿐
     won, ev, first = fight(gs, 4 * ENCOUNTER_EVERY, gd, 1, 0, random.Random(1), today='2026-10-21')
-    assert won and first and gs['gym'] == {'gym:1-0': '2026-10-21'} and gs['hyper'] == 1 and gs['used'] == GYM_COST
+    assert won and first and gs['gym'] == {'gym:1-0': '2026-10-21'} and gs['hyper'] == 0 and gs['used'] == GYM_COST
     assert gs['box'][0]['bxp'] == 3000 + GYM_WIN_XP and ev[0][0] == 'send' and fight_line(ev[-1])
     won, ev, first = fight(gs, 4 * ENCOUNTER_EVERY, gd, 1, 0, random.Random(1))
-    assert won and not first and gs['hyper'] == 1  # 두 번째 승리는 경험치만
+    assert won and not first and gs['hyper'] == 0  # 관을 이겨도 하이퍼볼은 없다
     assert fight_state(ev, len(ev))['foe'][1] == 0
     gs['gym'].update({f'gym:1-{i}': '2026-10-21' for i in range(8)})
     eggs = len(gs['eggs'])
-    assert 'conquer1' in check_badges(gs) and len(gs['eggs']) == eggs + 1  # 지방 정복 → 알
+    assert 'conquer1' in check_badges(gs) and len(gs['eggs']) == eggs + 1 and gs['hyper'] == 1  # 지방 정복 → 하이퍼볼과 알
     print('pokemon selftest ok')
 
 
