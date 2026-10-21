@@ -452,6 +452,12 @@ def draw_info(scr, st, n, h, w, gold):
         return None
     if SIXEL:  # 원본 도트를 정수 배로 — ▀▄ 칸은 평균·256색이라 흐리고 색이 틀렸다(2026-10-21)
         cw_, ch_ = _gfx.cell_px()
+        # 그림이 바깥 터미널 아래 끝을 넘으면 터미널 전체가 밀려 올라갔다(2026-10-21 실제 화면). 칸 크기를 잘못 알아
+        # 두 배로 그려져도 넘지 않게, 남은 줄의 절반 · 최대 8줄로.
+        below = _gfx.rows_below(y + 1)
+        room = max(0, min(room, 8, (below - 1) // 2 if below else room))
+        if room < 3:
+            return None
         six = _pokedata.sprite_sixel_fit(sid, gray, int((w - 2) * cw_), int(room * ch_))
         if not six:
             return loading()
@@ -633,7 +639,7 @@ def main(scr):
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation') if view == 'dex'
                 else L('↑↓ 이동 · Space 동료로', '↑↓ move · Space set partner'), curses.A_DIM)
         if _gfx._six['key'] is not None and (not art or art[0] != 'six' or _gfx._six['key'] != art[3]):
-            _gfx.sixel_hide()  # 전 그림을 지운다 — 투명 배경이라 새 그림만 덮어쓰면 옛 점이 남는다
+            _gfx.redraw()  # 전 그림을 지운다 — tmux 가 화면 전체를 다시 그리게(빈칸으로 덮으면 크기가 어긋날 때 조각이 남았다)
         if _gfx._placed[0] is not None and (not art or art[0] != 'kitty'):
             _gfx.kitty_hide()
         scr.refresh()
@@ -924,6 +930,7 @@ if __name__ == '__main__':
         try:
             curses.wrapper(main)
         finally:
-            _gfx.sixel_hide()
+            if _gfx._six['key'] is not None:
+                _gfx.redraw()
             _gfx.kitty_hide(free=True)
             focus_reporting(False)
