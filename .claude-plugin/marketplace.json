@@ -1,8 +1,20 @@
 {
   "name": "working-place",
-  "owner": { "name": "Shin-junyeob", "url": "https://github.com/Shin-junyeob" },
+  "description": "Claude Code 모드 모음 — /mods 허브(게이지·세션 상태·활동 피드·메모·게임)와 오래 걸리는 명령 알림 · Mods for Claude Code: the /mods hub and long-run alerts",
+  "owner": {
+    "name": "Shin-junyeob",
+    "url": "https://github.com/Shin-junyeob"
+  },
   "plugins": [
-    { "name": "pane-tools", "source": "./pane-tools", "description": "/mods 모드 허브 — 게이지·메모·테트리스·포켓몬 · Mods hub: gauges, memo, Tetris, Pokémon" },
-    { "name": "long-run-watch", "source": "./long-run-watch", "description": "오래 걸리는 명령의 예상 시간·초과 알림 · Estimates and overrun alerts for long Bash commands" }
+    {
+      "name": "pane-tools",
+      "source": "./pane-tools",
+      "description": "/mods 모드 허브 — 게이지·세션 상태·활동 피드·메모·테트리스·포켓몬 · Mods hub: gauges, session status, activity feed, memo, Tetris, Pokémon"
+    },
+    {
+      "name": "long-run-watch",
+      "source": "./long-run-watch",
+      "description": "오래 걸리는 명령의 예상 시간·초과 알림 · Estimates and overrun alerts for long Bash commands"
+    }
   ]
 }
