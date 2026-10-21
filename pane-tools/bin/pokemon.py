@@ -123,6 +123,57 @@ def wild_pool(st):
     return sorted(pool, key=order_key)
 
 
+ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX']
+
+
+def shiny_rate(st, n, base=SHINY_RATE):
+    """그 세대의 빛나는 부적이 있으면 이로치 2배 — 세대를 완성하면 그 세대 부적을 받는다."""
+    return base * (2 if gen(n) in st.get('charms', []) else 1)
+
+
+def gen_done(st, g):
+    return sum(1 for n in st['caught'] if gen(n) == g) >= GEN_SIZE[g]
+
+
+def _final_evolved(st):
+    """가방에서 진화를 거쳐 최종 모습이 된 포켓몬 수."""
+    return sum(1 for m in st['box'] if m['id'] not in CHILDREN and depth(m['id']) > 0)
+
+
+# 배지 (번호, 한국어, 영어, 조건) — 화면에는 받은 것만 이 순서로 나열한다
+BADGES = [('catch1', '첫 포획', 'First catch', lambda st: len(st['caught']) >= 1)] + \
+    [(f'catch{k}', f'{k}마리', f'{k} caught', (lambda k: lambda st: len(st['caught']) >= k)(k)) for k in (10, 50, 100, 500)] + \
+    [(f'gen{g}', f'{g}세대 완성', f'Gen {g} done', (lambda g: lambda st: g in GEN_SIZE and gen_done(st, g))(g)) for g in range(1, 10)] + [
+    ('shiny1', '첫 이로치', 'First shiny', lambda st: len(st['shiny']) >= 1),
+    ('shiny5', '이로치 5', '5 shinies', lambda st: len(st['shiny']) >= 5),
+    ('legend', '첫 전설', 'First legendary', lambda st: any(DEX[n][5] == 1 for n in st['caught'])),
+    ('myth', '첫 환상', 'First mythical', lambda st: any(DEX[n][5] == 2 for n in st['caught'])),
+    ('evo1', '첫 진화', 'First evolution', lambda st: st['evolved'] >= 1),
+    ('final10', '최종 진화 10', '10 fully evolved', lambda st: _final_evolved(st) >= 10),
+    ('super1', '첫 슈퍼볼', 'First Great Ball', lambda st: (st['super_earned'] or 0) >= 1),
+    ('super10', '슈퍼볼 10', '10 Great Balls', lambda st: (st['super_earned'] or 0) >= 10),
+    ('hyper1', '하이퍼볼 교환', 'Ultra Ball trade', lambda st: st['exchanged'] >= 1)]
+
+
+def badge_name(bid):
+    return next(L(ko, en) for b, ko, en, _ in BADGES if b == bid)
+
+
+def check_badges(st, today=None):
+    """새로 이룬 배지를 날짜와 함께 적고, 세대를 완성했으면 그 세대 부적을 준다. 새로 받은 배지 번호들."""
+    today = today or datetime.now().astimezone().strftime('%Y-%m-%d')
+    if st.get('super_earned') is None:  # 세기 시작 전 받은 슈퍼볼은 받은 날 수로
+        st['super_earned'] = len(st['rewarded'])
+    new = [b for b, _, _, ok in BADGES if b not in st['badges'] and ok(st)]
+    for b in new:
+        st['badges'][b] = today
+        tell(st, 'badge', b)
+        if b.startswith('gen') and int(b[3:]) not in st['charms']:
+            st['charms'].append(int(b[3:]))
+            tell(st, 'charm', b[3:])
+    return new
+
+
 def boxed(st, shiny=False):
     """가방에 있는 종 — 이로치와 기본 모습은 따로 센다."""
     return {m['id'] for m in st['box'] if bool(m.get('shiny')) == bool(shiny)}
@@ -163,7 +214,8 @@ def total_tokens(root=ROOT):
 
 def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
-            'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': []}
+            'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
+            'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None}
 
 
 def load(root=ROOT):
@@ -238,7 +290,7 @@ def explore(st, t, rng=random):
         return None
     st['used'] += 1
     n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
-    shiny = rng.random() < SHINY_RATE
+    shiny = rng.random() < shiny_rate(st, n)
     _mark(st, 'seen', n)
     if n in boxed(st, shiny):  # 같은 모습(기본/이로치)이 이미 가방에 있다 → 몬스터볼로
         k = dupe_balls(n)
@@ -290,6 +342,7 @@ def exchange(st):
         return False
     st['balls'] -= HYPER_COST
     st['hyper'] += 1
+    st['exchanged'] = st.get('exchanged', 0) + 1
     return True
 
 
@@ -340,8 +393,16 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
     if can_evolve(st, t):
         return L(f'{pn}의 몸이 빛나기 시작했다…', f'{pn} starts to glow…'), False
     for n in reversed(st.get('news', [])):
-        if now - n['at'] < NEWS_SHOW and n['kind'] == 'super':
+        if now - n['at'] >= NEWS_SHOW:
+            continue
+        if n['kind'] == 'super':
             return L(f'{pn}(이)가 슈퍼볼을 물어 왔다!', f'{pn} brought you a Great Ball!'), False
+        if n['kind'] == 'charm':
+            return L(f'빛나는 부적 {ROMAN[int(n["arg"])]}을 얻었다! ({n["arg"]}세대 이로치 2배)',
+                     f'Got Shiny Charm {ROMAN[int(n["arg"])]}! (Gen {n["arg"]} shinies x2)'), False
+        if n['kind'] == 'badge':
+            return L(f'{pn}(이)가 새 배지 [{badge_name(n["arg"])}]를 보고 좋아한다!',
+                     f'{pn} admires the new badge [{badge_name(n["arg"])}]!'), False
     for at, nm, state, detail in events:
         if now - _ts(at) >= DONE_SHOW:
             break
@@ -362,6 +423,7 @@ def reward(st, folder=feed.JOBS, today=None):
         if day >= st['reward_since'] and day not in st['rewarded'] and len(names) >= SUPER_SESSIONS:
             st['rewarded'] = (st['rewarded'] + [day])[-60:]
             st['super'] += 1
+            st['super_earned'] = (st.get('super_earned') or 0) + 1
             got += 1
             tell(st, 'super')
     return got
@@ -373,6 +435,7 @@ def evolve(st, t, rng=random):
     mon = st['box'][st['partner']]
     mon['id'], mon['xp'] = rng.choice(evolutions(st, mon['id'], mon.get('shiny'))), 0  # 이로치는 이로치로 진화
     st['base'] = t
+    st['evolved'] = st.get('evolved', 0) + 1
     _mark(st, 'seen', mon['id'])
     _mark(st, 'caught', mon['id'])
     if mon.get('shiny'):
@@ -420,8 +483,8 @@ def summary(root=ROOT, awake=None):
         return [(L('포켓몬 데이터 없음 — [ pokemon ] 을 열면 받아 옵니다',
                    'No Pokédex yet — open [ pokemon ] to download it'), False, None)]
     st, t = load(root), total_tokens(root)
-    fresh = not st.get('reward_since')
-    if reward(st) or fresh:  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다 · 켠 날은 처음에 적어 둔다
+    fresh = not st.get('reward_since') or st.get('super_earned') is None
+    if reward(st) + len(check_badges(st)) or fresh:  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다 · 켠 날은 처음에 적어 둔다
         save(st, root)
     lines = []
     if st['partner'] is None:
@@ -531,6 +594,24 @@ def draw_info(scr, st, n, h, w, gold):
     return None
 
 
+def draw_badges(scr, st, y, w, gold):
+    """받은 배지를 칩으로 나열(넘치면 다음 줄, 최대 3줄) — 부적은 금색. 끝에 개수와 다음 목표. 다음에 쓸 줄을 돌려준다."""
+    chips = [(f'✦{L("부적", "Charm")} {ROMAN[g]}', gold) for g in sorted(st['charms'])] + \
+        [(f'🏅{badge_name(b)}', curses.A_BOLD) for b, _, _, _ in BADGES if b in st['badges']]
+    nxt = next((b for b, _, _, ok in BADGES if b not in st['badges']), None)
+    tail = L(f'배지 {len(st["badges"])}/{len(BADGES)}', f'Badges {len(st["badges"])}/{len(BADGES)}') + \
+        (L(f' · 다음 {badge_name(nxt)}', f' · next {badge_name(nxt)}') if nxt else '')
+    x, top = 1, y
+    for text, attr in chips + [(tail, curses.A_DIM)]:
+        wd = sum(memo.cw(c) for c in text)
+        if x > 1 and x + wd >= w:
+            if y - top >= 2:
+                break
+            y, x = y + 1, 1
+        x = put(scr, y, x, text, attr) + 2
+    return y + 2
+
+
 def bar(frac, width):
     f = round(max(0.0, min(1.0, frac)) * width)
     return '█' * f + '░' * (width - f)
@@ -567,11 +648,14 @@ def main(scr):
             return
     while True:
         st, t = load(), total_tokens()
-        fresh = not st.get('reward_since')
-        got = reward(st)
-        if got or fresh:
+        fresh = not st.get('reward_since') or st.get('super_earned') is None
+        got, badges = reward(st), check_badges(st)
+        if got or badges or fresh:
             save(st)
+        if got:
             msg = L(f'오늘 여러 세션이 일을 내보냈다! 슈퍼볼 {got}개를 받았다.', f'Sessions shipped work! Got {got} Great Ball(s).')
+        if badges:
+            msg = L('배지를 받았다: ', 'New badge: ') + ', '.join(badge_name(b) for b in badges)
         h, w = scr.getmaxyx()
         art = None
         scr.erase()
@@ -586,7 +670,7 @@ def main(scr):
             return end + 2
 
         if view == 'main':
-            y = 2
+            y = y0 = draw_badges(scr, st, 2, w, gold)  # 배지는 동료 정보 위에 — 아래 줄들은 y0 기준
             if st['partner'] is None:
                 put(scr, y, 1, L('아직 동료가 없습니다. 풀숲을 탐색해 보세요.', 'No partner yet. Try exploring the tall grass.'))
             else:
@@ -611,7 +695,7 @@ def main(scr):
                 else:
                     x = put(scr, y + 1, 1, L('진화 ', 'Evolve '))
                     put(scr, y + 1, x, f'{bar(ev[1] / ev[2], 24)} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
-            y = 6
+            y = y0 + 4
             if st['wild']:
                 sh = st['wild'].get('shiny')
                 x = put(scr, y, 1, L('앗! 야생의 ', 'Oh! A wild '), curses.A_BOLD)
@@ -639,10 +723,10 @@ def main(scr):
                     put(scr, y, x, f'{bar(1 - left / ENCOUNTER_EVERY, 24)} {fmt_tok(left)}' + L(' 남음', ' left'))
             today = datetime.now().astimezone().strftime('%Y-%m-%d')
             done = len(shipped().get(today, ()))
-            put(scr, 8, 1, L('오늘 슈퍼볼 받음 ✔', 'Great Ball earned today ✔') if today in st['rewarded'] else
+            put(scr, y0 + 6, 1, L('오늘 슈퍼볼 받음 ✔', 'Great Ball earned today ✔') if today in st['rewarded'] else
                 L(f'오늘 PR·배포를 끝낸 세션 {done}/{SUPER_SESSIONS} — 채우면 슈퍼볼',
                   f'Sessions that shipped a PR/deploy today {done}/{SUPER_SESSIONS} — fill it for a Great Ball'), curses.A_DIM)
-            put(scr, 9, 1, msg)
+            put(scr, y0 + 7, 1, msg)
             x = button(h - 1, 1, L('도감 d', 'dex d'), 'dex')
             x = button(h - 1, x, L('가방 e', 'bag e'), 'box')
             gray = _lang.get('sprite') == 'gray'  # 허브의 동료 그림 색 — PC마다 따로(settings.json)
@@ -994,6 +1078,16 @@ def selftest():
     sp['box'][0]['xp'], sp['news'] = 0, []
     sjob('A', [(500, 'done', '끝')])
     assert speech(sp, 0, now, sd) is None and speech(sp, ENCOUNTER_EVERY, now, sd)[0] == L('풀숲이 흔들린다…', 'The tall grass rustles…')
+    # 배지: 이룬 것을 날짜와 함께, 두 번 주지 않는다 · 세대를 완성하면 그 세대 부적 → 그 세대만 이로치 2배
+    bd = new_state()
+    bd['caught'], bd['shiny'] = [n for n in DEX if gen(n) == 1], [1]
+    got = check_badges(bd, today='2026-10-21')
+    assert {'catch1', 'catch10', 'catch50', 'catch100', 'gen1', 'shiny1', 'legend', 'myth'} <= set(got) and 'catch500' not in got
+    assert bd['charms'] == [1] and bd['badges']['gen1'] == '2026-10-21' and check_badges(bd) == []
+    assert shiny_rate(bd, 25) == SHINY_RATE * 2 and shiny_rate(bd, 152) == SHINY_RATE
+    assert any(n['kind'] == 'charm' and n['arg'] == '1' for n in bd['news'])
+    bd['super_earned'], bd['exchanged'] = 1, 1
+    assert set(check_badges(bd)) == {'super1', 'hyper1'}
     print('pokemon selftest ok')
 
 
