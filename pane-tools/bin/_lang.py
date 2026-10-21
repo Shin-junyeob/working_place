@@ -40,7 +40,10 @@ def get(key, default=None):
 
 def put(key, value):
     s = _settings()
-    s[key] = value
+    if value is None:  # None 은 지우기
+        s.pop(key, None)
+    else:
+        s[key] = value
     os.makedirs(ROOT, exist_ok=True)
     with open(PATH + '.tmp', 'w', encoding='utf-8') as f:
         json.dump(s, f, ensure_ascii=False)

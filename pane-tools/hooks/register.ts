@@ -60,6 +60,17 @@ async function L($: EngineInterface, ko: string, en: string) {
   }
 }
 
+// 허브의 [ 설정 ] 이 같은 파일에 적은 띄울 곳 — /mods 마다 읽어 /config 값보다 먼저 쓴다(다시 불러올 필요 없게)
+const PLACE = ['launcher', 'tmuxTarget', 'followPane', 'command'] as const
+export async function prefs($: EngineInterface): Promise<Partial<Opts>> {
+  try {
+    const s = JSON.parse(await $.fs.read(`${await home($)}/.claude/pane-tools/settings.json`))
+    return Object.fromEntries(PLACE.filter(k => typeof s[k] === 'string').map(k => [k, s[k]]))
+  } catch {
+    return {}
+  }
+}
+
 let busy = false
 async function deliver($: EngineInterface) {
   if (busy) return
@@ -170,5 +181,5 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'mods' }, async $ => ({ text: await openHub($, o) }))
+  on('command.run', { command: 'mods' }, async $ => ({ text: await openHub($, { ...o, ...(await prefs($)) }) }))
 }
