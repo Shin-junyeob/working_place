@@ -217,7 +217,7 @@ def total_tokens(root=ROOT):
 def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
             'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
-            'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': []}
+            'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': [], 'showcase': []}
 
 
 def load(root=ROOT):
@@ -658,22 +658,80 @@ def draw_info(scr, st, n, h, w, gold):
     return None
 
 
-def draw_badges(scr, st, y, w, gold):
-    """받은 배지를 칩으로 나열(넘치면 다음 줄, 최대 3줄) — 부적은 금색. 끝에 개수와 다음 목표. 다음에 쓸 줄을 돌려준다."""
-    chips = [(f'✦{L("부적", "Charm")} {ROMAN[g]}', gold) for g in sorted(st['charms'])] + \
-        [(f'🏅{badge_name(b)}', curses.A_BOLD) for b, _, _, _ in BADGES if b in st['badges']]
-    nxt = next((b for b, _, _, ok in BADGES if b not in st['badges']), None)
-    tail = L(f'배지 {len(st["badges"])}/{len(BADGES)}', f'Badges {len(st["badges"])}/{len(BADGES)}') + \
-        (L(f' · 다음 {badge_name(nxt)}', f' · next {badge_name(nxt)}') if nxt else '')
+SHOWCASE_MAX = 5
+GYM = [None, 160, 214, 34, 27, 245, 33, 202, 129, 197]  # 세대 완성 배지 바탕색(256색) — 체육관 배지처럼 세대마다 다르게
+# 배지 모양: (아이콘, 글자색, 바탕색)
+LOOK = {'catch1': ('◓', 231, 160), 'catch10': ('◓', 231, 130), 'catch50': ('◓', 16, 250), 'catch100': ('◓', 16, 220),
+        'catch500': ('◓', 231, 129), 'shiny1': ('✦', 16, 220), 'shiny5': ('✦✦', 16, 226), 'legend': ('♛', 220, 54),
+        'myth': ('✧', 16, 213), 'evo1': ('⇧', 231, 30), 'final10': ('★', 220, 23), 'super1': ('◍', 231, 27),
+        'super10': ('◍◍', 231, 21), 'hyper1': ('◉', 220, 236),
+        **{f'gen{g}': ('◆', 231, GYM[g]) for g in range(1, 10)}}
+
+
+def badge_goal(st, b):
+    """못 받은 배지의 진행 (지금, 목표) — 셀 수 없는 것(첫 전설 등)은 None."""
+    if b.startswith('catch'):
+        return len(st['caught']), int(b[5:])
+    if b.startswith('gen'):
+        g = int(b[3:])
+        return (sum(1 for n in st['caught'] if gen(n) == g), GEN_SIZE[g]) if g in GEN_SIZE else None
+    return {'shiny1': (len(st['shiny']), 1), 'shiny5': (len(st['shiny']), 5), 'evo1': (st['evolved'], 1),
+            'final10': (_final_evolved(st), 10), 'super1': (st['super_earned'] or 0, 1),
+            'super10': (st['super_earned'] or 0, 10), 'hyper1': (st['exchanged'], 1)}.get(b)
+
+
+def chip(b, got=True):
+    """배지 한 개의 (글, 속성) — 바탕색이 있는 알약 모양. 못 받은 것은 흐리게."""
+    icon, fg, bg = LOOK[b]
+    text = f' {icon} {badge_name(b)} '
+    if not got:
+        return text, curses.A_DIM
+    return text, (_pokedata.color(fg, bg) if curses.COLORS >= 256 else curses.A_REVERSE) | curses.A_BOLD
+
+
+def draw_showcase(scr, st, y, w, gold):
+    """포켓몬 화면 맨 위 — 배지(a)에서 고른 장식 배지(최대 5개)와 빛나는 부적. 다음에 쓸 줄을 돌려준다."""
+    shown = [b for b in st.get('showcase', []) if b in st['badges']]
     x, top = 1, y
-    for text, attr in chips + [(tail, curses.A_DIM)]:
+    if not shown:
+        x = put(scr, y, 1, L('배지(a)에서 장식할 배지를 고르세요', 'Pick badges to show in Badges (a)'), curses.A_DIM) + 2
+    for text, attr in [chip(b) for b in shown] + ([('✦' + ' '.join(ROMAN[g] for g in sorted(st['charms'])), gold)]
+                                                 if st['charms'] else []):
         wd = sum(memo.cw(c) for c in text)
         if x > 1 and x + wd >= w:
-            if y - top >= 2:
-                break
             y, x = y + 1, 1
-        x = put(scr, y, x, text, attr) + 2
-    return y + 2
+        x = put(scr, y, x, text, attr) + 1
+    return max(y, top) + 2
+
+
+def draw_badge_list(scr, st, rows, top, sel, w, btns):
+    """배지(a) 화면 — 전부 나열, 받은 것은 날짜, 못 받은 것은 진행. 📌 는 장식 중."""
+    for k, b in enumerate(rows):
+        yy, got = 2 + k, b in st['badges']
+        text, attr = chip(b, got)
+        if top + k == sel:
+            put(scr, yy, 0, '▶')
+        x = put(scr, yy, 1, text, attr) + 1
+        goal = badge_goal(st, b)
+        note = st['badges'][b] if got else (f'{min(goal[0], goal[1])}/{goal[1]}' if goal else L('아직', 'not yet'))
+        x = put(scr, yy, x, note, 0 if got else curses.A_DIM)
+        if b in st.get('showcase', []):
+            put(scr, yy, x + 1, L('📌 장식 중', '📌 shown'), curses.A_BOLD)
+        btns.append((yy, 1, w - 1, ('pin', b)))
+
+
+def toggle_showcase(st, b):
+    """장식 배지 고르기/빼기 — 받은 것만, 최대 SHOWCASE_MAX. 결과 메시지."""
+    sc = st.setdefault('showcase', [])
+    if b in sc:
+        sc.remove(b)
+        return L(f'[{badge_name(b)}] 장식을 뺐다.', f'Removed [{badge_name(b)}].')
+    if b not in st['badges']:
+        return L('아직 받지 않은 배지다.', "You haven't earned that badge yet.")
+    if len(sc) >= SHOWCASE_MAX:
+        return L(f'장식은 {SHOWCASE_MAX}개까지 — 하나를 빼고 고르자.', f'Up to {SHOWCASE_MAX} — remove one first.')
+    sc.append(b)
+    return L(f'[{badge_name(b)}] 를 장식했다!', f'Showing [{badge_name(b)}]!')
 
 
 def bar(frac, width):
@@ -737,7 +795,7 @@ def main(scr):
             return end + 2
 
         if view == 'main':
-            y = y0 = draw_badges(scr, st, 2, w, gold)  # 배지는 동료 정보 위에 — 아래 줄들은 y0 기준
+            y = y0 = draw_showcase(scr, st, 2, w, gold)  # 장식 배지는 동료 정보 위에 — 아래 줄들은 y0 기준
             if st['partner'] is None:
                 put(scr, y, 1, L('아직 동료가 없습니다. 풀숲을 탐색해 보세요.', 'No partner yet. Try exploring the tall grass.'))
             else:
@@ -800,9 +858,22 @@ def main(scr):
             put(scr, y0 + 7, 1, msg)
             x = button(h - 1, 1, L('도감 d', 'dex d'), 'dex')
             x = button(h - 1, x, L('가방 e', 'bag e'), 'box')
+            x = button(h - 1, x, L('배지 a', 'badges a'), 'badges')
             gray = _lang.get('sprite') == 'gray'  # 허브의 동료 그림 색 — PC마다 따로(settings.json)
             x = button(h - 1, x, L('회색 c', 'gray c') if gray else L('컬러 c', 'color c'), 'sprite')
             button(h - 1, x, 'close q', 'close')
+        elif view == 'badges':
+            rows = [b for b, _, _, _ in BADGES]
+            body = h - 4
+            sel = max(0, min(sel, len(rows) - 1))
+            top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
+            put(scr, 1, 1, msg or L(f'배지 {len(st["badges"])}/{len(BADGES)} · 장식 {len(st.get("showcase", []))}/{SHOWCASE_MAX}'
+                                    ' — Space 로 장식 고르기/빼기',
+                                    f'Badges {len(st["badges"])}/{len(BADGES)} · shown {len(st.get("showcase", []))}/{SHOWCASE_MAX}'
+                                    ' — Space to show/hide'), curses.A_DIM)
+            draw_badge_list(scr, st, rows[top:top + body], top, sel, w, btns)
+            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
+            put(scr, h - 1, x, L('↑↓ 이동 · Space 장식', '↑↓ move · Space show'), curses.A_DIM)
         elif view == 'info':
             art = draw_info(scr, st, info, h, w, gold)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
@@ -862,16 +933,18 @@ def main(scr):
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close',
                ord('s'): 'explore', ord('b'): 'throw', ord('r'): 'run', ord('v'): 'evolve',
                ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite', ord('u'): 'super', ord('h'): 'hyper',
-               ord('x'): 'exchange'}.get(key)
+               ord('x'): 'exchange', ord('a'): 'badges'}.get(key)
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS, dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0
         if view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             seen = sorted(n for n in st['seen'] if gen(n) == gen(info))  # 같은 세대에서 본 것끼리 앞뒤로
             info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
-        if view in ('box', 'dex') and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
+        if view in ('box', 'dex', 'badges') and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             sel += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
         elif view == 'box' and key in (ord(' '), ord('\n'), curses.KEY_ENTER) and st['box']:
             act = ('partner', max(0, min(sel, len(st['box']) - 1)))
+        elif view == 'badges' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
+            act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
         elif view == 'dex' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
             n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
             act = ('info', n) if n in st['seen'] else None
@@ -902,11 +975,16 @@ def main(scr):
                     f'Traded {HYPER_COST} Poké Balls for an Ultra Ball! (Ultra {st["hyper"]})') if ok else \
                 L(f'몬스터볼이 {HYPER_COST}개 있어야 바꿀 수 있다 (지금 {st["balls"]})',
                   f'You need {HYPER_COST} Poké Balls (have {st["balls"]})')
+        if act == 'badges' and view == 'main':
+            view, top, sel, msg = 'badges', 0, 0, ''
         if act in ('dex', 'box'):
             view, top, dg, msg = act, 0, current_gen(st) or GENS, ''
             sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
         elif act == 'back':
             view = 'dex' if view == 'info' else 'main'  # 상세에서 돌아가면 도감의 그 자리로
+        elif isinstance(act, tuple) and act[0] == 'pin':
+            msg = toggle_showcase(st, act[1])
+            save(st)
         elif isinstance(act, tuple) and act[0] == 'info':
             view, info = 'info', act[1]
         elif isinstance(act, tuple):
@@ -1179,6 +1257,20 @@ def selftest():
     ew = new_state()
     ew['super_earned'], ew['reward_since'] = 2, '2026-10-01'
     assert reward(ew, jd) == 1 and len(ew['eggs']) == 1
+    # 장식 배지: 받은 것만, 최대 5개, 다시 고르면 뺀다 · 진행도
+    sc = new_state()
+    sc['badges'] = {b: '2026-10-21' for b in ('catch1', 'catch10', 'catch50', 'evo1', 'super1', 'hyper1')}
+    for b in ('catch1', 'catch10', 'catch50', 'evo1', 'super1'):
+        toggle_showcase(sc, b)
+    assert sc['showcase'] == ['catch1', 'catch10', 'catch50', 'evo1', 'super1']
+    toggle_showcase(sc, 'hyper1')
+    assert 'hyper1' not in sc['showcase']  # 6개째는 안 된다
+    toggle_showcase(sc, 'catch10')
+    toggle_showcase(sc, 'myth')
+    assert sc['showcase'] == ['catch1', 'catch50', 'evo1', 'super1']  # 빼기 · 안 받은 건 못 고름
+    sc['caught'] = list(range(1, 86))
+    assert badge_goal(sc, 'catch100') == (85, 100) and badge_goal(sc, 'gen1') == (85, 151) and badge_goal(sc, 'legend') is None
+    assert set(LOOK) == {b for b, _, _, _ in BADGES}  # 모든 배지에 모양이 있다
     print('pokemon selftest ok')
 
 
