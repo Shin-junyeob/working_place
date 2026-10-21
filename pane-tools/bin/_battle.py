@@ -30,6 +30,11 @@ GYMS = {
     9: [(BUG, 70), (GRASS, 71), (ELECTRIC, 72), (WATER, 73), (NORMAL, 74), (GHOST, 75), (PSYCHIC, 76), (ICE, 77)],
 }
 OPP_COUNT = [2, 2, 3, 3, 3, 4, 4, 5]  # 체육관 순서별 상대 마릿수
+# 세대마다 사천왕 4명의 타입(원작). 가라르(8)는 사천왕이 없어 골랐다. 챔피언은 타입 없이 그 세대의 강한 최종 진화형.
+LEAGUE = {1: [ICE, FIGHTING, GHOST, DRAGON], 2: [PSYCHIC, POISON, FIGHTING, DARK], 3: [DARK, GHOST, ICE, DRAGON],
+          4: [BUG, GROUND, FIRE, PSYCHIC], 5: [GHOST, DARK, PSYCHIC, FIGHTING], 6: [FIRE, WATER, STEEL, DRAGON],
+          7: [FIGHTING, ROCK, GHOST, FLYING], 8: [DARK, STEEL, FAIRY, DRAGON], 9: [GROUND, STEEL, FLYING, DRAGON]}
+ELITE_COUNT, CHAMP_COUNT = 4, 6
 TEAM_MAX = 6
 XP_PER_LEVEL, XP_LEVEL_CAP = 100, 40
 
@@ -124,15 +129,15 @@ def damage(d, a, b, rng):
 
 def battle(d, team, opp, rng, log=True):
     """자동 배틀. team·opp: [(종, 레벨)]. (이겼나, 기록) — 기록은 화면이 한 줄씩 보여 준다:
-    ('send', 'me'|'foe', 종) · ('hit', 공격쪽, 공격종, 맞은종, 데미지, 배율, 남은HP, 최대HP) · ('faint', 쪽, 종)."""
+    ('send', 'me'|'foe', 종, 레벨) · ('hit', 공격쪽, 공격종, 맞은종, 데미지, 배율, 남은HP, 최대HP) · ('faint', 쪽, 종)."""
     mine, foes = [Mon(d, n, lv) for n, lv in team], [Mon(d, n, lv) for n, lv in opp]
     ev = []
     say = ev.append if log else (lambda e: None)
     foe = foes.pop(0)
     me = max(mine, key=lambda m: matchup(d, m.n, foe.n))  # 상대에게 가장 유리한 것부터
     mine.remove(me)
-    say(('send', 'foe', foe.n))
-    say(('send', 'me', me.n))
+    say(('send', 'foe', foe.n, foe.lv))
+    say(('send', 'me', me.n, me.lv))
     for _ in range(500):  # 0배끼리 만나면 끝나지 않으니 상한
         order = [(me, foe, 'me'), (foe, me, 'foe')]
         if foe.st[5] > me.st[5] or (foe.st[5] == me.st[5] and rng.random() < 0.5):
@@ -148,13 +153,13 @@ def battle(d, team, opp, rng, log=True):
                 if not foes:
                     return True, ev
                 foe = foes.pop(0)
-                say(('send', 'foe', foe.n))
+                say(('send', 'foe', foe.n, foe.lv))
             else:
                 if not mine:
                     return False, ev
                 me = max(mine, key=lambda m: matchup(d, m.n, foe.n))
                 mine.remove(me)
-                say(('send', 'me', me.n))
+                say(('send', 'me', me.n, me.lv))
             break  # 쓰러진 쪽은 이번 차례에 치지 못한다
     return False, ev
 
@@ -165,6 +170,45 @@ def win_rate(d, team, opp, runs=200, seed=7):
         return 0.0
     rng = random.Random(seed)
     return sum(battle(d, team, opp, rng, log=False)[0] for _ in range(runs)) / runs
+
+
+def league_teams(d, g, gen_of, final):
+    """g 세대 사천왕 4명과 챔피언의 팀 [[(종, 레벨)] × 5] — 늘 같은 팀. 레벨은 8관보다 낮지만 22마리 5연전이라 더 어렵다:
+    8관 레벨에서 사천왕 -13~-7, 챔피언 -5. 8관을 넘은 팀(경험치 2500)이면 약 80%(2026-10-21 실측 — 8관 +4~+12 였을 땐
+    경험치를 다 채워도 0%)."""
+    top = 12 + 7 * 7 + (g - 1) * 5 - 13  # 8관 레벨 - 13
+    ok = sorted(n for n in gen_of if gen_of[n] <= g and n in d['stats'] and n in d['types'])
+    teams = []
+    for k, t in enumerate(LEAGUE[g]):
+        rng = random.Random(g * 1000 + k)
+        pool = [n for n in ok if t in d['types'][n]] or ok
+        ends = [n for n in pool if n in final] or pool
+        teams.append([(rng.choice(ends if j == ELITE_COUNT - 1 else pool), top + 2 * k) for j in range(ELITE_COUNT)])
+    strong = sorted((n for n in ok if n in final), key=lambda n: -sum(d['stats'][n]))[:30] or ok
+    rng = random.Random(g * 1000 + 9)
+    teams.append([(n, top + 8) for n in rng.sample(strong, min(CHAMP_COUNT, len(strong)))])
+    return teams
+
+
+def gauntlet(d, team, teams, rng, log=True):
+    """사천왕·챔피언 연전 — 판마다 체력은 회복, 한 판이라도 지면 끝. (이겼나, 기록) — 판 앞에 ('trainer', 순서)."""
+    ev = []
+    for k, opp in enumerate(teams):
+        if log:
+            ev.append(('trainer', k))
+        won, part = battle(d, team, opp, rng, log)
+        ev += part
+        if not won:
+            return False, ev
+    return True, ev
+
+
+def league_rate(d, team, teams, runs=100, seed=7):
+    """연전을 runs 번 — 끝까지 이긴 비율."""
+    if not team or not teams:
+        return 0.0
+    rng = random.Random(seed)
+    return sum(gauntlet(d, team, teams, rng, log=False)[0] for _ in range(runs)) / runs
 
 
 def gym_team(d, g, i, gen_of, final):
@@ -183,9 +227,10 @@ def gym_team(d, g, i, gen_of, final):
     return [(n, lv + (2 if j == k - 1 else 0)) for j, n in enumerate(picks)]
 
 
-def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=60, seed=11):
+def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=60, seed=11, rate=None):
     """가진 포켓몬 cands [(가방 번호, 종, 레벨)] 중 opp 에 맞서 승률이 가장 오르도록 하나씩 더한 팀 [가방 번호].
-    먼저 상성·능력치로 shortlist 마리를 추리고(전부 돌리면 느리다), 그 안에서 고른다."""
+    먼저 상성·능력치로 shortlist 마리를 추리고(전부 돌리면 느리다), 그 안에서 고른다.
+    rate(팀) 를 주면 승률 대신 그것으로 고른다 — 사천왕 연전처럼 상대가 여러 팀일 때(opp 는 그 팀들을 이어 붙인 것)."""
     cands = [c for c in cands if c[1] in d['stats'] and c[1] in d['types']]
     if not cands or not opp:
         return []
@@ -197,7 +242,8 @@ def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=60, seed=11):
     team = []
     while len(team) < min(size, len(pool)):
         best = max((c for c in pool if c not in team),
-                   key=lambda c: (win_rate(d, [(x[1], x[2]) for x in team + [c]], opp, runs, seed), score(c)))
+                   key=lambda c: ((rate or (lambda tm: win_rate(d, tm, opp, runs, seed)))([(x[1], x[2]) for x in team + [c]]),
+                                  score(c)))
         team.append(best)
     return [c[0] for c in team]
 
@@ -222,7 +268,7 @@ def selftest():
     assert win_rate(d, [(1, 30)], [(2, 30)]) > 0.9 and win_rate(d, [(3, 30)], [(2, 30)]) < 0.1
     assert win_rate(d, [(1, 30)], [(2, 30)], seed=3) == win_rate(d, [(1, 30)], [(2, 30)], seed=3)
     won, ev = battle(d, [(3, 30), (1, 30)], [(2, 30)], random.Random(1))
-    assert won and ev[0] == ('send', 'foe', 2) and ev[1] == ('send', 'me', 1)  # 불꽃 상대엔 물부터 낸다
+    assert won and ev[0] == ('send', 'foe', 2, 30) and ev[1] == ('send', 'me', 1, 30)  # 불꽃 상대엔 물부터 낸다
     assert ev[-1][0] == 'faint' and ev[-1][1] == 'foe'
     # 추천: 불꽃 체육관이면 물을 고른다
     assert recommend(d, [(0, 3, 30), (1, 1, 30), (2, 2, 30)], [(2, 30), (2, 32)], size=1) == [1]
@@ -233,6 +279,18 @@ def selftest():
     assert t1 == gym_team(d, 99, 7, gen_of, final={2}) and len(t1) == OPP_COUNT[7] and t1[-1][0] == 2
     assert all(n == 2 for n, _ in t1) and t1[-1][1] == t1[0][1] + 2
     del GYMS[99]
+    # 사천왕·챔피언: 늘 같은 팀 · 4명 4마리 + 챔피언 6마리 · 8관보다 강하다 · 연전은 지면 그 판에서 끝
+    LEAGUE[99] = [10, 10, 10, 10]
+    lt = league_teams(d, 99, gen_of, final={2})
+    assert lt == league_teams(d, 99, gen_of, final={2}) and [len(x) for x in lt] == [4, 4, 4, 4, min(CHAMP_COUNT, 1)]
+    assert lt[0][0][1] == 12 + 7 * 7 + 98 * 5 - 13 and lt[3][0][1] == lt[0][0][1] + 6 and lt[4][0][1] == lt[0][0][1] + 8
+    del LEAGUE[99]
+    won, ev = gauntlet(d, [(1, 100)], [[(2, 10)], [(2, 10)]], random.Random(2))
+    assert won and [e for e in ev if e[0] == 'trainer'] == [('trainer', 0), ('trainer', 1)]
+    won, ev = gauntlet(d, [(3, 10)], [[(2, 60)], [(2, 10)]], random.Random(2))
+    assert not won and ('trainer', 1) not in ev
+    assert league_rate(d, [(1, 100)], [[(2, 10)], [(2, 10)]]) == 1.0
+    assert all(len(v) == 4 for v in LEAGUE.values()) and sorted(LEAGUE) == list(range(1, 10))
     assert all(len(v) == 8 for v in GYMS.values()) and sorted(GYMS) == list(range(1, 10))
     print('battle selftest ok')
 
