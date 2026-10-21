@@ -724,7 +724,7 @@ def badge_goal(st, b):
 
 
 def draw_showcase(scr, st, y, w):
-    """포켓몬 화면 맨 위 — 훈장(a)·체육관(g)에서 고른 장식(최대 5개)을 그림으로 한 줄에(2줄 높이), 옆에 빛나는 부적.
+    """포켓몬 화면 맨 위 — 훈장(a)·체육관(g)에서 고른 장식(최대 5개)을 글자 한 칸 높이 그림으로 한 줄에, 옆에 빛나는 부적.
     (다음에 쓸 줄, 놓을 그림) — 그림을 못 그리는 터미널이면 이름만."""
     shown = [b for b in st.get('showcase', []) if owned(st, b)]
     charm = ('✦' + ' '.join(ROMAN[g] for g in sorted(st['charms']))) if st['charms'] else ''
@@ -732,10 +732,10 @@ def draw_showcase(scr, st, y, w):
         put(scr, y, 1, L('훈장(a)·체육관(g)에서 장식할 것을 고르세요', 'Pick medals (a) or gym badges (g) to show') + ('  ' + charm if charm else ''),
             curses.A_DIM)
         return y + 2, None
-    art = badge_art(st, shown, y, 1, 2)
+    art = badge_art(st, shown, y, 1, 1)  # 한 글자 크기(2026-10-21 사용자: 2줄은 너무 크다)
     if art:
         put(scr, y, art[5] + 2, charm)
-        return y + 3, art
+        return y + 2, art
     put(scr, y, 1, '  '.join(badge_name(b) for b in shown) + ('  ' + charm if charm else ''))
     return y + 2, None
 
