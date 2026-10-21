@@ -7,7 +7,7 @@
 ## 들어 있는 것
 | 플러그인 | 하는 일 |
 |------|---------|
-| `pane-tools` | `/mods` 를 입력하면(세션이 작업 중이어도 바로) 허브가 뜬다. 위에는 세션의 컨텍스트·비용·사용 한도 게이지와 동료 포켓몬, 아래에는 모드 버튼. 오른쪽 빈자리에는 `claude agents` 의 세션 이름이 같은 색으로 한 줄씩(needs 노랑 · working 회색 · completed 녹색) — 다른 세션이 끝났는지 들어가 보지 않아도 된다. 허브·포켓몬·테트리스의 단축키는 한글 자판인 채로 눌러도 먹는다(ㅣ→l 처럼 같은 자리 영문 키로). 다만 한글 입력기는 자모 하나를 '조합 중'으로 잡아 두어 두 번 눌러야 하므로, macOS 에서 [`macism`](https://github.com/laishulu/macism)(`brew install laishulu/homebrew/macism`)이 있으면 허브 패널에 들어올 때 영문 자판으로 바꾸고 나갈 때(·메모장을 열 때·허브를 닫을 때) 원래 자판으로 되돌린다 — 터미널의 포커스 신호를 쓴다 |
+| `pane-tools` | `/mods` 를 입력하면(세션이 작업 중이어도 바로) 허브가 뜬다. 위에는 세션의 컨텍스트·비용·사용 한도 게이지와 동료 포켓몬, 아래에는 모드 버튼. 오른쪽 빈자리에는 `claude agents` 의 깨어 있는 세션 이름이 같은 색으로 한 줄씩(needs 노랑 · working 회색 · completed 녹색) — 다른 세션이 끝났는지 들어가 보지 않아도 된다. 허브·포켓몬·테트리스의 단축키는 한글 자판인 채로 눌러도 먹는다(ㅣ→l 처럼 같은 자리 영문 키로). 다만 한글 입력기는 자모 하나를 '조합 중'으로 잡아 두어 두 번 눌러야 하므로, macOS 에서 [`macism`](https://github.com/laishulu/macism)(`brew install laishulu/homebrew/macism`)이 있으면 허브 패널에 들어올 때 영문 자판으로 바꾸고 나갈 때(·메모장을 열 때·허브를 닫을 때) 원래 자판으로 되돌린다 — 터미널의 포커스 신호를 쓴다 |
 | ├ `feed` | 세션 활동 피드 — `claude agents` 세션들이 끝내거나(✔) 묻거나(▲) 시작한(●) 순간을 그 한 줄 요약과 함께 최근 것부터. 데몬이 남기는 `~/.claude/jobs/*/timeline.jsonl` 을 읽기만 한다. `sett` 는 2번 패널에 이걸 띄운다 |
 | ├ `memo` | 세션에 보낼 메모장. [send] 하면 그 세션이 작업 중이면 끝난 뒤 들어간다. 세션마다 메모가 따로 |
 | ├ `tetris` | 테트리스. `c` 로 블럭 1개 보관. 패널이 22줄보다 낮으면 판을 반높이(12줄)로 그린다 |
@@ -84,7 +84,7 @@ MIT — `LICENSE`. (포켓몬 관련 명칭과 PokeAPI 데이터는 이 라이�
 ## English summary
 ![The mods hub in English](docs/images/hub-en.png)
 
-**working_place** is a Claude Code mod set. Type `/mods` (works even while the session is busy) to open a hub showing the session's context/cost/rate-limit gauges, the status of every `claude agents` session (needs yellow, working gray, completed green) and buttons for small tools: a memo you can send to the session (queued until it is idle), Tetris (with hold), and an unofficial Pokémon collection game fed by the tokens you spend. `long-run-watch` estimates long Bash commands and warns when they overrun. The `[ 한/EN ]` button switches every screen between Korean and English.
+**working_place** is a Claude Code mod set. Type `/mods` (works even while the session is busy) to open a hub showing the session's context/cost/rate-limit gauges, the status of every awake `claude agents` session (needs yellow, working gray, completed green) and buttons for small tools: a memo you can send to the session (queued until it is idle), Tetris (with hold), and an unofficial Pokémon collection game fed by the tokens you spend. `long-run-watch` estimates long Bash commands and warns when they overrun. The `[ 한/EN ]` button switches every screen between Korean and English.
 
 **Install:** `/plugin install pane-tools --marketplace Shin-junyeob/working_place` (and `long-run-watch`), then `/mods`. Requires `python3`.
 **Where it opens:** the hub's `[ setup ]` button (`s`) — auto / new window / split this window / another pane / custom command, plus the pane to follow; saved in `~/.claude/pane-tools/settings.json`, it overrides `/config` from the next `/mods`. Or `/config` → pane-tools → `launcher` = `auto` · `tmux` (split, or replace `tmuxTarget`) · `window` (Windows Terminal / macOS Terminal / x-terminal-emulator) · `command` (your own command with a `{cmd}` placeholder, e.g. `wezterm cli split-pane -- bash -lc {cmd}`). `followPane` makes the hub follow the Claude session shown in a pane (tmux `dev:0.0`, or cmux `cmux:0` = pane 0 of the hub's workspace); empty = the session that ran `/mods`.
