@@ -7,12 +7,14 @@
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
 - 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나오고(BOXED_WEIGHT), 나오면 잡지 않고 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
 - 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤, 이미 가방에 있는 모습으로는 진화하지 않는다.
-- 볼 네 가지: 몬스터볼(b) · 슈퍼볼(u, 1.5배) · 하이퍼볼(h, 2배) · 마스터볼(m, 반드시 잡힘). 전설·환상은 하이퍼볼·마스터볼로만
+- 볼 네 가지: 몬스터볼 · 슈퍼볼(1.5배) · 하이퍼볼(2배) · 마스터볼(반드시 잡힘). 전설·환상은 하이퍼볼·마스터볼로만
   잡힌다(다른 볼은 쓰지 않고 알려만 준다). 마스터볼은 세대마다 두 개 — 8관 지방 정복과 사천왕·챔피언 첫 승리.
   체육관은 처음 이길 때마다 하이퍼볼 1개.
   하이퍼볼은 가방에서 몬스터볼 HYPER_COST 개로 바꾼다. 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
   하나라도 있으면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline). 그런 날이 EGG_STREAK 일 연속이면 알.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(중복·진화 막힘 모두 따로). 이름은 금색.
+- 조작은 방향키·Enter·q 뿐: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
+  도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 마우스 클릭도 된다.
 상태는 ~/.claude/pane-tools/pokemon.json. 허브는 summary() 로 동료를 보여 준다.
 `python3 pokemon.py --selftest` 로 규칙을 점검한다(데이터가 없으면 먼저 받는다).
 """
@@ -586,6 +588,23 @@ def evo_status(st, t):
     return ('ready',) if xp >= need else ('progress', xp, need)
 
 
+def move_focus(btns, focus, key):
+    """방향키로 버튼 고르기 — ←→ 는 앞뒤 버튼(끝에서 돌아온다), ↑↓ 는 위·아래 줄에서 가로 위치가 가장 가까운 버튼.
+    btns: [(y, x, 끝, act, 글)] 그린 순서. 위·아래에 버튼 줄이 없으면 그대로."""
+    if not btns:
+        return focus
+    acts = [b[3] for b in btns]
+    i = acts.index(focus) if focus in acts else 0
+    if key in (curses.KEY_LEFT, curses.KEY_RIGHT):
+        return acts[(i + (1 if key == curses.KEY_RIGHT else -1)) % len(acts)]
+    y, x = btns[i][0], btns[i][1]
+    rows = [b for b in btns if (b[0] > y if key == curses.KEY_DOWN else b[0] < y)]
+    if not rows:
+        return acts[i]
+    ny = min(rows, key=lambda b: abs(b[0] - y))[0]
+    return min((b for b in rows if b[0] == ny), key=lambda b: abs(b[1] - x))[3]
+
+
 def blocked_text(opened):
     if len(opened) == 1:
         return L(f'{name(opened[0])}(이)가 가방에 있어 진화 못 함', f"can't evolve — {name(opened[0])} is already in the bag")
@@ -832,6 +851,14 @@ def box_level(m):
     return _battle.level(depth(m['id']), m.get('bxp', 0))
 
 
+def xp_text(m):
+    """배틀 경험치 진행도 — '(10/50)', 상한이면 '(최대)'."""
+    bxp = m.get('bxp', 0)
+    if bxp // _battle.XP_PER_LEVEL >= _battle.XP_LEVEL_CAP:
+        return L('(최대)', '(max)')
+    return f'({bxp % _battle.XP_PER_LEVEL}/{_battle.XP_PER_LEVEL})'
+
+
 def team_of(st):
     """팀 [(가방 번호, 종, 레벨)] — 가방 순서가 아니라 넣은 순서."""
     return [(i, st['box'][i]['id'], box_level(st['box'][i])) for i in st.get('team', []) if i < len(st['box'])]
@@ -878,7 +905,7 @@ def fight(st, t, d, g, i, rng=random, today=None):
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
     team, cost = team_of(st), LEAGUE_COST if i == 'L' else GYM_COST
     if not team:
-        return None, L('팀이 비었다 — 가방(e)에서 t 로 넣거나 추천(r)을 적용하자.', 'Empty team — add with t in the bag or apply r.'), False
+        return None, L('팀이 비었다 — 가방에서 [팀]으로 넣거나 [추천] → [적용]을 하자.', 'Empty team — add with [team] in the bag, or [pick] → [apply].'), False
     if tickets(st, t) < cost:
         return None, L(f'탐색 기회가 {cost}번 있어야 도전할 수 있다.', f'You need {cost} explores to challenge.'), False
     st['used'] += cost
@@ -963,6 +990,7 @@ def main(scr):
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
     gsel, rec, battle_now, wr_cache = None, None, None, {}  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
+    focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
     if not DEX or len(DEX[1]) < 9:  # 처음 열었거나 옛 형식(알에 쓸 베이비·부화 걸음 없음) — 도감을 받아 온다
         put(scr, 0, 0, L('PokeAPI 에서 포켓몬 도감을 받는 중…', 'Downloading the Pokédex from PokeAPI…'))
@@ -1001,12 +1029,13 @@ def main(scr):
         scr.erase()
         put(scr, 0, 0, L(f' 포켓몬 · 누적 {fmt_tok(t)} 토큰 · ', f' Pokémon · {fmt_tok(t)} tokens total · ') + dex_text(st)
             + ' ' * w, curses.A_REVERSE)
-        btns = []
+        btns, navbtns = [], []  # navbtns: 방향키로 고르는 버튼들 (y, x, 끝, act, 글) — 목록 줄은 btns 에만(마우스용)
 
         def button(y, x, label, act):
             text = f'[ {label} ]'
-            end = put(scr, y, x, text, curses.A_BOLD | curses.A_REVERSE)
+            end = put(scr, y, x, text, curses.A_BOLD)
             btns.append((y, x, end, act))
+            navbtns.append((y, x, end, act, text))
             return end + 2
 
         if view == 'main':
@@ -1032,7 +1061,7 @@ def main(scr):
                     put(scr, y + 1, 1, blocked_text(ev[1]), curses.A_DIM)
                 elif ev[0] == 'ready':
                     x = put(scr, y + 1, 1, L('✨ 진화할 수 있다!', '✨ It can evolve!'), curses.A_BOLD)
-                    button(y + 1, x + 3, L('진화 v', 'evolve v'), 'evolve')
+                    button(y + 1, x + 3, L('진화', 'evolve'), 'evolve')
                 else:
                     x = put(scr, y + 1, 1, L('진화 ', 'Evolve '))
                     put(scr, y + 1, x, f'{bar(ev[1] / ev[2], 24)} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
@@ -1048,21 +1077,21 @@ def main(scr):
                 put(scr, y, x, L('(이)가 나타났다!', ' appeared!'), curses.A_BOLD)
                 left = st['wild']['balls'] or st['balls']
                 own = '' if st['wild']['balls'] else L(' 보유', ' owned')
-                x = button(y + 1, 1, L(f'몬스터볼 b ({left}{own})', f'Poké Ball b ({left}{own})'), 'throw')
+                x = button(y + 1, 1, L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')
                 if st['super']:
-                    x = button(y + 1, x, L(f'슈퍼볼 u ({st["super"]})', f'Great u ({st["super"]})'), 'super')
+                    x = button(y + 1, x, L(f'슈퍼볼 ({st["super"]})', f'Great ({st["super"]})'), 'super')
                 if st['hyper']:
-                    x = button(y + 1, x, L(f'하이퍼볼 h ({st["hyper"]})', f'Ultra h ({st["hyper"]})'), 'hyper')
+                    x = button(y + 1, x, L(f'하이퍼볼 ({st["hyper"]})', f'Ultra ({st["hyper"]})'), 'hyper')
                 if st['master']:
-                    x = button(y + 1, x, L(f'마스터볼 m ({st["master"]})', f'Master m ({st["master"]})'), 'master')
-                button(y + 1, x, L('도망 r', 'run r'), 'run')
+                    x = button(y + 1, x, L(f'마스터볼 ({st["master"]})', f'Master ({st["master"]})'), 'master')
+                button(y + 1, x, L('도망', 'run'), 'run')
             else:
                 k = tickets(st, t)
                 if k > 0:
                     put(scr, y, 1, L(f'탐색 {k}회 가능 · 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
                                      f'{k} explore{"" if k == 1 else "s"} ready · Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}')
                         + (L(f' · 마스터볼 {st["master"]}', f' · Master {st["master"]}') if st['master'] else ''))
-                    button(y + 1, 1, L('풀숲 탐색 s', 'explore grass s'), 'explore')
+                    button(y + 1, 1, L('풀숲 탐색', 'explore grass'), 'explore')
                 else:
                     left = ENCOUNTER_EVERY - t % ENCOUNTER_EVERY
                     put(scr, y + 1, 1, L(f'몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
@@ -1078,32 +1107,33 @@ def main(scr):
             put(scr, y0 + 6, 40, L(f'연속 {streak(st, today)}일 · {EGG_STREAK}일마다 알', f'{streak(st, today)}-day streak · egg every {EGG_STREAK}'),
                 curses.A_DIM)
             put(scr, y0 + 7, 1, msg)
-            x = button(h - 1, 1, L('도감 d', 'dex d'), 'dex')
-            x = button(h - 1, x, L('가방 e', 'bag e'), 'box')
-            x = button(h - 1, x, L('훈장 a', 'medals a'), 'badges')
-            x = button(h - 1, x, L('체육관 g', 'gyms g'), 'gyms')
-            button(h - 1, x, L('닫기 q', 'close q'), 'close')  # 동료 그림 컬러/회색은 c 키로(버튼 자리가 모자라 뺐다)
+            x = button(h - 1, 1, L('도감', 'dex'), 'dex')
+            x = button(h - 1, x, L('가방', 'bag'), 'box')
+            x = button(h - 1, x, L('훈장', 'medals'), 'badges')
+            x = button(h - 1, x, L('체육관', 'gyms'), 'gyms')
+            button(h - 1, x, L('닫기 q', 'close q'), 'close')  # 동료 그림 컬러/회색은 가방 화면의 버튼으로
         elif view == 'badges':
             rows = [b for b, _, _, _ in BADGES]
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             put(scr, 1, 1, msg or L(f'훈장 {len(st["badges"])}/{len(BADGES)} · 장식 {len(st.get("showcase", []))}/{SHOWCASE_MAX}'
-                                    ' — Space 로 장식 고르기/빼기',
+                                    ' — Enter 로 장식 고르기/빼기',
                                     f'Medals {len(st["badges"])}/{len(BADGES)} · shown {len(st.get("showcase", []))}/{SHOWCASE_MAX}'
-                                    ' — Space to show/hide'), curses.A_DIM)
+                                    ' — Enter to show/hide'), curses.A_DIM)
             draw_badge_list(scr, st, rows[top:top + body], top, sel, w, btns)
             if rows[sel] in st['badges'] and w >= 50:  # 커서가 놓인 훈장 그림을 오른쪽에 크게
                 art = badge_art(st, [rows[sel]], 3, w - 14, 4)
-            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
-            put(scr, h - 1, x, L('↑↓ 이동 · Space 장식', '↑↓ move · Space show'), curses.A_DIM)
+            x = button(h - 1, 1, L('장식', 'show'), 'pin_sel')
+            x = button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+            put(scr, h - 1, x, L('↑↓ 고르기 · ←→ 버튼 · Enter', '↑↓ pick · ←→ button · Enter'), curses.A_DIM)
         elif view == 'gyms':
             rows = gym_rows(st)
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
-            put(scr, 1, 1, msg or L(f'체육관 배지 {len(st.get("gym", {}))}/{len(rows)} — Enter 도전 준비 · Space 장식',
-                                    f'Gym badges {len(st.get("gym", {}))}/{len(rows)} — Enter to prepare · Space to show'), curses.A_DIM)
+            put(scr, 1, 1, msg or L(f'체육관 배지 {len(st.get("gym", {}))}/{len(rows)}', f'Gym badges {len(st.get("gym", {}))}/{len(rows)}'),
+                curses.A_DIM)
             for k, (g, i) in enumerate(rows[top:top + body]):
                 key = f'gym:{g}-{i}'
                 if i == 'L':
@@ -1123,8 +1153,10 @@ def main(scr):
             if w >= 50 and rows:
                 g_, i_ = rows[sel]
                 art = badge_art(st, [f'champ{g_}' if i_ == 'L' else f'gym:{g_}-{i_}'], 3, w - 14, 4)
-            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
-            put(scr, h - 1, x, L('↑↓ 이동 · Enter 도전 준비 · Space 장식', '↑↓ move · Enter prepare · Space show'), curses.A_DIM)
+            x = button(h - 1, 1, L('도전 준비', 'prepare'), 'gym_sel')
+            x = button(h - 1, x, L('장식', 'show'), 'pin_gym')
+            x = button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+            put(scr, h - 1, x, L('↑↓ 관 · ←→ 버튼 · Enter', '↑↓ gym · ←→ button · Enter'), curses.A_DIM)
         elif view == 'gym':
             g, i = gsel
             opp = gym_opp(BATTLE, g, i)
@@ -1143,7 +1175,7 @@ def main(scr):
                 put(scr, 3, 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)} Lv{lv}' for n, lv in opp), curses.A_DIM)
                 base = 4
             put(scr, base, 1, L('내 팀 ', 'Team  ') + (', '.join(f'{name(n)} Lv{lv}' for _, n, lv in team) or
-                                                      L('(비었다 — 가방 e 에서 t, 또는 추천 r → y)', '(empty — t in the bag, or r → y)')))
+                                                      L('(비었다 — 가방에서 [팀], 또는 [추천] → [적용])', '(empty — [team] in the bag, or [pick] → [apply])')))
             wkey = (tuple((n, lv) for _, n, lv in team), g, i)
             if wkey not in wr_cache:
                 if i == 'L' and team:
@@ -1154,14 +1186,14 @@ def main(scr):
             if rec and rec[0] == (g, i):
                 rteam = [(st['box'][k]['id'], box_level(st['box'][k])) for k in rec[1]]
                 put(scr, base + 3, 1, L('추천  ', 'Pick  ') + ', '.join(name(n) for n, _ in rteam) +
-                    L(f'  (승률 {rec[2]:.0%}) — y 로 적용', f'  ({rec[2]:.0%}) — y to apply'))
+                    L(f'  (승률 {rec[2]:.0%}) — [적용]', f'  ({rec[2]:.0%}) — [apply]'))
             cost = LEAGUE_COST if i == 'L' else GYM_COST
             put(scr, base + 5, 1, msg)
             put(scr, base + 6, 1, L(f'탐색 기회 {tickets(st, t)}회 · 도전 1번에 {cost}회', f'{tickets(st, t)} explores · {cost} per challenge'),
                 curses.A_DIM)
-            x = button(h - 1, 1, L('도전 Enter', 'fight Enter'), 'fight')
-            x = button(h - 1, x, L('추천 r', 'pick r'), 'rec')
-            x = button(h - 1, x, L('적용 y', 'apply y'), 'apply')
+            x = button(h - 1, 1, L('도전', 'fight'), 'fight')
+            x = button(h - 1, x, L('추천', 'pick'), 'rec')
+            x = button(h - 1, x, L('적용', 'apply'), 'apply')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'fight':
             ev, k = battle_now['ev'], battle_now['k']
@@ -1193,14 +1225,18 @@ def main(scr):
             for j, line in enumerate(lines):
                 put(scr, y + 1 + j, 1, line, curses.A_BOLD if j == len(lines) - 1 else 0)
             if k >= len(ev):
+                ups = battle_now.get('ups', [])  # 받은 경험치와 레벨업을 결과 줄에 — 쌓이는 게 보이게
+                gain = L(f' 경험치 +{battle_now.get("xp", 0)}', f' XP +{battle_now.get("xp", 0)}') + (
+                    ' · Lv↑ ' + ', '.join(f'{name(n)} {a}→{b}' for n, a, b in ups[:2])
+                    + (L(f' 외 {len(ups) - 2}', f' +{len(ups) - 2}') if len(ups) > 2 else '') if ups else '')
                 res = (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]을 받았다!' if battle_now['key'].startswith('champ') else f'[{badge_name(battle_now["key"])}]를 받았다!',
-                                                  f'Got the [{badge_name(battle_now["key"])}]!') if battle_now['first']
-                                                 else L('팀이 경험치를 얻었다.', 'Your team gained experience.'))) \
-                    if battle_now['won'] else L('패배… 팀이 경험치를 얻었다. 다시 도전하자!', 'Defeat… your team gained experience.')
+                                                  f'Got the [{badge_name(battle_now["key"])}]!') if battle_now['first'] else '') + gain) \
+                    if battle_now['won'] else L('패배…', 'Defeat…') + gain
                 put(scr, h - 2, 1, res, curses.A_BOLD)
             x = button(h - 1, 1, (L('허브로 q', 'to hub q') if battle_now['won'] else L('다시 준비 q', 'retry q'))
                        if k >= len(ev) else L('돌아가기 q', 'back q'), 'back')
-            put(scr, h - 1, x, L('Space 끝까지', 'Space skip'), curses.A_DIM)
+            if k < len(ev):
+                put(scr, h - 1, x, L('Enter 끝까지', 'Enter skip'), curses.A_DIM)
         elif view == 'info':
             art = draw_info(scr, st, info, h, w, gold)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
@@ -1212,14 +1248,15 @@ def main(scr):
                     if dg <= open_gen else []) \
                 if view == 'dex' else \
                 [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '')
-                  + f'{name(m["id"])}  (No.{m["id"]:03d} · Lv{box_level(m)})')
+                  + f'{name(m["id"])}  (No.{m["id"]:03d} · Lv{box_level(m)} {xp_text(m)})')
                  for i, m in enumerate(st['box'])]
             if view == 'dex':
                 have = sum(1 for n in st['caught'] if gen(n) == dg)
                 put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶   ● 잡음 ○ 봄',
                                   f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶   ● caught ○ seen'), curses.A_DIM)
             else:
-                put(scr, 1, 1, msg or L('가방 — 누르면 동료로 데리고 다닌다', 'Bag — pick one to make it your partner'), curses.A_DIM)
+                put(scr, 1, 1, msg or L(f'가방 — ↑↓ 고르기 · ←→ 버튼 · Enter (교환: 몬스터볼 {HYPER_COST} → 하이퍼볼)',
+                                        f'Bag — ↑↓ pick · ←→ button · Enter (trade: {HYPER_COST} Poké → Ultra)'), curses.A_DIM)
             body = h - 4
             if rows:
                 sel = max(0, min(sel, len(rows) - 1))
@@ -1240,11 +1277,22 @@ def main(scr):
                 put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.',
                                  f'Locked — complete the Gen {dg - 1} Pokédex to open it.') if view == 'dex'
                     else L('아직 잡은 포켓몬이 없습니다.', 'No Pokémon caught yet.'))
-            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             if view == 'box':
-                x = button(h - 1, x, L(f'하이퍼볼 교환 x (몬스터볼 {HYPER_COST})', f'Ultra Ball x ({HYPER_COST} Poké)'), 'exchange')
-            put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation') if view == 'dex'
-                else L('↑↓ 이동 · Space 동료로 · t 팀', '↑↓ move · Space partner · t team'), curses.A_DIM)
+                gray = _lang.get('sprite') == 'gray'
+                x = button(h - 1, 1, L('동료로', 'partner'), 'partner_sel')
+                x = button(h - 1, x, L('팀', 'team'), 'team')
+                x = button(h - 1, x, L('교환', 'trade'), 'exchange')
+                x = button(h - 1, x, L('그림 회색', 'art gray') if gray else L('그림 컬러', 'art color'), 'sprite')
+                button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+            else:
+                x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
+                put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation'), curses.A_DIM)
+        acts = [b[3] for b in navbtns]
+        if focus not in acts:  # 처음이거나 그 버튼이 사라졌으면 — 돌아가기·닫기가 아닌 첫 버튼
+            focus = next((a for a in acts if a not in ('back', 'close')), acts[0] if acts else None)
+        for by, bx, _, a, text in navbtns:
+            if a == focus:
+                put(scr, by, bx, text, curses.A_BOLD | curses.A_REVERSE)
         if _gfx._six['key'] is not None and (not art or art[0] != 'six' or _gfx._six['key'] != art[3]):
             _gfx.redraw()  # 전 그림을 지운다 — tmux 가 화면 전체를 다시 그리게(빈칸으로 덮으면 크기가 어긋날 때 조각이 남았다)
         if _gfx._placed[0] is not None and (not art or art[0] != 'kitty'):
@@ -1258,41 +1306,40 @@ def main(scr):
         key = getkey(scr, 2000)
         if key != -1:
             _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
-        act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close',
-               ord('s'): 'explore', ord('b'): 'throw', ord('r'): 'run', ord('v'): 'evolve',
-               ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite', ord('u'): 'super', ord('h'): 'hyper', ord('m'): 'master',
-               ord('x'): 'exchange', ord('a'): 'badges', ord('g'): 'gyms', ord('t'): 'team', ord('y'): 'apply'}.get(key)
-        if view == 'gym' and key == ord('r'):
-            act = 'rec'
-        if view == 'gym' and key in (ord('\n'), curses.KEY_ENTER):
-            act = 'fight'
-        if view == 'fight' and key == ord(' '):
-            battle_now['k'] = len(battle_now['ev'])
+        act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
+        lists = view in ('box', 'dex', 'badges', 'gyms')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS, dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0
-        if view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
+        elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             seen = sorted(n for n in st['seen'] if gen(n) == gen(info))  # 같은 세대에서 본 것끼리 앞뒤로
             info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
-        if view in ('box', 'dex', 'badges', 'gyms') and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
+        elif lists and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             sel += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
-        elif view == 'box' and key in (ord(' '), ord('\n'), curses.KEY_ENTER) and st['box']:
-            act = ('partner', max(0, min(sel, len(st['box']) - 1)))
-        elif view == 'gyms' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
+        elif key in (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN):
+            focus = move_focus(navbtns, focus, key)
+        if key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
+            if view == 'dex':
+                n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
+                act = ('info', n) if n in st['seen'] else None
+            elif view == 'fight':
+                act = 'back'  # 기록을 끝까지 → 한 번 더 누르면 나간다
+            elif view != 'info':
+                act = focus
+        # 고른 줄에 하는 버튼 → 그 줄의 일로
+        if act == 'partner_sel':
+            act = ('partner', max(0, min(sel, len(st['box']) - 1))) if st['box'] else None
+        elif act == 'pin_sel':
+            act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
+        elif act in ('gym_sel', 'pin_gym'):
             rows = gym_rows(st)
             gi = rows[max(0, min(sel, len(rows) - 1))]
-            act = ('pin', f'champ{gi[0]}' if gi[1] == 'L' else f'gym:{gi[0]}-{gi[1]}') if key == ord(' ') else ('gym', gi)
-        elif view == 'badges' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
-            act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
-        elif view == 'dex' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
-            n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
-            act = ('info', n) if n in st['seen'] else None
-        elif key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
-            top += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
+            act = ('gym', gi) if act == 'gym_sel' else ('pin', f'champ{gi[0]}' if gi[1] == 'L' else f'gym:{gi[0]}-{gi[1]}')
         if key == curses.KEY_MOUSE:
             try:
                 _, mx, my, _, b = curses.getmouse()
                 if b & (curses.BUTTON1_PRESSED | curses.BUTTON1_CLICKED):
                     act = next((a for by, x0, x1, a in btns if my == by and x0 <= mx < x1), None)
+                    focus = act if act in acts else focus
                 elif b & getattr(curses, 'BUTTON4_PRESSED', 0):
                     top -= 3
                 elif b & getattr(curses, 'BUTTON5_PRESSED', 0):
@@ -1301,7 +1348,7 @@ def main(scr):
                 pass
         if act == 'close':
             break
-        if act == 'sprite' and view == 'main':
+        if act == 'sprite':
             gray = _lang.put('sprite', 'color' if _lang.get('sprite') == 'gray' else 'gray') == 'gray'
             msg = L('허브의 동료 그림을 회색으로 보여 줍니다.', 'Partner art in the hub is now grayscale.') if gray else \
                 L('허브의 동료 그림을 컬러로 보여 줍니다.', 'Partner art in the hub is now in color.')
@@ -1351,7 +1398,9 @@ def main(scr):
                 msg = ev
             else:
                 save(st)
-                battle_now = {'ev': ev, 'k': 0, 'won': won, 'first': first,
+                ups = [(n, lv, box_level(st['box'][k])) for k, n, lv in team if box_level(st['box'][k]) > lv]
+                gain = GYM_WIN_XP + 10 * (8 if gsel[1] == 'L' else gsel[1]) if won else GYM_LOSE_XP
+                battle_now = {'ev': ev, 'k': 0, 'won': won, 'first': first, 'xp': gain, 'ups': ups,
                               'key': f'champ{gsel[0]}' if gsel[1] == 'L' else f'gym:{gsel[0]}-{gsel[1]}'}
                 view, msg = 'fight', ''
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
@@ -1396,8 +1445,8 @@ def main(scr):
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
                        'fled': L(f'{name(n)}(은)는 도망쳐 버렸다…', f'{name(n)} ran away…'),
-                       'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! 가방(e)에서 몬스터볼 {HYPER_COST}개를 바꿔 오자.',
-                                      f'Only an Ultra or Master Ball works on {name(n)}! Trade {HYPER_COST} Poké Balls in the bag (e).'),
+                       'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! 가방의 [교환]으로 몬스터볼 {HYPER_COST}개를 바꿔 오자.',
+                                      f'Only an Ultra or Master Ball works on {name(n)}! Trade {HYPER_COST} Poké Balls with [trade] in the bag.'),
                        None: L('그 볼이 없다.', "You don't have that ball.")}[r]
             elif act == 'run' and st['wild']:
                 msg, st['wild'] = L('무사히 도망쳤다.', 'Got away safely.'), None
@@ -1683,7 +1732,7 @@ def selftest():
           'eff': {'11,6': 2.0, '11,5': 2.0, '6,11': 1.0, '5,11': 1.0}, 'tnames': {6: ['바위', 'Rock']}}
     gs = new_state()
     gs['box'] = [{'id': 7, 'xp': 0, 'bxp': 3000}] + [{'id': 7, 'xp': 0} for _ in range(6)]
-    assert toggle_team(gs, 0) and gs['team'] == [0] and team_of(gs)[0] == (0, 7, 15 + 30)
+    assert toggle_team(gs, 0) and gs['team'] == [0] and team_of(gs)[0] == (0, 7, 15 + min(_battle.XP_LEVEL_CAP, 3000 // _battle.XP_PER_LEVEL))
     for k in range(1, 7):
         toggle_team(gs, k)
     assert len(gs['team']) == 6 and 6 not in gs['team']  # 7번째는 못 넣는다
@@ -1709,9 +1758,20 @@ def selftest():
     bi = new_state()
     bi['box'] = [{'id': 74, 'xp': 0, 'bxp': 500}]
     lines = battle_info(bi, 74)
-    assert lines[0].endswith(f'(300){L(" · 가방 Lv20", " · bag Lv20")}') and L('물(×4)', 'Water(×4)') in lines[1]
+    assert lines[0].endswith(f'(300){L(" · 가방 Lv", " · bag Lv")}{15 + 500 // _battle.XP_PER_LEVEL}') and L('물(×4)', 'Water(×4)') in lines[1]
     assert L('무효 전기', 'Immune Electric') in lines[2] and L('불꽃', 'Fire') in lines[2]
     BATTLE_DATA.clear()
+    # 방향키로 버튼 고르기: ←→ 앞뒤(끝에서 돌아옴), ↑↓ 다른 줄에서 가로로 가장 가까운 것
+    nb = [(5, 1, 10, 'throw', ''), (5, 12, 20, 'super', ''), (5, 22, 30, 'run', ''),
+           (9, 1, 8, 'dex', ''), (9, 10, 17, 'box', ''), (9, 19, 28, 'close', '')]
+    K = curses
+    assert move_focus(nb, 'throw', K.KEY_RIGHT) == 'super' and move_focus(nb, 'throw', K.KEY_LEFT) == 'close'
+    assert move_focus(nb, 'super', K.KEY_DOWN) == 'box' and move_focus(nb, 'close', K.KEY_UP) == 'run'
+    assert move_focus(nb, 'run', K.KEY_UP) == 'run' and move_focus(nb, 'gone', K.KEY_RIGHT) == 'super'
+    assert move_focus([], None, K.KEY_RIGHT) is None
+    # 배틀 경험치 진행도: 50 마다 1레벨, 상한이면 (최대)
+    assert xp_text({'id': 1, 'bxp': 60}) == '(10/50)' and xp_text({'id': 1, 'bxp': 10**6}) == L('(최대)', '(max)')
+    assert box_level({'id': 1, 'bxp': 60}) == 16  # 이상해씨 15 + 60 // 50
     print('pokemon selftest ok')
 
 
