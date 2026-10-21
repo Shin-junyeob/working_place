@@ -296,8 +296,16 @@ def draw_sprite(scr, y, x, grid, gray=False):
 
 
 def _src(n):
-    """그림 번호 → sprites/ 아래 이름(받는 주소도 같은 꼴). 배지 · 이로치 · 기본 순."""
+    """그림 번호 → 이 PC 의 sprites/ 아래 이름. 'item:<이름>' 은 도구 그림(훈장) · 배지 · 이로치 · 기본 순."""
+    if isinstance(n, str):
+        return f'items/{n[5:]}'
     return f'badges/{n - BADGE}' if n > BADGE else f'shiny/{n - SHINY}' if n > SHINY else str(n)
+
+
+def _url(n):
+    """그림 번호 → PokeAPI/sprites 주소. 포켓몬·이로치는 sprites/pokemon/ 아래, 배지·도구는 sprites/ 바로 아래."""
+    src = _src(n)
+    return SPRITE_URL.format(src).replace('/pokemon/badges/', '/badges/').replace('/pokemon/items/', '/items/')
 
 
 def resize(px, height):
@@ -412,7 +420,7 @@ def sprite_sixel_fit(n, gray, max_w, max_h):
 
 def _fetch(n, path):
     try:
-        with urllib.request.urlopen(SPRITE_URL.format(_src(n)).replace('/pokemon/badges/', '/badges/'), timeout=20) as r:
+        with urllib.request.urlopen(_url(n), timeout=20) as r:
             data = r.read()
         decode_png(data)  # 깨진 파일은 저장하지 않는다
         os.makedirs(os.path.dirname(path), exist_ok=True)
