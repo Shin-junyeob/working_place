@@ -42,7 +42,8 @@ def build(species, names):
         n = int(r['id'])
         en = nm.get((n, EN), r['identifier'].title())
         rows.append([n, nm.get((n, KO), en), int(r['generation_id']), int(r['evolves_from_species_id'] or 0),
-                     int(r['capture_rate']), 2 if r['is_mythical'] == '1' else 1 if r['is_legendary'] == '1' else 0, en])
+                     int(r['capture_rate']), 2 if r['is_mythical'] == '1' else 1 if r['is_legendary'] == '1' else 0, en,
+                     int(r.get('is_baby') or 0), int(r.get('hatch_counter') or 20)])  # 베이비 · 부화 걸음(알)
     rows.sort()
     if [r[0] for r in rows] != list(range(1, len(rows) + 1)):
         raise ValueError('PokeAPI 데이터에 빈 번호가 있다')
@@ -52,7 +53,12 @@ def build(species, names):
 def ensure(force=False):
     """도감 파일이 없으면 받아 만든다. 만든 파일 경로를 돌려준다(네트워크 오류는 그대로 올린다)."""
     if os.path.exists(OUT) and not force:
-        return OUT
+        try:
+            with open(OUT, encoding='utf-8') as f:
+                if len(json.load(f)[0]) >= 9:  # 옛 형식(베이비·부화 걸음 없음)이면 다시 받는다
+                    return OUT
+        except (OSError, ValueError, IndexError):
+            pass
     rows = build(_csv('pokemon_species'), _csv('pokemon_species_names'))
     os.makedirs(ROOT, exist_ok=True)
     with open(OUT + '.tmp', 'w', encoding='utf-8') as f:
