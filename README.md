@@ -66,11 +66,14 @@ bash ~/.claude/mods/install.sh --auto-pull         # (선택) 10분마다 GitHub
 고친 것은 `git pull` / `git push` 로 PC 끼리 맞춘다. `--auto-pull` 을 켜면 받아 오기는 저절로 된다(이 PC 에 커밋 안 한 수정이나 안 올린 커밋이 있으면 건너뛰고 `~/.claude/pane-tools/autopull.log` 에 남김). 다른 사람은 fork 나 Pull Request 로 제안할 수 있다.
 
 ## 기록은 어디에 (저장소에 안 들어감)
-`~/.claude/pane-tools/` — `settings.json`(한/영·동료 그림 컬러/회색·허브 [ 설정 ] 의 띄울 곳), `pokemon.json`(포켓몬 진행), `pokedex.json`·`pokedex_detail.json`(PokeAPI 에서 받은 도감·상세), `sprites/`(동료 그림 — 필요할 때 한 장씩 받음), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).
+`~/.claude/pane-tools/` — `settings.json`(한/영·동료 그림 컬러/회색·허브 [ 설정 ] 의 띄울 곳), `pokemon.json`(포켓몬 진행), `pokedex.json`·`pokedex_detail.json`(PokeAPI 에서 받은 도감·상세), `sprites/`(포켓몬 도트 · `shiny/` 이로치 · `badges/` 체육관 배지 그림 — PokeAPI 에서 필요할 때 한 장씩 받음), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).
 
 ## 포켓몬 — 비공식 팬메이드
 - 이 프로젝트는 **비공식 팬메이드**이며 Nintendo · Creatures · GAME FREAK · The Pokémon Company 와 관계가 없고, 이들의 승인이나 후원을 받지 않았습니다. 포켓몬과 각 포켓몬 이름은 해당 권리자의 상표입니다. 비영리 목적으로만 만들었습니다.
-- 저장소에는 포켓몬 데이터가 **들어 있지 않습니다**. `pokemon` 모드를 처음 열 때 [PokeAPI](https://pokeapi.co/) 의 공개 데이터(CSV)에서 이름(한·영)·세대·진화 관계·포획률을 받아 각자의 PC(`~/.claude/pane-tools/pokedex.json`)에 만듭니다. 다시 받으려면 `python3 pane-tools/bin/_pokedata.py`.
+- 저장소에는 포켓몬 데이터도 그림도 **들어 있지 않습니다**. 모두 각자의 PC 에서 [PokeAPI](https://pokeapi.co/) 로부터 받습니다.
+  - 데이터: `pokemon` 모드를 처음 열 때 공개 CSV([PokeAPI/pokeapi](https://github.com/PokeAPI/pokeapi) `data/v2/csv`)에서 이름(한·영)·세대·진화 관계·포획률·베이비·부화 걸음을 받아 `~/.claude/pane-tools/pokedex.json` 을, 도감 상세를 처음 열 때 분류·타입·키·몸무게·도감 설명을 받아 `pokedex_detail.json` 을 만듭니다. 다시 받으려면 `python3 pane-tools/bin/_pokedata.py`.
+  - 그림: 포켓몬 도트·이로치 도트·**체육관 배지(훈장) 그림**은 [PokeAPI/sprites](https://github.com/PokeAPI/sprites) 의 `sprites/pokemon/<번호>.png`·`sprites/pokemon/shiny/<번호>.png`·`sprites/badges/<번호>.png` 를 화면에 처음 나올 때 한 장씩 받아 `~/.claude/pane-tools/sprites/` 에 둡니다. 저장소의 `pane-tools/bin/pokemon.py` 에는 배지 → 그림 **번호**만 적혀 있습니다.
+  - `docs/images/` 의 그림은 이 프로그램 화면을 찍은 스크린샷입니다.
 - 권리자의 요청이 있으면 이 모드는 내립니다.
 
 ## 점검
@@ -78,7 +81,7 @@ bash ~/.claude/mods/install.sh --auto-pull         # (선택) 10분마다 GitHub
 `python3 pane-tools/bin/<이름>.py --selftest`, `claude plugin test pane-tools`, `claude plugin test long-run-watch`
 
 ## 라이선스
-MIT — `LICENSE`. (포켓몬 관련 명칭과 PokeAPI 데이터는 이 라이선스에 포함되지 않습니다.)
+MIT — `LICENSE`. (포켓몬 관련 명칭, PokeAPI 데이터와 그림(포켓몬·배지)은 이 라이선스에 포함되지 않습니다.)
 
 ---
 
@@ -90,5 +93,5 @@ MIT — `LICENSE`. (포켓몬 관련 명칭과 PokeAPI 데이터는 이 라이�
 **Install:** `/plugin install pane-tools --marketplace Shin-junyeob/working_place` (and `long-run-watch`), then `/mods`. Requires `python3`.
 **Where it opens:** the hub's `[ setup ]` button (`s`) — auto / new window / split this window / another pane / custom command, plus the pane to follow; saved in `~/.claude/pane-tools/settings.json`, it overrides `/config` from the next `/mods`. Or `/config` → pane-tools → `launcher` = `auto` · `tmux` (split, or replace `tmuxTarget`) · `window` (Windows Terminal / macOS Terminal / x-terminal-emulator) · `command` (your own command with a `{cmd}` placeholder, e.g. `wezterm cli split-pane -- bash -lc {cmd}`). `followPane` makes the hub follow the Claude session shown in a pane (tmux `dev:0.0`, or cmux `cmux:0` = pane 0 of the hub's workspace); empty = the session that ran `/mods`.
 **Add a mode:** drop `pane-tools/bin/<name>.py` (a curses program); the hub shows a `[ <name> ]` button.
-**Pokémon notice:** unofficial, non-commercial fan project, not affiliated with or endorsed by Nintendo, Creatures, GAME FREAK or The Pokémon Company. No Pokémon data ships in this repo; it is downloaded from [PokeAPI](https://pokeapi.co/) on first use. It will be taken down on request from the rights holders.
-**License:** MIT (Pokémon names and PokeAPI data are not covered).
+**Pokémon notice:** unofficial, non-commercial fan project, not affiliated with or endorsed by Nintendo, Creatures, GAME FREAK or The Pokémon Company. No Pokémon data or images ship in this repo: the data comes from PokeAPI's CSVs and the Pokémon, shiny and gym badge sprites from [PokeAPI/sprites](https://github.com/PokeAPI/sprites), each downloaded to `~/.claude/pane-tools/` on first use (the code only stores badge-to-image numbers). It will be taken down on request from the rights holders.
+**License:** MIT (Pokémon names, PokeAPI data and sprites — Pokémon and badges — are not covered).
