@@ -7,6 +7,10 @@
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
 - 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나오고(BOXED_WEIGHT), 나오면 잡지 않고 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
 - 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤, 이미 가방에 있는 모습으로는 진화하지 않는다.
+- 볼 세 가지: 몬스터볼(b) · 슈퍼볼(u, 1.5배) · 하이퍼볼(h, 2배). 전설·환상은 하이퍼볼로만 잡힌다(다른 볼은 쓰지 않고 알려만 준다).
+  하이퍼볼은 가방에서 몬스터볼 HYPER_COST 개로 바꾼다. 슈퍼볼은 일한 보상 — 하루에 서로 다른 세션 SUPER_SESSIONS 개
+  이상이 PR 병합·배포가 든 completed 를 내면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline).
+- 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(중복·진화 막힘 모두 따로). 이름은 금색.
 상태는 ~/.claude/pane-tools/pokemon.json. 허브는 summary() 로 동료를 보여 준다.
 `python3 pokemon.py --selftest` 로 규칙을 점검한다(데이터가 없으면 먼저 받는다).
 """
@@ -16,10 +20,13 @@ import json
 import locale
 import os
 import random
+import re
 import sys
+from datetime import datetime
 
 import _lang
 import _pokedata
+import feed  # 세션 기록(슈퍼볼 보상) · 금색(이로치)
 from _lang import L
 from memo import focus_reporting, getkey, put  # 한글 2칸 폭을 맞춰 그리기 · 한글 자판 단축키 — 메모장과 같이 쓴다
 
@@ -29,6 +36,11 @@ STAGE_XP = [150_000, 400_000]  # 1→2단계, 2→3단계
 BALLS = 3
 WINDOW = 4  # 순서상 앞쪽 몇 마리 중에서 나오나
 BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다(wild_odds)
+SHINY_RATE = 1 / 256
+HYPER_COST = 100  # 몬스터볼 몇 개로 하이퍼볼 하나
+BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}
+SUPER_SESSIONS = 3  # 하루에 PR·배포를 끝낸 서로 다른 세션이 이만큼이면 슈퍼볼 1개
+SHIP = re.compile(r'PR|병합|배포|merge|deploy', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
 
 DEX, GENS, GEN_SIZE, CHILDREN = {}, 0, {}, {}  # load_dex() 가 채운다
 
@@ -106,16 +118,21 @@ def wild_pool(st):
     return sorted(pool, key=order_key)
 
 
+def boxed(st, shiny=False):
+    """가방에 있는 종 — 이로치와 기본 모습은 따로 센다."""
+    return {m['id'] for m in st['box'] if bool(m.get('shiny')) == bool(shiny)}
+
+
 def wild_odds(st):
     """이번 탐색의 후보와 가중치 [(번호, 가중치)] — 가방에 없는 앞쪽 WINDOW 마리는 1, 그 사이에 낀 가방 속 종은
     BOXED_WEIGHT. 가방 속 종은 진화형을 동료 진화로만 얻으니 나와 봐야 볼로 바뀔 뿐인데, 그대로 두면 맨 앞 칸을
     막아 같은 포켓몬만 나왔다(진화 전 스타팅 3종이 4칸 중 3칸). 아예 빼지는 않고 드물게만 나오게 한다."""
-    pool, boxed = wild_pool(st), {m['id'] for m in st['box']}
-    fresh = [n for n in pool if n not in boxed][:WINDOW]
+    pool, inbag = wild_pool(st), boxed(st)
+    fresh = [n for n in pool if n not in inbag][:WINDOW]
     if not fresh:  # 남은 게 전부 가방 속 종이면 그것들끼리
         return [(n, 1) for n in pool[:WINDOW]]
     front = pool[:pool.index(fresh[-1]) + 1]
-    return [(n, BOXED_WEIGHT if n in boxed else 1) for n in front]
+    return [(n, BOXED_WEIGHT if n in inbag else 1) for n in front]
 
 
 def name(n):
@@ -140,7 +157,8 @@ def total_tokens(root=ROOT):
 
 
 def new_state():
-    return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0}
+    return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
+            'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None}
 
 
 def load(root=ROOT):
@@ -183,11 +201,11 @@ def opened_evolutions(st, n):
     return [c for c in CHILDREN.get(n, []) if gen(c) <= g]
 
 
-def evolutions(st, n):
+def evolutions(st, n, shiny=False):
     """진화할 수 있는 다음 모습들 — 열린 세대 안에서, 가방에 아직 없는 것만. 이상해풀이 가방에 있으면 이상해씨는
     진화하지 않는다: 같은 모습이 두 마리가 되지 않고, 이상해씨는 가방에 남아 야생에서 계속 1/10 로만 나온다."""
-    boxed = {m['id'] for m in st['box']}
-    return [c for c in opened_evolutions(st, n) if c not in boxed]
+    inbag = boxed(st, shiny)  # 이로치는 이로치끼리 — 기본 이상해풀이 있어도 이로치 이상해씨는 진화한다
+    return [c for c in opened_evolutions(st, n) if c not in inbag]
 
 
 def need_xp(n):
@@ -198,8 +216,8 @@ def need_xp(n):
 def can_evolve(st, t):
     if st['partner'] is None:
         return False
-    n = st['box'][st['partner']]['id']
-    return bool(evolutions(st, n)) and partner_xp(st, t) >= need_xp(n)
+    m = st['box'][st['partner']]
+    return bool(evolutions(st, m['id'], m.get('shiny'))) and partner_xp(st, t) >= need_xp(m['id'])
 
 
 def _mark(st, key, n):
@@ -215,12 +233,13 @@ def explore(st, t, rng=random):
         return None
     st['used'] += 1
     n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
+    shiny = rng.random() < SHINY_RATE
     _mark(st, 'seen', n)
-    if any(m['id'] == n for m in st['box']):  # 이미 가방에 있다 → 몬스터볼로
+    if n in boxed(st, shiny):  # 같은 모습(기본/이로치)이 이미 가방에 있다 → 몬스터볼로
         k = dupe_balls(n)
         st['balls'] += k
         return n, k
-    st['wild'] = {'id': n, 'balls': BALLS}
+    st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {})}
     return n, 0
 
 
@@ -230,37 +249,81 @@ def set_partner(st, t, i):
     st['partner'], st['base'] = i, t
 
 
-def throw(st, t, rng=random):
-    """볼 하나. 'caught' / 'missed' / 'fled'."""
+def throw(st, t, rng=random, kind='ball'):
+    """볼 하나(kind: ball · super · hyper). 'caught' / 'missed' / 'fled' · 볼이 없으면 None ·
+    전설·환상에 하이퍼볼이 아니면 'needhyper'(볼을 쓰지 않는다 — 가방에서 바꿔 와 다시 던지게)."""
     w = st['wild']
-    if not w or w['balls'] + st['balls'] <= 0:
+    if not w or (w['balls'] + st['balls'] if kind == 'ball' else st[kind]) <= 0:
         return None
-    if w['balls'] > 0:  # 만날 때 받은 볼부터, 다 쓰면 보유 볼
+    if DEX[w['id']][5] and kind != 'hyper':
+        return 'needhyper'
+    if kind != 'ball':
+        st[kind] -= 1
+    elif w['balls'] > 0:  # 만날 때 받은 볼부터, 다 쓰면 보유 볼
         w['balls'] -= 1
     else:
         st['balls'] -= 1
-    if rng.random() < catch_rate(w['id']):
-        st['box'].append({'id': w['id'], 'xp': 0})
+    if rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS[kind]):
+        st['box'].append({'id': w['id'], 'xp': 0, **({'shiny': True} if w.get('shiny') else {})})
         _mark(st, 'caught', w['id'])
+        if w.get('shiny'):
+            _mark(st, 'shiny', w['id'])
         st['wild'] = None
         st['balls'] += 1  # 포획 보상 — 중복이 안 나오니 볼은 여기서 쌓인다
         if st['partner'] is None:
             set_partner(st, t, len(st['box']) - 1)
         return 'caught'
-    if w['balls'] + st['balls'] <= 0:
+    if w['balls'] + st['balls'] + st['super'] + st['hyper'] <= 0:
         st['wild'] = None
         return 'fled'
     return 'missed'
+
+
+def exchange(st):
+    """몬스터볼 HYPER_COST 개 → 하이퍼볼 1개. 바꿨으면 True."""
+    if st['balls'] < HYPER_COST:
+        return False
+    st['balls'] -= HYPER_COST
+    st['hyper'] += 1
+    return True
+
+
+def _day(at):
+    return datetime.fromisoformat(at.replace('Z', '+00:00')).astimezone().strftime('%Y-%m-%d')
+
+
+def shipped(folder=feed.JOBS):
+    """날짜 → PR 병합·배포가 든 completed 를 낸 세션 이름들."""
+    out = {}
+    for at, nm, state, detail in feed.feed(folder, limit=None):
+        if state == 'done' and SHIP.search(detail):
+            out.setdefault(_day(at), set()).add(nm)
+    return out
+
+
+def reward(st, folder=feed.JOBS, today=None):
+    """일한 보상 — 기능을 켠 날부터, 조건을 채운 날마다 슈퍼볼 1개(하루 1개). 새로 준 개수."""
+    today = today or datetime.now().astimezone().strftime('%Y-%m-%d')
+    st['reward_since'] = st.get('reward_since') or today
+    got = 0
+    for day, names in shipped(folder).items():
+        if day >= st['reward_since'] and day not in st['rewarded'] and len(names) >= SUPER_SESSIONS:
+            st['rewarded'] = (st['rewarded'] + [day])[-60:]
+            st['super'] += 1
+            got += 1
+    return got
 
 
 def evolve(st, t, rng=random):
     if not can_evolve(st, t):
         return None
     mon = st['box'][st['partner']]
-    mon['id'], mon['xp'] = rng.choice(evolutions(st, mon['id'])), 0
+    mon['id'], mon['xp'] = rng.choice(evolutions(st, mon['id'], mon.get('shiny'))), 0  # 이로치는 이로치로 진화
     st['base'] = t
     _mark(st, 'seen', mon['id'])
     _mark(st, 'caught', mon['id'])
+    if mon.get('shiny'):
+        _mark(st, 'shiny', mon['id'])
     return mon['id']
 
 
@@ -279,13 +342,14 @@ def dex_text(st):
 
 def evo_status(st, t):
     """동료의 진화 상태: ('final',) · ('locked',) · ('blocked', 진화형들) · ('ready',) · ('progress', 경험치, 필요치)."""
-    n = st['box'][st['partner']]['id']
+    m = st['box'][st['partner']]
+    n = m['id']
     if n not in CHILDREN:
         return ('final',)
     opened = opened_evolutions(st, n)
     if not opened:
         return ('locked',)
-    if not evolutions(st, n):
+    if not evolutions(st, n, m.get('shiny')):
         return ('blocked', opened)  # 진화형이 이미 가방에 있다
     xp, need = partner_xp(st, t), need_xp(n)
     return ('ready',) if xp >= need else ('progress', xp, need)
@@ -303,6 +367,8 @@ def summary(root=ROOT):
         return [(L('포켓몬 데이터 없음 — [ pokemon ] 을 열면 받아 옵니다',
                    'No Pokédex yet — open [ pokemon ] to download it'), False, None)]
     st, t = load(root), total_tokens(root)
+    if reward(st):  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다
+        save(st, root)
     lines = []
     if st['partner'] is None:
         lines.append((L('동료 없음 — [ pokemon ] 에서 탐색해 잡아 보세요',
@@ -332,8 +398,14 @@ def summary(root=ROOT):
 
 def partner_id(root=ROOT):
     """허브에 그림을 띄울 동료의 번호 — 없으면 None."""
-    st = load(root)
-    return None if st['partner'] is None else st['box'][st['partner']]['id']
+    return partner_id_of(load(root))
+
+
+def partner_id_of(st):
+    if st['partner'] is None:
+        return None
+    m = st['box'][st['partner']]
+    return m['id'] + (_pokedata.SHINY if m.get('shiny') else 0)  # 이로치면 이로치 그림 번호
 
 
 # ── 화면 ──
@@ -348,6 +420,10 @@ def main(scr):
     scr.timeout(2000)
     curses.mousemask(curses.ALL_MOUSE_EVENTS)
     curses.mouseinterval(0)
+    curses.start_color()
+    curses.use_default_colors()
+    feed.init_colors()
+    gold = curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD  # 이로치 이름 — 256색 220(#ffd700)
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방에서 커서가 놓인 줄
     if not DEX:  # 처음 열었다 — 도감을 받아 온다
         put(scr, 0, 0, L('PokeAPI 에서 포켓몬 도감을 받는 중…', 'Downloading the Pokédex from PokeAPI…'))
@@ -368,6 +444,10 @@ def main(scr):
             return
     while True:
         st, t = load(), total_tokens()
+        got = reward(st)
+        if got:
+            save(st)
+            msg = L(f'오늘 여러 세션이 일을 내보냈다! 슈퍼볼 {got}개를 받았다.', f'Sessions shipped work! Got {got} Great Ball(s).')
         h, w = scr.getmaxyx()
         scr.erase()
         put(scr, 0, 0, L(f' 포켓몬 · 누적 {fmt_tok(t)} 토큰 · ', f' Pokémon · {fmt_tok(t)} tokens total · ') + dex_text(st)
@@ -385,9 +465,13 @@ def main(scr):
             if st['partner'] is None:
                 put(scr, y, 1, L('아직 동료가 없습니다. 풀숲을 탐색해 보세요.', 'No partner yet. Try exploring the tall grass.'))
             else:
-                n = st['box'][st['partner']]['id']
-                put(scr, y, 1, L(f'동료  {name(n)}  (No.{n:04d}, {gen(n)}세대 · {depth(n) + 1}단계)',
-                                  f'Partner  {name(n)}  (No.{n:04d}, Gen {gen(n)} · stage {depth(n) + 1})'), curses.A_BOLD)
+                m = st['box'][st['partner']]
+                n = m['id']
+                x = put(scr, y, 1, L('동료  ', 'Partner  '), curses.A_BOLD)
+                x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n),
+                        gold if m.get('shiny') else curses.A_BOLD)
+                put(scr, y, x, L(f'  (No.{n:04d}, {gen(n)}세대 · {depth(n) + 1}단계)',
+                                 f'  (No.{n:04d}, Gen {gen(n)} · stage {depth(n) + 1})'), curses.A_BOLD)
                 ev = evo_status(st, t)
                 if ev[0] == 'final':
                     put(scr, y + 1, 1, L('더 진화하지 않는 포켓몬입니다.', 'This Pokémon does not evolve any further.'), curses.A_DIM)
@@ -404,23 +488,35 @@ def main(scr):
                     put(scr, y + 1, x, f'{bar(ev[1] / ev[2], 24)} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
             y = 6
             if st['wild']:
-                wn = name(st['wild']['id'])
-                put(scr, y, 1, L(f'앗! 야생의 {wn}(이)가 나타났다!', f'Oh! A wild {wn} appeared!'), curses.A_BOLD)
+                sh = st['wild'].get('shiny')
+                x = put(scr, y, 1, L('앗! 야생의 ', 'Oh! A wild '), curses.A_BOLD)
+                x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if sh else '') + name(st['wild']['id']), gold if sh else curses.A_BOLD)
+                put(scr, y, x, L('(이)가 나타났다!', ' appeared!'), curses.A_BOLD)
                 left = st['wild']['balls'] or st['balls']
                 own = '' if st['wild']['balls'] else L(' 보유', ' owned')
                 x = button(y + 1, 1, L(f'몬스터볼 b ({left}{own})', f'Poké Ball b ({left}{own})'), 'throw')
+                if st['super']:
+                    x = button(y + 1, x, L(f'슈퍼볼 u ({st["super"]})', f'Great u ({st["super"]})'), 'super')
+                if st['hyper']:
+                    x = button(y + 1, x, L(f'하이퍼볼 h ({st["hyper"]})', f'Ultra h ({st["hyper"]})'), 'hyper')
                 button(y + 1, x, L('도망 r', 'run r'), 'run')
             else:
                 k = tickets(st, t)
                 if k > 0:
-                    put(scr, y, 1, L(f'탐색 {k}회 가능 · 몬스터볼 {st["balls"]}개',
-                                     f'{k} explore{"" if k == 1 else "s"} ready · Poké Balls {st["balls"]}'))
+                    put(scr, y, 1, L(f'탐색 {k}회 가능 · 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
+                                     f'{k} explore{"" if k == 1 else "s"} ready · Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}'))
                     button(y + 1, 1, L('풀숲 탐색 s', 'explore grass s'), 'explore')
                 else:
                     left = ENCOUNTER_EVERY - t % ENCOUNTER_EVERY
-                    put(scr, y + 1, 1, L(f'몬스터볼 {st["balls"]}개', f'Poké Balls {st["balls"]}'), curses.A_DIM)
+                    put(scr, y + 1, 1, L(f'몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
+                                         f'Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}'), curses.A_DIM)
                     x = put(scr, y, 1, L('다음 탐색 ', 'Next explore '))
                     put(scr, y, x, f'{bar(1 - left / ENCOUNTER_EVERY, 24)} {fmt_tok(left)}' + L(' 남음', ' left'))
+            today = datetime.now().astimezone().strftime('%Y-%m-%d')
+            done = len(shipped().get(today, ()))
+            put(scr, 8, 1, L('오늘 슈퍼볼 받음 ✔', 'Great Ball earned today ✔') if today in st['rewarded'] else
+                L(f'오늘 PR·배포를 끝낸 세션 {done}/{SUPER_SESSIONS} — 채우면 슈퍼볼',
+                  f'Sessions that shipped a PR/deploy today {done}/{SUPER_SESSIONS} — fill it for a Great Ball'), curses.A_DIM)
             put(scr, 9, 1, msg)
             x = button(h - 1, 1, L('도감 d', 'dex d'), 'dex')
             x = button(h - 1, x, L('가방 e', 'bag e'), 'box')
@@ -433,14 +529,14 @@ def main(scr):
                       + f'{n:04d} ' + (name(n) if n in st['seen'] else '???')) for n in DEX if gen(n) == dg]
                     if dg <= open_gen else []) \
                 if view == 'dex' else \
-                [(i, ('★ ' if i == st['partner'] else '  ') + f'{name(m["id"])}  (No.{m["id"]:03d})')
+                [(i, ('★ ' if i == st['partner'] else '  ') + ('✨' if m.get('shiny') else '') + f'{name(m["id"])}  (No.{m["id"]:03d})')
                  for i, m in enumerate(st['box'])]
             if view == 'dex':
                 have = sum(1 for n in st['caught'] if gen(n) == dg)
                 put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶   ● 잡음 ○ 봄',
                                   f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶   ● caught ○ seen'), curses.A_DIM)
             else:
-                put(scr, 1, 1, L('가방 — 누르면 동료로 데리고 다닌다', 'Bag — pick one to make it your partner'), curses.A_DIM)
+                put(scr, 1, 1, msg or L('가방 — 누르면 동료로 데리고 다닌다', 'Bag — pick one to make it your partner'), curses.A_DIM)
             body = h - 4
             if view == 'box' and rows:
                 sel = max(0, min(sel, len(rows) - 1))
@@ -450,13 +546,16 @@ def main(scr):
                 attr = 0
                 if view == 'box':
                     btns.append((2 + k, 1, w - 1, ('partner', key)))
-                    attr = (curses.A_REVERSE if top + k == sel else 0) | (curses.A_BOLD if key == st['partner'] else 0)
+                    attr = (curses.A_REVERSE if top + k == sel else 0) | (curses.A_BOLD if key == st['partner'] else 0) \
+                        | (gold if st['box'][key].get('shiny') else 0)
                 put(scr, 2 + k, 1, text.ljust(w - 2) if view == 'box' and top + k == sel else text, attr)
             if not rows:
                 put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.',
                                  f'Locked — complete the Gen {dg - 1} Pokédex to open it.') if view == 'dex'
                     else L('아직 잡은 포켓몬이 없습니다.', 'No Pokémon caught yet.'))
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
+            if view == 'box':
+                x = button(h - 1, x, L(f'하이퍼볼 교환 x (몬스터볼 {HYPER_COST})', f'Ultra Ball x ({HYPER_COST} Poké)'), 'exchange')
             put(scr, h - 1, x, L('↑↓ 이동 · ←→ 세대', '↑↓ move · ←→ generation') if view == 'dex'
                 else L('↑↓ 이동 · Space 동료로', '↑↓ move · Space set partner'), curses.A_DIM)
         scr.refresh()
@@ -464,7 +563,8 @@ def main(scr):
         key = getkey(scr, 2000)
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close',
                ord('s'): 'explore', ord('b'): 'throw', ord('r'): 'run', ord('v'): 'evolve',
-               ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite'}.get(key)
+               ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite', ord('u'): 'super', ord('h'): 'hyper',
+               ord('x'): 'exchange'}.get(key)
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top = max(1, min(GENS, dg + (1 if key == curses.KEY_RIGHT else -1))), 0
         if view == 'box' and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
@@ -490,8 +590,16 @@ def main(scr):
             gray = _lang.put('sprite', 'color' if _lang.get('sprite') == 'gray' else 'gray') == 'gray'
             msg = L('허브의 동료 그림을 회색으로 보여 줍니다.', 'Partner art in the hub is now grayscale.') if gray else \
                 L('허브의 동료 그림을 컬러로 보여 줍니다.', 'Partner art in the hub is now in color.')
+        if act == 'exchange' and view == 'box':
+            ok = exchange(st)
+            if ok:
+                save(st)
+            msg = L(f'몬스터볼 {HYPER_COST}개를 하이퍼볼 1개로 바꿨다! (하이퍼볼 {st["hyper"]})',
+                    f'Traded {HYPER_COST} Poké Balls for an Ultra Ball! (Ultra {st["hyper"]})') if ok else \
+                L(f'몬스터볼이 {HYPER_COST}개 있어야 바꿀 수 있다 (지금 {st["balls"]})',
+                  f'You need {HYPER_COST} Poké Balls (have {st["balls"]})')
         if act in ('dex', 'box'):
-            view, top, dg = act, 0, current_gen(st) or GENS
+            view, top, dg, msg = act, 0, current_gen(st) or GENS, ''
             sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
         elif act == 'back':
             view = 'main'
@@ -500,7 +608,7 @@ def main(scr):
             save(st)
             pn = name(st['box'][act[1]]['id'])
             msg, view = L(f'{pn}(을)를 데리고 다닙니다.', f'{pn} is now your partner.'), 'main'
-        elif view == 'main' and act in ('explore', 'throw', 'run', 'evolve'):
+        elif view == 'main' and act in ('explore', 'throw', 'super', 'hyper', 'run', 'evolve'):
             if act == 'explore':
                 got = explore(st, t)
                 if not got:
@@ -508,14 +616,19 @@ def main(scr):
                 elif got[1]:
                     msg = L(f'또 {name(got[0])}! 이미 가방에 있어서 몬스터볼 {got[1]}개로 바꿨다.',
                             f'{name(got[0])} again! Already in your bag, so it became {got[1]} Poké Ball(s).')
+                elif st['wild'].get('shiny'):
+                    msg = L(f'✨ 반짝반짝! 이로치 {name(got[0])}(이)가 튀어나왔다!', f'✨ Sparkle! A shiny {name(got[0])} jumped out!')
                 else:
                     msg = L(f'풀숲에서 {name(got[0])}(이)가 튀어나왔다!', f'{name(got[0])} jumped out of the tall grass!')
-            elif act == 'throw' and st['wild']:
+            elif act in ('throw', 'super', 'hyper') and st['wild']:
                 n = st['wild']['id']
-                r = throw(st, t)
+                r = throw(st, t, kind={'throw': 'ball'}.get(act, act))
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
-                       'fled': L(f'{name(n)}(은)는 도망쳐 버렸다…', f'{name(n)} ran away…')}[r]
+                       'fled': L(f'{name(n)}(은)는 도망쳐 버렸다…', f'{name(n)} ran away…'),
+                       'needhyper': L(f'{name(n)}(은)는 하이퍼볼로만 잡힌다! 가방(e)에서 몬스터볼 {HYPER_COST}개를 바꿔 오자.',
+                                      f'Only an Ultra Ball works on {name(n)}! Trade {HYPER_COST} Poké Balls in the bag (e).'),
+                       None: L('그 볼이 없다.', "You don't have that ball.")}[r]
             elif act == 'run' and st['wild']:
                 msg, st['wild'] = L('무사히 도망쳤다.', 'Got away safely.'), None
             elif act == 'evolve':
@@ -555,11 +668,11 @@ def selftest():
     assert st['partner'] == 0 and 1 in st['caught'] and st['base'] == t
     assert st['balls'] == 1  # 포획 보상
     # 빗나가기 3번이면 도망
-    st['wild'], st['balls'] = {'id': 150, 'balls': 3}, 0
+    st['wild'], st['balls'] = {'id': 19, 'balls': 3}, 0
     never = type('R', (), {'random': lambda s: 0.99})()
     assert [throw(st, t, never) for _ in range(3)] == ['missed', 'missed', 'fled'] and st['wild'] is None
     # 보유 볼이 있으면 기본 3개를 다 써도 도망가지 않고 이어 던진다
-    st['wild'], st['balls'] = {'id': 150, 'balls': 3}, 2
+    st['wild'], st['balls'] = {'id': 19, 'balls': 3}, 2
     assert [throw(st, t, never) for _ in range(5)] == ['missed'] * 4 + ['fled'] and st['balls'] == 0
     # 이미 가방에 있는 종이 나오면 볼로 바뀐다: 흔함 1 · 스타팅급 3 · 전설 5
     assert (dupe_balls(10), dupe_balls(1), dupe_balls(144), dupe_balls(151)) == (1, 3, 5, 5)
@@ -571,7 +684,7 @@ def selftest():
     dup['box'] = []
     assert dict(wild_odds(dup)).get(25) == 1  # 진화시켜 가방에서 빠지면 다시 보통 확률
     dup['box'] = [{'id': 25, 'xp': 0}]
-    pick = type('R', (), {'choices': lambda s, xs, weights: [25]})()
+    pick = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.5})()
     assert explore(dup, ENCOUNTER_EVERY, pick) == (25, dupe_balls(25)) and dup['wild'] is None
     assert dup['balls'] == dupe_balls(25) and dup['used'] == 1
     # 경험치: 15만 넘으면 이상해씨 → 이상해풀, 다음은 40만
@@ -642,6 +755,53 @@ def selftest():
     cut = _pokedata.crop(px)
     assert len(cut) == 2 and len(cut[0]) == 3 and _pokedata.decode_png(_pokedata.encode_png(cut)) == cut
     assert _pokedata.crop(px, gray=True)[0][1] == (76, 76, 76, 255)  # 빨강의 밝기 0.299 × 255
+    # 이로치: 기본 피카츄가 가방에 있어도 이로치 피카츄는 잡을 수 있고(볼로 안 바뀜), 이로치가 있으면 그때 볼로
+    sh = new_state()
+    sh['box'], sh['caught'] = [{'id': 25, 'xp': 0}], [25]
+    lucky = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.0})()
+    assert explore(sh, ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild'] == {'id': 25, 'balls': BALLS, 'shiny': True}
+    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'shiny': True} and sh['shiny'] == [25]
+    assert explore(sh, 2 * ENCOUNTER_EVERY, lucky) == (25, dupe_balls(25))
+    # 이로치 동료는 기본 라이츄가 가방에 있어도 진화하고, 진화해도 이로치
+    sh['box'].append({'id': 26, 'xp': 0})
+    set_partner(sh, 0, 1)
+    sh['box'][1]['xp'] = 10**9
+    assert can_evolve(sh, 0) and evolve(sh, 0) == 26 and sh['box'][1]['shiny'] and 26 in sh['shiny']
+    assert partner_id_of(sh) == 26 + _pokedata.SHINY
+    # 볼: 전설은 하이퍼볼만(다른 볼은 쓰지 않음) · 슈퍼볼 1.5배 · 볼이 없으면 None
+    lg = new_state()
+    lg['wild'], lg['balls'], lg['super'] = {'id': 150, 'balls': 3}, 0, 1
+    assert throw(lg, 0, never, 'super') == 'needhyper' and lg['super'] == 1 and lg['wild']['balls'] == 3
+    assert throw(lg, 0, never, 'hyper') is None
+    lg['hyper'] = 1
+    assert throw(lg, 0, type('R', (), {'random': lambda s: 0.29})(), 'hyper') == 'caught' and lg['hyper'] == 0  # 0.15×2
+    r95 = type('R', (), {'random': lambda s: 0.95})()  # 꼬렛 포획률 0.9: 몬스터볼은 빗나가고 슈퍼볼(1.35→1.0)은 잡힌다
+    lg['wild'], lg['balls'], lg['super'] = {'id': 19, 'balls': 3}, 0, 1
+    assert catch_rate(19) == 0.9 and throw(lg, 0, r95) == 'missed' and throw(lg, 0, r95, 'super') == 'caught'
+    # 교환: 몬스터볼 100 → 하이퍼볼 1, 모자라면 그대로
+    ex = new_state()
+    ex['balls'] = 130
+    assert exchange(ex) and (ex['balls'], ex['hyper']) == (30, 1) and not exchange(ex) and ex['balls'] == 30
+    # 슈퍼볼 보상: PR·배포를 끝낸 서로 다른 세션 3개인 날만, 하루 1개, 켠 날 전은 주지 않는다
+    jd = tempfile.mkdtemp()
+    def job(j, rows):
+        os.makedirs(f'{jd}/{j}')
+        with open(f'{jd}/{j}/state.json', 'w') as f:
+            json.dump({'name': j, 'state': 'done'}, f)
+        with open(f'{jd}/{j}/timeline.jsonl', 'w') as f:
+            f.write(''.join(json.dumps({'at': at, 'state': 'done', 'detail': d, 'text': '…'}) + '\n' for at, d in rows))
+    day1, day2 = '2026-10-21T03:00:00Z', '2026-10-22T03:00:00Z'
+    job('a', [(day1, 'PR #1 병합'), (day2, '배포 완료')])
+    job('b', [(day1, 'deploy ok'), ('2026-10-21T04:00:00Z', 'PR #2 merged')])  # 같은 세션 두 번은 하나
+    job('c', [(day1, '문서 정리')])  # 내보낸 일이 아니다
+    rw = new_state()
+    rw['reward_since'] = '2026-10-01'
+    assert reward(rw, jd) == 0  # 첫날은 a·b 두 세션뿐
+    job('d', [(day1, '배포 끝')])
+    feed._cache.clear()
+    assert reward(rw, jd) == 1 and rw['super'] == 1 and reward(rw, jd) == 0  # 하루 1개
+    rw2 = new_state()
+    assert reward(rw2, jd, today='2026-10-22') == 0 and rw2['reward_since'] == '2026-10-22'  # 켠 날(22일) 전 보상은 없다
     print('pokemon selftest ok')
 
 
