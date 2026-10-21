@@ -215,8 +215,11 @@ def encode_sixel(px, height):
     w = max(1, round(len(px[0]) * s))
     img = [[px[min(len(px) - 1, int(y / s))][min(len(px[0]) - 1, int(x / s))] for x in range(w)] for y in range(height)]
     gray = all(c[0] == c[1] == c[2] for row in px for c in row if c[3] > 127)
-    key = (lambda c: (c[0] * 31 // 255,) * 3) if gray else (lambda c: tuple(v * 5 // 255 for v in c[:3]))  # noqa: E731
-    top = 31 if gray else 5
+    if len({c[:3] for row in px for c in row if c[3] > 127}) <= 255:  # 도트는 보통 수십 색 — 원본 색 그대로(216색으로 깎으면 색이 틀어졌다)
+        key, top = (lambda c: tuple(c[:3])), 255  # noqa: E731
+    else:
+        key = (lambda c: (c[0] * 31 // 255,) * 3) if gray else (lambda c: tuple(v * 5 // 255 for v in c[:3]))  # noqa: E731
+        top = 31 if gray else 5
     pal, idx = {}, [[None] * w for _ in range(height)]
     for y, row in enumerate(img):
         for x, c in enumerate(row):
@@ -312,6 +315,20 @@ def sprite_sixel(n, gray, height):
         with open(path, 'rb') as f:
             px = crop(decode_png(f.read()), gray)
         _sprites[key] = encode_sixel(px, height) if px else None
+    return _sprites[key]
+
+
+def sprite_sixel_fit(n, gray, max_w, max_h):
+    """max_w×max_h 픽셀 안에 원본 도트를 가장 큰 정수 배로 — 큰 그림(도감 상세)이 뭉개지지 않게. 아직 없으면 None."""
+    key = ('fit', n, gray, max_w, max_h)
+    if key not in _sprites:
+        path = _local(n)
+        if not path:
+            return None
+        with open(path, 'rb') as f:
+            px = crop(decode_png(f.read()), gray)
+        k = min(max_h // len(px), max_w // len(px[0])) if px else 0
+        _sprites[key] = encode_sixel(px, k * len(px) if k else max_h) if px else None
     return _sprites[key]
 
 
