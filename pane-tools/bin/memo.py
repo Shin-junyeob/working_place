@@ -320,6 +320,10 @@ def getkey(scr, wait=-1):
         if seq in ('[I', '[O'):
             on_focus(seq == '[I')
             return -1
+        # 방향키가 curses 가 모르는 꼴(ESC [ A 등)로 오면 Esc 로 읽혀 화면이 닫혔다 — 방향키로 돌려준다
+        arrow = {'A': curses.KEY_UP, 'B': curses.KEY_DOWN, 'C': curses.KEY_RIGHT, 'D': curses.KEY_LEFT}
+        if len(seq) == 2 and seq[0] in '[O' and seq[1] in arrow:
+            return arrow[seq[1]]
         return 27
     if isinstance(k, str):
         k = HANGUL_KEYS.get(k, k)
@@ -531,6 +535,7 @@ def selftest():
     real, globals()['on_focus'] = on_focus, seen.append
     try:
         assert getkey(Seq('\x1b')) == 27  # Esc 혼자
+        assert getkey(Seq('\x1b[B')) == curses.KEY_DOWN and getkey(Seq('\x1bOC')) == curses.KEY_RIGHT  # 방향키는 Esc 가 아니다
         assert getkey(Seq('\x1b[I')) == -1 and getkey(Seq('\x1b[O')) == -1 and seen == [True, False]
     finally:
         globals()['on_focus'] = real
