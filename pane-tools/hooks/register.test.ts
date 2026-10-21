@@ -148,3 +148,16 @@ test('/mods 는 tmux 에 닿지 못하면 "다른 프로그램" 이 아니라 �
   expect(r).toContain('연결할 수 없습니다')
   expect(r).toContain('pkill -USR1')
 })
+
+test('허브 [ 설정 ] 에서 고른 띄울 곳이 /config 값보다 먼저 쓰인다',
+  { options: { launcher: 'tmux', tmuxTarget: 'dev:0.3' } }, async ($, on) => {
+  const runs: string[][] = []
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? '/h' : undefined }) as never)
+  on('session.id', () => ({ value: 'S1' }))
+  on('fs.read', () => ({ value: JSON.stringify({ lang: 'ko', launcher: 'tmux', tmuxTarget: '' }) }))
+  on('process.run', ($, e) => (runs.push([...e.argv]),
+    { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }) as never)
+  expect(JSON.stringify(await $.command.run({ command: 'mods', args: '' } as never))).toContain('띄웠습니다')
+  expect(runs.some(a => a[1] === 'split-window')).toBe(true) // 지정 패널(dev:0.3) 대신 지금 창을 나눴다
+  expect(runs.some(a => a.includes('respawn-pane'))).toBe(false)
+})

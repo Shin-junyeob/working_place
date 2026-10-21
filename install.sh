@@ -106,7 +106,7 @@ if [ $PULL = 1 ]; then
 fi
 
 echo "▶ 자체 점검"
-for t in memo tetris hub; do
+for t in memo tetris hub feed; do
   (cd "$MODS/pane-tools/bin" && python3 "$t.py" --selftest) >/dev/null && ok "$t" || warn "$t 자체 점검 실패"
 done
 command -v claude >/dev/null && { claude plugin validate "$MODS/pane-tools" >/dev/null 2>&1 && ok "pane-tools mod" || warn "pane-tools mod 검사 실패"; }
