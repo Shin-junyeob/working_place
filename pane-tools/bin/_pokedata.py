@@ -21,6 +21,7 @@ BASE = 'https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv/'
 KO, EN = '3', '9'  # PokeAPI 의 언어 번호
 SPRITES = f'{ROOT}/sprites'
 SPRITE_URL = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{}.png'
+SHINY = 10000  # 그림 번호에 더하면 이로치 그림(sprites/pokemon/shiny/<번호>.png) — 허브는 번호를 정수 그대로 쓴다
 
 
 def _csv(name):
@@ -197,7 +198,7 @@ _sprites, _fetching = {}, set()
 
 def _local(n):
     """받아 둔 그림 파일 경로. 없으면 뒤에서 받기 시작하고 None — 허브가 멈추지 않게."""
-    path = f'{SPRITES}/{n}.png'
+    path = f'{SPRITES}/{f"shiny/{n - SHINY}" if n > SHINY else n}.png'
     if os.path.exists(path):
         return path
     if n not in _fetching:  # ponytail: 실패해도 이 허브가 켜져 있는 동안은 다시 안 받는다
@@ -246,10 +247,10 @@ def sprite_sixel(n, gray, height):
 
 def _fetch(n, path):
     try:
-        with urllib.request.urlopen(SPRITE_URL.format(n), timeout=20) as r:
+        with urllib.request.urlopen(SPRITE_URL.format(f'shiny/{n - SHINY}' if n > SHINY else n), timeout=20) as r:
             data = r.read()
         decode_png(data)  # 깨진 파일은 저장하지 않는다
-        os.makedirs(SPRITES, exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + '.tmp', 'wb') as f:
             f.write(data)
         os.replace(path + '.tmp', path)
