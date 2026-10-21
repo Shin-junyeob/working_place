@@ -7,9 +7,11 @@
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
 - 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나오고(BOXED_WEIGHT), 나오면 잡지 않고 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
 - 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤, 이미 가방에 있는 모습으로는 진화하지 않는다.
-- 볼 세 가지: 몬스터볼(b) · 슈퍼볼(u, 1.5배) · 하이퍼볼(h, 2배). 전설·환상은 하이퍼볼로만 잡힌다(다른 볼은 쓰지 않고 알려만 준다).
-  하이퍼볼은 가방에서 몬스터볼 HYPER_COST 개로 바꾼다. 슈퍼볼은 일한 보상 — 하루에 서로 다른 세션 SUPER_SESSIONS 개
-  이상이 PR 병합·배포가 든 completed 를 내면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline).
+- 볼 네 가지: 몬스터볼(b) · 슈퍼볼(u, 1.5배) · 하이퍼볼(h, 2배) · 마스터볼(m, 반드시 잡힘). 전설·환상은 하이퍼볼·마스터볼로만
+  잡힌다(다른 볼은 쓰지 않고 알려만 준다). 마스터볼은 세대마다 두 개 — 8관 지방 정복과 사천왕·챔피언 첫 승리.
+  체육관은 처음 이길 때마다 하이퍼볼 1개.
+  하이퍼볼은 가방에서 몬스터볼 HYPER_COST 개로 바꾼다. 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
+  하나라도 있으면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline). 그런 날이 EGG_STREAK 일 연속이면 알.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(중복·진화 막힘 모두 따로). 이름은 금색.
 상태는 ~/.claude/pane-tools/pokemon.json. 허브는 summary() 로 동료를 보여 준다.
 `python3 pokemon.py --selftest` 로 규칙을 점검한다(데이터가 없으면 먼저 받는다).
@@ -24,7 +26,7 @@ import random
 import re
 import sys
 import zlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import _battle
 import _gfx
@@ -43,12 +45,14 @@ WINDOW = 4  # 순서상 앞쪽 몇 마리 중에서 나오나
 BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다(wild_odds)
 SHINY_RATE = 1 / 256
 HYPER_COST = 100  # 몬스터볼 몇 개로 하이퍼볼 하나
-BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}
-SUPER_SESSIONS = 3  # 하루에 PR·배포를 끝낸 서로 다른 세션이 이만큼이면 슈퍼볼 1개
-SHIP = re.compile(r'PR|병합|배포|merge|deploy', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
+BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}  # 마스터볼은 배율 없이 반드시 잡힌다(throw)
+SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이면 슈퍼볼 1개 — 세션 하나만 쓰는 PC도 받게(2026-10-21 3→1)
+SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
-EGG_EVERY, EGG_MAX, EGG_STEP = 3, 3, 5000  # 슈퍼볼 몇 번마다 알 · 가질 수 있는 알 · 부화 걸음 하나당 토큰
+EGG_STREAK, EGG_MAX, EGG_STEP = 3, 3, 5000  # 보상받은 날이 며칠 연속이면 알(3·6·9일째) · 가질 수 있는 알 · 부화 걸음 하나당 토큰
 EGG_SHINY = 1 / 64
+# 알에서 포켓몬과 함께 나오는 덤 — (볼 종류, 개수, 확률%) (2026-10-21 정함)
+EGG_BONUS = [('balls', 1, 60), ('balls', 2, 20), ('balls', 3, 10), ('super', 1, 7), ('hyper', 1, 3)]
 DONE_SHOW, NEWS_SHOW, STALE = 120, 300, 12 * 3600  # 완료 반응 · 보상 소식 보이는 시간 · 이보다 오래된 needs 는 무시(초)
 
 DEX, GENS, GEN_SIZE, CHILDREN = {}, 0, {}, {}  # load_dex() 가 채운다
@@ -183,10 +187,10 @@ def check_badges(st, today=None):
         if b.startswith('gen') and int(b[3:]) not in st['charms']:
             st['charms'].append(int(b[3:]))
             tell(st, 'charm', b[3:])
-        if b.startswith('champ'):  # 사천왕·챔피언을 처음 이기면 하이퍼볼 2개
-            st['hyper'] += 2
-        if b.startswith('conquer'):  # 지방 정복 — 하이퍼볼 1개와 알(관마다 하이퍼볼은 너무 많았다, 2026-10-21)
-            st['hyper'] += 1
+        if b.startswith('champ'):  # 사천왕·챔피언을 처음 이기면 마스터볼 — 세대의 마지막 콘텐츠 둘이 마스터볼 하나씩
+            st['master'] += 1
+        if b.startswith('conquer'):  # 지방 정복 — 마스터볼 1개와 알(관마다는 하이퍼볼 1개 — fight)
+            st['master'] += 1
             if not give_egg(st):
                 st['balls'] += 30  # 알이 가득 차 있으면 볼로
     return new
@@ -216,7 +220,7 @@ def name(n):
 def catch_rate(n):
     if DEX[n][5]:
         return 0.2 if DEX[n][5] == 1 else 0.15
-    return 0.35 + 0.55 * DEX[n][4] / 255  # 원작 포획률이 높을수록 잘 잡힌다
+    return 0.35 + 0.35 * DEX[n][4] / 255  # 원작 포획률이 높을수록 잘 잡힌다 — 35~70%(2026-10-21 최대 90→70%, 마스터볼을 넣으며)
 
 
 def total_tokens(root=ROOT):
@@ -232,7 +236,7 @@ def total_tokens(root=ROOT):
 
 def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
-            'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
+            'super': 0, 'hyper': 0, 'master': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
             'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': [], 'showcase': [],
             'gym': {}, 'team': [], 'league': {}}
 
@@ -326,12 +330,12 @@ def set_partner(st, t, i):
 
 
 def throw(st, t, rng=random, kind='ball'):
-    """볼 하나(kind: ball · super · hyper). 'caught' / 'missed' / 'fled' · 볼이 없으면 None ·
-    전설·환상에 하이퍼볼이 아니면 'needhyper'(볼을 쓰지 않는다 — 가방에서 바꿔 와 다시 던지게)."""
+    """볼 하나(kind: ball · super · hyper · master). 'caught' / 'missed' / 'fled' · 볼이 없으면 None ·
+    전설·환상에 하이퍼볼·마스터볼이 아니면 'needhyper'(볼을 쓰지 않는다 — 가방에서 바꿔 와 다시 던지게)."""
     w = st['wild']
     if not w or (w['balls'] + st['balls'] if kind == 'ball' else st[kind]) <= 0:
         return None
-    if DEX[w['id']][5] and kind != 'hyper':
+    if DEX[w['id']][5] and kind not in ('hyper', 'master'):
         return 'needhyper'
     if kind != 'ball':
         st[kind] -= 1
@@ -339,7 +343,7 @@ def throw(st, t, rng=random, kind='ball'):
         w['balls'] -= 1
     else:
         st['balls'] -= 1
-    if rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS[kind]):
+    if kind == 'master' or rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS[kind]):
         st['box'].append({'id': w['id'], 'xp': 0, **({'shiny': True} if w.get('shiny') else {})})
         _mark(st, 'caught', w['id'])
         if w.get('shiny'):
@@ -349,7 +353,7 @@ def throw(st, t, rng=random, kind='ball'):
         if st['partner'] is None:
             set_partner(st, t, len(st['box']) - 1)
         return 'caught'
-    if w['balls'] + st['balls'] + st['super'] + st['hyper'] <= 0:
+    if w['balls'] + st['balls'] + st['super'] + st['hyper'] + st['master'] <= 0:
         st['wild'] = None
         return 'fled'
     return 'missed'
@@ -370,7 +374,7 @@ def _day(at):
 
 
 def shipped(folder=feed.JOBS):
-    """날짜 → PR 병합·배포가 든 completed 를 낸 세션 이름들."""
+    """날짜 → push·PR 병합·배포가 든 completed 를 낸 세션 이름들."""
     out = {}
     for at, nm, state, detail in feed.feed(folder, limit=None):
         if state == 'done' and SHIP.search(detail):
@@ -419,22 +423,25 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
         if n['kind'] == 'charm':
             return L(f'빛나는 부적 {ROMAN[int(n["arg"])]}을 얻었다! ({n["arg"]}세대 이로치 2배)',
                      f'Got Shiny Charm {ROMAN[int(n["arg"])]}! (Gen {n["arg"]} shinies x2)'), False
-        if n['kind'] == 'hatch':
-            hn = int(n['arg'].rstrip('*'))
-            return L(f'알이 부화했다! {"✨이로치 " if n["arg"].endswith("*") else ""}{name(hn)}(이)가 태어났다!',
-                     f'An egg hatched! {"✨shiny " if n["arg"].endswith("*") else ""}{name(hn)} was born!'), False
+        if n['kind'] == 'hatch':  # arg: '번호[*]' 또는 '번호[*]|볼종류:개수'(덤)
+            mon, _, extra = n['arg'].partition('|')
+            hn, sh = int(mon.rstrip('*')), mon.endswith('*')
+            ko, en = (ball_name(*extra.split(':')) if extra else ('', ''))
+            return L(f'알이 부화했다! {"✨이로치 " if sh else ""}{name(hn)}(이)가 태어났다!' + (f' 덤으로 {ko}!' if extra else ''),
+                     f'An egg hatched! {"✨shiny " if sh else ""}{name(hn)} was born!' + (f' Plus {en}!' if extra else '')), False
         if n['kind'] == 'egg':
             return L(f'{pn}(이)가 알을 안고 왔다!', f'{pn} brought an egg!'), False
         if n['kind'] == 'badge' and n['arg'].startswith('conquer'):
-            return L(f'{n["arg"][7:]}세대 지방 정복! {pn}(이)가 하이퍼볼과 알을 받아 왔다!',
-                     f'Gen {n["arg"][7:]} gyms cleared! {pn} brought an Ultra Ball and an egg!'), False
+            return L(f'{n["arg"][7:]}세대 지방 정복! {pn}(이)가 마스터볼과 알을 받아 왔다!',
+                     f'Gen {n["arg"][7:]} gyms cleared! {pn} brought a Master Ball and an egg!'), False
         if n['kind'] == 'badge':
             return L(f'{pn}(이)가 새 훈장 [{badge_name(n["arg"])}]을 보고 좋아한다!',
                      f'{pn} admires the new medal [{badge_name(n["arg"])}]!'), False
         if n['kind'] == 'league':
-            return L(f'{n["arg"]}세대 챔피언이 됐다! {pn}(이)가 자랑스러워한다!', f'Gen {n["arg"]} champion! {pn} is so proud!'), False
+            return L(f'{n["arg"]}세대 챔피언이 됐다! {pn}(이)가 마스터볼을 받아 왔다!', f'Gen {n["arg"]} champion! {pn} brought a Master Ball!'), False
         if n['kind'] == 'gym':
-            return L(f'{pn}(이)가 [{badge_name(n["arg"])}]를 자랑한다!', f'{pn} shows off the [{badge_name(n["arg"])}]!'), False
+            return L(f'{pn}(이)가 [{badge_name(n["arg"])}]를 자랑한다! (하이퍼볼 +1)',
+                     f'{pn} shows off the [{badge_name(n["arg"])}]! (Ultra Ball +1)'), False
     if any(t - e['base'] >= 0.9 * e['need'] for e in st.get('eggs', [])):
         return L('알이 흔들린다! 곧 태어날 것 같다.', 'The egg is wobbling! It will hatch soon.'), False
     for at, nm, state, detail in events:
@@ -486,9 +493,18 @@ def hatch(st, t, rng=random):
             _mark(st, key, n)
         if st['partner'] is None:
             set_partner(st, t, len(st['box']) - 1)
-        tell(st, 'hatch', f'{n}{"*" if shiny else ""}')
+        kind, k, _ = rng.choices(EGG_BONUS, weights=[w for _, _, w in EGG_BONUS])[0]  # 덤 볼 하나는 늘 붙는다
+        st[kind] += k
+        tell(st, 'hatch', f'{n}{"*" if shiny else ""}|{kind}:{k}')
         out.append((n, shiny))
     return out
+
+
+def ball_name(kind, k):
+    """('balls'|'super'|'hyper'|'master', 개수) → (한국어, 영어) — '몬스터볼 2개'."""
+    ko, en = {'balls': ('몬스터볼', 'Poké Ball'), 'super': ('슈퍼볼', 'Great Ball'), 'hyper': ('하이퍼볼', 'Ultra Ball'),
+              'master': ('마스터볼', 'Master Ball')}[kind]
+    return f'{ko} {k}개', f'{k} {en}{"s" if int(k) > 1 else ""}'
 
 
 def egg_text(st, t):
@@ -505,16 +521,27 @@ def reward(st, folder=feed.JOBS, today=None):
     today = today or datetime.now().astimezone().strftime('%Y-%m-%d')
     st['reward_since'] = st.get('reward_since') or today
     got = 0
-    for day, names in shipped(folder).items():
+    for day, names in sorted(shipped(folder).items()):
         if day >= st['reward_since'] and day not in st['rewarded'] and len(names) >= SUPER_SESSIONS:
             st['rewarded'] = (st['rewarded'] + [day])[-60:]
             st['super'] += 1
             st['super_earned'] = (st.get('super_earned') or 0) + 1
             got += 1
             tell(st, 'super')
-            if st['super_earned'] % EGG_EVERY == 0:
+            if streak(st, day) % EGG_STREAK == 0:
                 give_egg(st)
     return got
+
+
+def streak(st, day):
+    """day(또는 그 전날)에서 끝나는, 보상받은 날의 연속 일수 — 오늘 아직 안 했어도 어제까지 이어졌으면 센다."""
+    got, d = set(st['rewarded']), datetime.strptime(day, '%Y-%m-%d')
+    if day not in got:
+        d -= timedelta(days=1)
+    n = 0
+    while d.strftime('%Y-%m-%d') in got:
+        n, d = n + 1, d - timedelta(days=1)
+    return n
 
 
 def evolve(st, t, rng=random):
@@ -847,7 +874,7 @@ def gym_gens(st):
 
 def fight(st, t, d, g, i, rng=random, today=None):
     """체육관 도전 — 탐색 GYM_COST 회를 쓰고 자동 배틀. 팀원 모두 배틀 경험치를 받고, 처음 이기면 그 관의 배지
-    (하이퍼볼은 한 세대 8관을 모두 이겼을 때 지방 정복 훈장과 함께 — check_badges).
+    와 하이퍼볼 1개(마스터볼은 한 세대 8관을 모두 이겼을 때 지방 정복 훈장과 함께 — check_badges).
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
     team, cost = team_of(st), LEAGUE_COST if i == 'L' else GYM_COST
     if not team:
@@ -861,11 +888,12 @@ def fight(st, t, d, g, i, rng=random, today=None):
         st['box'][k]['bxp'] = st['box'][k].get('bxp', 0) + (GYM_WIN_XP + 10 * (8 if i == 'L' else i) if won else GYM_LOSE_XP)
     day, first = today or datetime.now().astimezone().strftime('%Y-%m-%d'), False
     if won and i == 'L' and str(g) not in st.setdefault('league', {}):
-        st['league'][str(g)] = day  # 챔피언 훈장(하이퍼볼 2개)은 check_badges 가
+        st['league'][str(g)] = day  # 챔피언 훈장(마스터볼)은 check_badges 가
         tell(st, 'league', str(g))
         first = True
     elif won and i != 'L' and f'gym:{g}-{i}' not in st.setdefault('gym', {}):
         st['gym'][f'gym:{g}-{i}'] = day
+        st['hyper'] += 1  # 관을 처음 이길 때마다 하이퍼볼 — 세대당 8개(2026-10-21 다시 넣음, 포획률을 70%로 낮추며)
         tell(st, 'gym', f'gym:{g}-{i}')
         first = True
     return won, ev, first
@@ -1025,24 +1053,30 @@ def main(scr):
                     x = button(y + 1, x, L(f'슈퍼볼 u ({st["super"]})', f'Great u ({st["super"]})'), 'super')
                 if st['hyper']:
                     x = button(y + 1, x, L(f'하이퍼볼 h ({st["hyper"]})', f'Ultra h ({st["hyper"]})'), 'hyper')
+                if st['master']:
+                    x = button(y + 1, x, L(f'마스터볼 m ({st["master"]})', f'Master m ({st["master"]})'), 'master')
                 button(y + 1, x, L('도망 r', 'run r'), 'run')
             else:
                 k = tickets(st, t)
                 if k > 0:
                     put(scr, y, 1, L(f'탐색 {k}회 가능 · 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
-                                     f'{k} explore{"" if k == 1 else "s"} ready · Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}'))
+                                     f'{k} explore{"" if k == 1 else "s"} ready · Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}')
+                        + (L(f' · 마스터볼 {st["master"]}', f' · Master {st["master"]}') if st['master'] else ''))
                     button(y + 1, 1, L('풀숲 탐색 s', 'explore grass s'), 'explore')
                 else:
                     left = ENCOUNTER_EVERY - t % ENCOUNTER_EVERY
                     put(scr, y + 1, 1, L(f'몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
-                                         f'Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}'), curses.A_DIM)
+                                         f'Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}')
+                        + (L(f' · 마스터볼 {st["master"]}', f' · Master {st["master"]}') if st['master'] else ''), curses.A_DIM)
                     x = put(scr, y, 1, L('다음 탐색 ', 'Next explore '))
                     put(scr, y, x, f'{bar(1 - left / ENCOUNTER_EVERY, 24)} {fmt_tok(left)}' + L(' 남음', ' left'))
             today = datetime.now().astimezone().strftime('%Y-%m-%d')
             done = len(shipped().get(today, ()))
             put(scr, y0 + 6, 1, L('오늘 슈퍼볼 받음 ✔', 'Great Ball earned today ✔') if today in st['rewarded'] else
-                L(f'오늘 PR·배포를 끝낸 세션 {done}/{SUPER_SESSIONS} — 채우면 슈퍼볼',
-                  f'Sessions that shipped a PR/deploy today {done}/{SUPER_SESSIONS} — fill it for a Great Ball'), curses.A_DIM)
+                L(f'오늘 push·PR·배포 {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS} — 채우면 슈퍼볼',
+                  f'Push/PR/deploy today {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS} — fill it for a Great Ball'), curses.A_DIM)
+            put(scr, y0 + 6, 40, L(f'연속 {streak(st, today)}일 · {EGG_STREAK}일마다 알', f'{streak(st, today)}-day streak · egg every {EGG_STREAK}'),
+                curses.A_DIM)
             put(scr, y0 + 7, 1, msg)
             x = button(h - 1, 1, L('도감 d', 'dex d'), 'dex')
             x = button(h - 1, x, L('가방 e', 'bag e'), 'box')
@@ -1226,7 +1260,7 @@ def main(scr):
             _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close',
                ord('s'): 'explore', ord('b'): 'throw', ord('r'): 'run', ord('v'): 'evolve',
-               ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite', ord('u'): 'super', ord('h'): 'hyper',
+               ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite', ord('u'): 'super', ord('h'): 'hyper', ord('m'): 'master',
                ord('x'): 'exchange', ord('a'): 'badges', ord('g'): 'gyms', ord('t'): 'team', ord('y'): 'apply'}.get(key)
         if view == 'gym' and key == ord('r'):
             act = 'rec'
@@ -1344,7 +1378,7 @@ def main(scr):
             save(st)
             pn = name(st['box'][act[1]]['id'])
             msg, view = L(f'{pn}(을)를 데리고 다닙니다.', f'{pn} is now your partner.'), 'main'
-        elif view == 'main' and act in ('explore', 'throw', 'super', 'hyper', 'run', 'evolve'):
+        elif view == 'main' and act in ('explore', 'throw', 'super', 'hyper', 'master', 'run', 'evolve'):
             if act == 'explore':
                 got = explore(st, t)
                 if not got:
@@ -1356,14 +1390,14 @@ def main(scr):
                     msg = L(f'✨ 반짝반짝! 이로치 {name(got[0])}(이)가 튀어나왔다!', f'✨ Sparkle! A shiny {name(got[0])} jumped out!')
                 else:
                     msg = L(f'풀숲에서 {name(got[0])}(이)가 튀어나왔다!', f'{name(got[0])} jumped out of the tall grass!')
-            elif act in ('throw', 'super', 'hyper') and st['wild']:
+            elif act in ('throw', 'super', 'hyper', 'master') and st['wild']:
                 n = st['wild']['id']
                 r = throw(st, t, kind={'throw': 'ball'}.get(act, act))
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
                        'fled': L(f'{name(n)}(은)는 도망쳐 버렸다…', f'{name(n)} ran away…'),
-                       'needhyper': L(f'{name(n)}(은)는 하이퍼볼로만 잡힌다! 가방(e)에서 몬스터볼 {HYPER_COST}개를 바꿔 오자.',
-                                      f'Only an Ultra Ball works on {name(n)}! Trade {HYPER_COST} Poké Balls in the bag (e).'),
+                       'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! 가방(e)에서 몬스터볼 {HYPER_COST}개를 바꿔 오자.',
+                                      f'Only an Ultra or Master Ball works on {name(n)}! Trade {HYPER_COST} Poké Balls in the bag (e).'),
                        None: L('그 볼이 없다.', "You don't have that ball.")}[r]
             elif act == 'run' and st['wild']:
                 msg, st['wild'] = L('무사히 도망쳤다.', 'Got away safely.'), None
@@ -1510,15 +1544,21 @@ def selftest():
     assert throw(lg, 0, never, 'super') == 'needhyper' and lg['super'] == 1 and lg['wild']['balls'] == 3
     assert throw(lg, 0, never, 'hyper') is None
     lg['hyper'] = 1
-    assert throw(lg, 0, type('R', (), {'random': lambda s: 0.29})(), 'hyper') == 'caught' and lg['hyper'] == 0  # 0.15×2
-    r95 = type('R', (), {'random': lambda s: 0.95})()  # 꼬렛 포획률 0.9: 몬스터볼은 빗나가고 슈퍼볼(1.35→1.0)은 잡힌다
+    assert throw(lg, 0, type('R', (), {'random': lambda s: 0.29})(), 'hyper') == 'caught' and lg['hyper'] == 0  # 0.2×2
+    # 마스터볼: 전설도 난수와 상관없이 잡힌다
+    lg['wild'], lg['master'] = {'id': 151, 'balls': 3}, 1
+    assert throw(lg, 0, never, 'master') == 'caught' and lg['master'] == 0 and 151 in lg['caught']
+    lg['wild'] = {'id': 144, 'balls': 3}
+    assert throw(lg, 0, never, 'master') is None  # 마스터볼이 없다
+    r95 = type('R', (), {'random': lambda s: 0.95})()  # 꼬렛 포획률 0.7: 몬스터볼은 빗나가고 슈퍼볼(1.05→1.0)은 잡힌다
     lg['wild'], lg['balls'], lg['super'] = {'id': 19, 'balls': 3}, 0, 1
-    assert catch_rate(19) == 0.9 and throw(lg, 0, r95) == 'missed' and throw(lg, 0, r95, 'super') == 'caught'
+    assert abs(catch_rate(19) - 0.7) < 1e-9 and throw(lg, 0, r95) == 'missed' and throw(lg, 0, r95, 'super') == 'caught'
+    assert abs(catch_rate(143) - (0.35 + 0.35 * 25 / 255)) < 1e-9  # 잠만보 약 38%
     # 교환: 몬스터볼 100 → 하이퍼볼 1, 모자라면 그대로
     ex = new_state()
     ex['balls'] = 130
     assert exchange(ex) and (ex['balls'], ex['hyper']) == (30, 1) and not exchange(ex) and ex['balls'] == 30
-    # 슈퍼볼 보상: PR·배포를 끝낸 서로 다른 세션 3개인 날만, 하루 1개, 켠 날 전은 주지 않는다
+    # 슈퍼볼 보상: 내보낸 일(push·PR·배포)이 있는 날마다 1개(하루 1개), 켠 날 전은 주지 않는다
     jd = tempfile.mkdtemp()
     def job(j, rows):
         os.makedirs(f'{jd}/{j}')
@@ -1527,17 +1567,16 @@ def selftest():
         with open(f'{jd}/{j}/timeline.jsonl', 'w') as f:
             f.write(''.join(json.dumps({'at': at, 'state': 'done', 'detail': d, 'text': '…'}) + '\n' for at, d in rows))
     day1, day2 = '2026-10-21T03:00:00Z', '2026-10-22T03:00:00Z'
-    job('a', [(day1, 'PR #1 병합'), (day2, '배포 완료')])
-    job('b', [(day1, 'deploy ok'), ('2026-10-21T04:00:00Z', 'PR #2 merged')])  # 같은 세션 두 번은 하나
-    job('c', [(day1, '문서 정리')])  # 내보낸 일이 아니다
+    job('a', [(day1, 'main 에 push 완료'), ('2026-10-21T05:00:00Z', 'PR #2 merged')])  # 같은 날 두 번이어도 하나
+    job('c', [(day2, '문서 정리')])  # 내보낸 일이 아니다
     rw = new_state()
     rw['reward_since'] = '2026-10-01'
-    assert reward(rw, jd) == 0  # 첫날은 a·b 두 세션뿐
-    job('d', [(day1, '배포 끝')])
+    assert reward(rw, jd) == 1 and rw['super'] == 1 and reward(rw, jd) == 0  # 21일만, 하루 1개
+    job('b', [(day2, '배포 완료')])
     feed._cache.clear()
-    assert reward(rw, jd) == 1 and rw['super'] == 1 and reward(rw, jd) == 0  # 하루 1개
+    assert reward(rw, jd) == 1 and rw['super'] == 2 and not rw['eggs']  # 22일 — 연속 2일, 알은 아직
     rw2 = new_state()
-    assert reward(rw2, jd, today='2026-10-22') == 0 and rw2['reward_since'] == '2026-10-22'  # 켠 날(22일) 전 보상은 없다
+    assert reward(rw2, jd, today='2026-10-22') == 1 and rw2['reward_since'] == '2026-10-22'  # 켠 날(22일) 전 보상은 없다
     # 도감 상세: 한국어가 없으면 영어, 설명은 최근 판, 줄바꿈은 빈칸, 기본 모습(is_default)만, 타입은 slot 순
     det = _pokedata.build_detail(
         [{'pokemon_species_id': '1', 'local_language_id': '3', 'name': '이상해씨', 'genus': '씨앗포켓몬'},
@@ -1602,13 +1641,27 @@ def selftest():
     assert hatch(eg, 1000 + 10 * EGG_STEP - 1, first) == []  # 덜 자랐다
     eg['eggs'] = eg['eggs'][:1]
     eg['box'].append({'id': 172, 'xp': 0})  # 그새 피츄가 가방에 → 다시 고른다
-    other = type('R', (), {'choices': lambda s, xs, weights: [175], 'random': lambda s: 0.0})()
+    # 종은 175, 덤은 표의 4번째(슈퍼볼 1개)를 고르는 난수
+    other = type('R', (), {'choices': lambda s, xs, weights: [xs[3] if isinstance(xs[0], tuple) else 175],
+                           'random': lambda s: 0.0})()
     assert hatch(eg, 1000 + 10 * EGG_STEP, other) == [(175, True)] and eg['box'][-1] == {'id': 175, 'xp': 0, 'shiny': True}
     assert 175 in eg['caught'] and 175 in eg['shiny'] and not eg['eggs'] and eg['news'][-1]['kind'] == 'hatch'
-    # 슈퍼볼 3번째에 알
+    assert eg['super'] == 1 and eg['news'][-1]['arg'] == '175*|super:1'  # 포켓몬과 함께 덤 볼 하나
+    assert sum(w for _, _, w in EGG_BONUS) == 100 and ball_name('balls', '2') == ('몬스터볼 2개', '2 Poké Balls')
+    # 알: 보상받은 날이 3일 연속이면(3·6·9일째) — 하루 빠지면 처음부터
+    sd = tempfile.mkdtemp()
+    for j, d in enumerate(('2026-11-01', '2026-11-02', '2026-11-03', '2026-11-05', '2026-11-06', '2026-11-07',
+                           '2026-11-08', '2026-11-09')):
+        os.makedirs(f'{sd}/s{j}')
+        with open(f'{sd}/s{j}/state.json', 'w') as f:
+            json.dump({'name': f's{j}', 'state': 'done'}, f)
+        with open(f'{sd}/s{j}/timeline.jsonl', 'w') as f:
+            f.write(json.dumps({'at': f'{d}T03:00:00Z', 'state': 'done', 'detail': 'pushed', 'text': '…'}) + '\n')
+    feed._cache.clear()
     ew = new_state()
-    ew['super_earned'], ew['reward_since'] = 2, '2026-10-01'
-    assert reward(ew, jd) == 1 and len(ew['eggs']) == 1
+    ew['reward_since'] = '2026-10-01'
+    assert reward(ew, sd) == 8 and len(ew['eggs']) == 2  # 1~3일(알) · 4일 빠짐 · 5~7일(알) · 8·9일은 4·5일째
+    assert streak(ew, '2026-11-09') == 5 and streak(ew, '2026-11-10') == 5 and streak(ew, '2026-11-11') == 0
     # 장식 배지: 받은 것만, 최대 5개, 다시 고르면 뺀다 · 진행도
     sc = new_state()
     sc['badges'] = {b: '2026-10-21' for b in ('catch1', 'catch10', 'catch50', 'evo1', 'super1', 'hyper1')}
@@ -1639,14 +1692,16 @@ def selftest():
     gs['team'] = [0]
     assert fight(gs, ENCOUNTER_EVERY, gd, 1, 0)[0] is None and gs['used'] == 0  # 탐색 기회 1번뿐
     won, ev, first = fight(gs, 4 * ENCOUNTER_EVERY, gd, 1, 0, random.Random(1), today='2026-10-21')
-    assert won and first and gs['gym'] == {'gym:1-0': '2026-10-21'} and gs['hyper'] == 0 and gs['used'] == GYM_COST
+    assert won and first and gs['gym'] == {'gym:1-0': '2026-10-21'} and gs['hyper'] == 1 and gs['used'] == GYM_COST
     assert gs['box'][0]['bxp'] == 3000 + GYM_WIN_XP and ev[0][0] == 'send' and fight_line(ev[-1])
     won, ev, first = fight(gs, 4 * ENCOUNTER_EVERY, gd, 1, 0, random.Random(1))
-    assert won and not first and gs['hyper'] == 0  # 관을 이겨도 하이퍼볼은 없다
+    assert won and not first and gs['hyper'] == 1  # 다시 이기면 하이퍼볼은 없다(처음 한 번만)
     assert fight_state(ev, len(ev))['foe'][1] == 0
     gs['gym'].update({f'gym:1-{i}': '2026-10-21' for i in range(8)})
     eggs = len(gs['eggs'])
-    assert 'conquer1' in check_badges(gs) and len(gs['eggs']) == eggs + 1 and gs['hyper'] == 1  # 지방 정복 → 하이퍼볼과 알
+    assert 'conquer1' in check_badges(gs) and len(gs['eggs']) == eggs + 1 and gs['master'] == 1  # 지방 정복 → 마스터볼과 알
+    gs['league'] = {'1': '2026-10-21'}
+    assert 'champ1' in check_badges(gs) and gs['master'] == 2 and gs['hyper'] == 1  # 챔피언 → 마스터볼(세대당 2개)
     # 도감 상세 배틀 정보: 꼬마돌(바위/땅) — 물·풀 ×4, 전기 무효
     BATTLE_DATA[:] = [{'stats': {74: [40, 80, 100, 30, 30, 20]}, 'types': {74: [6, 5]},
                        'eff': {'11,6': 2.0, '11,5': 2.0, '12,6': 2.0, '12,5': 2.0, '13,5': 0.0, '10,6': 0.5, '1,6': 0.5},
