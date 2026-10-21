@@ -7,6 +7,7 @@
 """
 import colorsys
 import csv
+import curses
 import io
 import json
 import os
@@ -17,6 +18,7 @@ import zlib
 
 ROOT = os.path.expanduser('~/.claude/pane-tools')
 OUT = f'{ROOT}/pokedex.json'
+DETAIL = f'{ROOT}/pokedex_detail.json'  # 도감 상세(분류·타입·키·몸무게·설명) — 상세 화면을 처음 열 때 받는다
 BASE = 'https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv/'
 KO, EN = '3', '9'  # PokeAPI 의 언어 번호
 SPRITES = f'{ROOT}/sprites'
@@ -57,6 +59,46 @@ def ensure(force=False):
         json.dump(rows, f, ensure_ascii=False, separators=(',', ':'))
     os.replace(OUT + '.tmp', OUT)
     return OUT
+
+
+def build_detail(names, flavor, mons, ptypes, tnames):
+    """CSV 다섯 개(행 목록) → {번호: [분류 한, 분류 영, [타입 한], [타입 영], 키 dm, 몸무게 hg, 설명 한, 설명 영]}.
+    설명은 가장 최근 게임판의 것, 줄바꿈은 빈칸으로. 한국어가 없으면 영어로 채운다."""
+    genus, text, ver = {}, {}, {}
+    for r in names:
+        if r['local_language_id'] in (KO, EN):
+            genus[(int(r['pokemon_species_id']), r['local_language_id'])] = r['genus']
+    for r in flavor:
+        k = (int(r['species_id']), r['language_id'])
+        if r['language_id'] in (KO, EN) and int(r['version_id']) >= ver.get(k, -1):
+            ver[k], text[k] = int(r['version_id']), ' '.join(r['flavor_text'].split())
+    tname = {(int(r['type_id']), r['local_language_id']): r['name'] for r in tnames if r['local_language_id'] in (KO, EN)}
+    types = {}
+    for r in sorted(ptypes, key=lambda r: int(r['slot'])):
+        types.setdefault(int(r['pokemon_id']), []).append(int(r['type_id']))
+    out = {}
+    for r in mons:
+        if r['is_default'] != '1':
+            continue
+        n, pid = int(r['species_id']), int(r['id'])
+        ts = types.get(pid, [])
+        en_g, en_t = genus.get((n, EN), ''), text.get((n, EN), '')
+        out[n] = [genus.get((n, KO)) or en_g, en_g, [tname.get((t, KO)) or tname.get((t, EN), '') for t in ts],
+                  [tname.get((t, EN), '') for t in ts], int(r['height']), int(r['weight']), text.get((n, KO)) or en_t, en_t]
+    return out
+
+
+def ensure_detail(force=False):
+    """도감 상세 파일이 없으면 받아 만든다(CSV 5개, 처음 한 번). 네트워크 오류는 그대로 올린다."""
+    if os.path.exists(DETAIL) and not force:
+        return DETAIL
+    d = build_detail(_csv('pokemon_species_names'), _csv('pokemon_species_flavor_text'), _csv('pokemon'),
+                     _csv('pokemon_types'), _csv('type_names'))
+    os.makedirs(ROOT, exist_ok=True)
+    with open(DETAIL + '.tmp', 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, separators=(',', ':'))
+    os.replace(DETAIL + '.tmp', DETAIL)
+    return DETAIL
 
 
 def decode_png(data):
@@ -194,6 +236,34 @@ def encode_sixel(px, height):
 
 
 _sprites, _fetching = {}, set()
+
+
+_pairs = {}  # draw_sprite 의 (글자색, 배경색) → curses 색 쌍 번호
+
+
+def draw_sprite(scr, y, x, grid, gray=False):
+    """(r, g, b) 그림을 ▀▄ 반높이 칸으로 — 한 줄에 그림 두 줄. gray 면 밝기만(포켓몬 모드의 [ 그림 c ]).
+    색 쌍은 처음 쓸 때 16번부터 만든다."""
+    to = gray256 if gray else xterm256
+    grid = [[c and to(*c) for c in row] for row in grid]
+
+    def pair(fg, bg):
+        if (fg, bg) not in _pairs:
+            if len(_pairs) + 17 >= curses.COLOR_PAIRS:  # 쌍이 모자라면 처음부터 다시 쓴다(이전 그림의 쌍)
+                _pairs.clear()
+            _pairs[(fg, bg)] = 16 + len(_pairs)
+            curses.init_pair(_pairs[(fg, bg)], fg, bg)
+        return curses.color_pair(_pairs[(fg, bg)])
+    for r in range(0, len(grid), 2):
+        bot = grid[r + 1] if r + 1 < len(grid) else [None] * len(grid[r])
+        for k, (a, b) in enumerate(zip(grid[r], bot)):
+            if a is None and b is None:
+                continue
+            ch, attr = ('▀', pair(a, -1 if b is None else b)) if a is not None else ('▄', pair(b, -1))
+            try:
+                scr.addstr(y + r // 2, x + k, ch, attr)
+            except curses.error:
+                pass
 
 
 def _local(n):

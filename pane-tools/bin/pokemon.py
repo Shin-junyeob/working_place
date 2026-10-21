@@ -28,6 +28,7 @@ import _lang
 import _pokedata
 import feed  # 세션 기록(슈퍼볼 보상) · 금색(이로치)
 from _lang import L
+import memo
 from memo import focus_reporting, getkey, put  # 한글 2칸 폭을 맞춰 그리기 · 한글 자판 단축키 — 메모장과 같이 쓴다
 
 ROOT = os.path.expanduser('~/.claude/pane-tools')
@@ -410,6 +411,44 @@ def partner_id_of(st):
 
 
 # ── 화면 ──
+INFO = {}  # 도감 상세(_pokedata.DETAIL) — 상세 화면을 처음 열 때 읽는다
+
+
+def draw_info(scr, st, n, h, w, gold):
+    """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 이로치 그림)."""
+    if not INFO:
+        put(scr, 1, 1, L('PokeAPI 에서 도감 상세를 받는 중…', 'Downloading Pokédex details from PokeAPI…'), curses.A_DIM)
+        scr.refresh()
+        try:
+            with open(_pokedata.ensure_detail(), encoding='utf-8') as f:
+                INFO.update(json.load(f))
+        except Exception as e:  # 네트워크 오류 등 — 죽지 말고 보여 준다
+            put(scr, 2, 1, f'{type(e).__name__}: {e}')
+            return
+    d, caught, sh = INFO.get(str(n)), n in st['caught'], n in st['shiny']
+    x = put(scr, 1, 1, f'No.{n:04d}  ', curses.A_BOLD)
+    x = put(scr, 1, x, ('✨' if sh else '') + name(n), gold if sh else curses.A_BOLD)
+    put(scr, 1, x + 2, L(f'{gen(n)}세대', f'Gen {gen(n)}') + (L(' · 잡음', ' · caught') if caught else L(' · 봄', ' · seen')), curses.A_DIM)
+    y = 3
+    if d:
+        put(scr, 2, 1, L(f'{d[0]} · {"/".join(d[2])} 타입', f'{d[1]} · {"/".join(d[3])} type'))
+        if caught:
+            put(scr, 3, 1, L(f'키 {d[4] / 10:g}m · 몸무게 {d[5] / 10:g}kg', f'Height {d[4] / 10:g} m · Weight {d[5] / 10:g} kg'))
+            text = L(d[6], d[7])
+            for i, (_, a, b) in enumerate(memo.wrap([text], w - 3)[:max(1, h - 12)]):
+                put(scr, 5 + i, 1, text[a:b].strip())
+                y = 6 + i
+        else:
+            put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
+    room = h - 2 - (y + 1)
+    if room >= 4 and curses.COLORS >= 256:
+        grid = _pokedata.sprite(n + (_pokedata.SHINY if sh else 0), room * 2, w - 4)
+        if grid:
+            _pokedata.draw_sprite(scr, y + 1, max(1, (w - len(grid[0])) // 2), grid, _lang.get('sprite') == 'gray')
+        else:
+            put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM)
+
+
 def bar(frac, width):
     f = round(max(0.0, min(1.0, frac)) * width)
     return '█' * f + '░' * (width - f)
@@ -425,7 +464,8 @@ def main(scr):
     curses.use_default_colors()
     feed.init_colors()
     gold = curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD  # 이로치 이름 — 256색 220(#ffd700)
-    view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방에서 커서가 놓인 줄
+    view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
+    info = None  # 도감 상세로 보고 있는 번호
     if not DEX:  # 처음 열었다 — 도감을 받아 온다
         put(scr, 0, 0, L('PokeAPI 에서 포켓몬 도감을 받는 중…', 'Downloading the Pokédex from PokeAPI…'))
         scr.refresh()
@@ -525,6 +565,10 @@ def main(scr):
             gray = _lang.get('sprite') == 'gray'  # 허브의 동료 그림 색 — PC마다 따로(settings.json)
             x = button(h - 1, x, L('회색 c', 'gray c') if gray else L('컬러 c', 'color c'), 'sprite')
             button(h - 1, x, 'close q', 'close')
+        elif view == 'info':
+            draw_info(scr, st, info, h, w, gold)
+            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
+            put(scr, h - 1, x, L('←→ 앞뒤 포켓몬', '←→ prev/next'), curses.A_DIM)
         else:
             open_gen = current_gen(st) or GENS
             rows = ([(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
@@ -540,7 +584,7 @@ def main(scr):
             else:
                 put(scr, 1, 1, msg or L('가방 — 누르면 동료로 데리고 다닌다', 'Bag — pick one to make it your partner'), curses.A_DIM)
             body = h - 4
-            if view == 'box' and rows:
+            if rows:
                 sel = max(0, min(sel, len(rows) - 1))
                 top = min(max(top, sel - body + 1), sel)  # 커서가 화면 안에 있게
             top = max(0, min(top, len(rows) - body))
@@ -548,9 +592,13 @@ def main(scr):
                 attr = 0
                 if view == 'box':
                     btns.append((2 + k, 1, w - 1, ('partner', key)))
-                    attr = (curses.A_REVERSE if top + k == sel else 0) | (curses.A_BOLD if key == st['partner'] else 0) \
-                        | (gold if st['box'][key].get('shiny') else 0)
-                put(scr, 2 + k, 1, text.ljust(w - 2) if view == 'box' and top + k == sel else text, attr)
+                    attr = (curses.A_BOLD if key == st['partner'] else 0) | (gold if st['box'][key].get('shiny') else 0)
+                else:
+                    if key in st['seen']:
+                        btns.append((2 + k, 1, w - 1, ('info', key)))
+                    attr = gold if key in st['shiny'] else 0  # 이로치를 잡은 종은 도감에서도 금색
+                attr |= curses.A_REVERSE if top + k == sel else 0
+                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, attr)
             if not rows:
                 put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.',
                                  f'Locked — complete the Gen {dg - 1} Pokédex to open it.') if view == 'dex'
@@ -558,7 +606,7 @@ def main(scr):
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             if view == 'box':
                 x = button(h - 1, x, L(f'하이퍼볼 교환 x (몬스터볼 {HYPER_COST})', f'Ultra Ball x ({HYPER_COST} Poké)'), 'exchange')
-            put(scr, h - 1, x, L('↑↓ 이동 · ←→ 세대', '↑↓ move · ←→ generation') if view == 'dex'
+            put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation') if view == 'dex'
                 else L('↑↓ 이동 · Space 동료로', '↑↓ move · Space set partner'), curses.A_DIM)
         scr.refresh()
 
@@ -568,11 +616,17 @@ def main(scr):
                ord('d'): 'dex', ord('e'): 'box', ord('c'): 'sprite', ord('u'): 'super', ord('h'): 'hyper',
                ord('x'): 'exchange'}.get(key)
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
-            dg, top = max(1, min(GENS, dg + (1 if key == curses.KEY_RIGHT else -1))), 0
-        if view == 'box' and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
+            dg, top, sel = max(1, min(GENS, dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0
+        if view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
+            seen = sorted(n for n in st['seen'] if gen(n) == gen(info))  # 같은 세대에서 본 것끼리 앞뒤로
+            info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
+        if view in ('box', 'dex') and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             sel += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
         elif view == 'box' and key in (ord(' '), ord('\n'), curses.KEY_ENTER) and st['box']:
             act = ('partner', max(0, min(sel, len(st['box']) - 1)))
+        elif view == 'dex' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
+            n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
+            act = ('info', n) if n in st['seen'] else None
         elif key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             top += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
         if key == curses.KEY_MOUSE:
@@ -604,7 +658,9 @@ def main(scr):
             view, top, dg, msg = act, 0, current_gen(st) or GENS, ''
             sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
         elif act == 'back':
-            view = 'main'
+            view = 'dex' if view == 'info' else 'main'  # 상세에서 돌아가면 도감의 그 자리로
+        elif isinstance(act, tuple) and act[0] == 'info':
+            view, info = 'info', act[1]
         elif isinstance(act, tuple):
             set_partner(st, t, act[1])
             save(st)
@@ -804,6 +860,19 @@ def selftest():
     assert reward(rw, jd) == 1 and rw['super'] == 1 and reward(rw, jd) == 0  # 하루 1개
     rw2 = new_state()
     assert reward(rw2, jd, today='2026-10-22') == 0 and rw2['reward_since'] == '2026-10-22'  # 켠 날(22일) 전 보상은 없다
+    # 도감 상세: 한국어가 없으면 영어, 설명은 최근 판, 줄바꿈은 빈칸, 기본 모습(is_default)만, 타입은 slot 순
+    det = _pokedata.build_detail(
+        [{'pokemon_species_id': '1', 'local_language_id': '3', 'name': '이상해씨', 'genus': '씨앗포켓몬'},
+         {'pokemon_species_id': '1', 'local_language_id': '9', 'name': 'Bulbasaur', 'genus': 'Seed Pokémon'}],
+        [{'species_id': '1', 'version_id': '1', 'language_id': '3', 'flavor_text': '옛\n설명'},
+         {'species_id': '1', 'version_id': '9', 'language_id': '3', 'flavor_text': '새\n설명'},
+         {'species_id': '1', 'version_id': '9', 'language_id': '9', 'flavor_text': 'A seed'}],
+        [{'id': '1', 'species_id': '1', 'height': '7', 'weight': '69', 'is_default': '1'},
+         {'id': '10001', 'species_id': '1', 'height': '9', 'weight': '1', 'is_default': '0'}],
+        [{'pokemon_id': '1', 'type_id': '4', 'slot': '2'}, {'pokemon_id': '1', 'type_id': '12', 'slot': '1'}],
+        [{'type_id': '12', 'local_language_id': '3', 'name': '풀'}, {'type_id': '12', 'local_language_id': '9', 'name': 'Grass'},
+         {'type_id': '4', 'local_language_id': '9', 'name': 'Poison'}])
+    assert det == {1: ['씨앗포켓몬', 'Seed Pokémon', ['풀', 'Poison'], ['Grass', 'Poison'], 7, 69, '새 설명', 'A seed']}, det
     print('pokemon selftest ok')
 
 
