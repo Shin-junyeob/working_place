@@ -1,15 +1,23 @@
 {
   "name": "pane-tools",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "/mods 모드 허브 — 세션의 컨텍스트·비용 게이지와 메모·테트리스·포켓몬. tmux 패널·새 창·사용자 명령(cmux 등) 중 원하는 곳에 띄운다. Mods hub with gauges, memo and games, opened where you choose.",
-  "author": { "name": "Shin-junyeob", "url": "https://github.com/Shin-junyeob" },
+  "author": {
+    "name": "Shin-junyeob",
+    "url": "https://github.com/Shin-junyeob"
+  },
   "license": "MIT",
   "userConfig": {
     "launcher": {
       "type": "string",
       "title": "허브를 띄울 곳 · Where to open the hub",
       "description": "auto: tmux 가 돌고 있으면 tmux, 아니면 새 터미널 창 · tmux: tmux 패널 · window: 새 터미널 창(WSL 은 Windows Terminal, macOS 는 Terminal) · command: 아래 '사용자 명령'",
-      "options": ["auto", "tmux", "window", "command"],
+      "options": [
+        "auto",
+        "tmux",
+        "window",
+        "command"
+      ],
       "default": "auto"
     },
     "tmuxTarget": {
@@ -28,6 +36,12 @@
       "type": "string",
       "title": "사용자 명령 · Custom command",
       "description": "command 모드: {cmd} 자리에 허브 실행 명령(따옴표로 감싼 한 덩어리)이 들어가 bash 로 실행된다. 예: wezterm cli split-pane -- bash -lc {cmd} · zellij run -- bash -lc {cmd} · cmux 등 각 도구의 '새 패널에서 명령 실행' 문법",
+      "default": ""
+    },
+    "feedTarget": {
+      "type": "string",
+      "title": "피드 패널 · Feed pane",
+      "description": "/mods 때 세션 활동 피드도 띄울 tmux 패널(예: dev:0.2 — 빈 셸일 때만, 이미 피드가 돌면 그대로). 비우면 피드는 허브의 [ feed ] 버튼으로만. Empty = feed only from the hub button.",
       "default": ""
     }
   }

@@ -43,7 +43,7 @@ env['CLAUDE_CODE_PLUGIN_DIRS'] = mods
 env['CLAUDE_CODE_PLUGIN_DIR_WATCH'] = '1'  # claude agents 로 띄운 백그라운드 세션도 저장 시 다시 불러온다
 if layout:  # sett 레이아웃: 허브는 3번 패널에, 0번 패널(claude agents)에 열린 세션을 따라간다
     d.setdefault('pluginConfigs', {})['pane-tools@inline'] = {
-        'options': {'launcher': 'tmux', 'tmuxTarget': 'dev:0.3', 'followPane': 'dev:0.0'}}
+        'options': {'launcher': 'tmux', 'tmuxTarget': 'dev:0.3', 'followPane': 'dev:0.0', 'feedTarget': 'dev:0.2'}}
 elif cmux:
     # macOS + cmux: 지금 보는 cmux 패널을 오른쪽으로 나눠 허브를 띄운다. 백그라운드 세션처럼
     # $CMUX_SURFACE_ID 가 없으면 cmux 는 포커스된 패널을 나누므로 어느 쪽이든 /mods 를 친 화면 옆에 열린다.

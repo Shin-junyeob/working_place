@@ -31,8 +31,8 @@ PANE_BOTTOM=$(tmux split-window -v -l $((H * 35 / 100)) -t "$PANE_MID" -c "$WORK
 tmux send-keys -t "$PANE_LEFT"   'claude agents' C-m   # 0
                                                        # 1 셸 (비워 둠)
 BIN="${MODS_DIR:-$HOME/.claude/mods}/pane-tools/bin"
-[ -f "$BIN/feed.py" ] && tmux send-keys -t "$PANE_MID" "python3 '$BIN/feed.py'" C-m   # 2
-# 3 허브: /mods 와 같은 방식(respawn)으로 — 시작 명령에 허브 경로가 남아야 /mods 가 이 패널을 다시 갈아 끼울 수 있다
+# 2 피드 · 3 허브: /mods 와 같은 방식(respawn)으로 — 닫으면 셸이 남고, 빈 셸이면 /mods 가 다시 띄운다
+[ -f "$BIN/feed.py" ] && tmux respawn-pane -k -t "$PANE_MID" -c "$WORK_DIR" "python3 '$BIN/feed.py'; exec bash"
 [ -f "$BIN/hub.py" ] && tmux respawn-pane -k -t "$PANE_BOTTOM" -c "$WORK_DIR" "python3 '$BIN/hub.py' --follow-pane '$SESSION:0.0'; exec bash"
 tmux select-pane -t "$PANE_LEFT"
 

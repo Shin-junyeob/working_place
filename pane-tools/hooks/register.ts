@@ -27,7 +27,7 @@ export function canReplace(current: string, startCommand: string, mark: string):
   return SHELLS.has(current) || startCommand.includes(mark)
 }
 
-export type Opts = { launcher: string; tmuxTarget: string; followPane: string; command: string }
+export type Opts = { launcher: string; tmuxTarget: string; followPane: string; command: string; feedTarget?: string }
 export type Where = { tmux: boolean; wsl?: string; mac: boolean }
 
 // 셸에 한 덩어리로 넘길 수 있게 작은따옴표로 감싼다
@@ -61,7 +61,7 @@ async function L($: EngineInterface, ko: string, en: string) {
 }
 
 // 허브의 [ 설정 ] 이 같은 파일에 적은 띄울 곳 — /mods 마다 읽어 /config 값보다 먼저 쓴다(다시 불러올 필요 없게)
-const PLACE = ['launcher', 'tmuxTarget', 'followPane', 'command'] as const
+const PLACE = ['launcher', 'tmuxTarget', 'followPane', 'command', 'feedTarget'] as const
 export async function prefs($: EngineInterface): Promise<Partial<Opts>> {
   try {
     const s = JSON.parse(await $.fs.read(`${await home($)}/.claude/pane-tools/settings.json`))
@@ -135,8 +135,21 @@ async function openHub($: EngineInterface, o: Opts) {
     }
   }
   const r = await $.process.run(p.argv).catch((e: unknown) => ({ exitCode: 1, stderr: String(e) }))
-  return r.exitCode === 0 ? L($, '모드 허브를 띄웠습니다.', 'Opened the mods hub.')
-    : `${await L($, '모드 허브를 열지 못했습니다', 'Could not open the mods hub')} (${p.argv[0]}): ${r.stderr.trim()}`
+  if (r.exitCode !== 0) return `${await L($, '모드 허브를 열지 못했습니다', 'Could not open the mods hub')} (${p.argv[0]}): ${r.stderr.trim()}`
+  return (await L($, '모드 허브를 띄웠습니다.', 'Opened the mods hub.')) + (await openFeed($, o.feedTarget, root))
+}
+
+// 세션 활동 피드를 지정한 tmux 패널에도 — 빈 셸일 때만 띄우고, 이미 피드가 돌면 그대로(스크롤을 잃지 않게), 다른 건 건드리지 않는다
+async function openFeed($: EngineInterface, target: string | undefined, root: string) {
+  if (!target) return ''
+  const info = await $.process.run(['tmux', 'display', '-p', '-t', target, '#{pane_current_command}\t#{pane_tty}'])
+  const [cur = '', tty = ''] = info.stdout.trim().split('\t')
+  if (info.exitCode !== 0 || !SHELLS.has(cur)) return '' // 패널이 없거나 다른 프로그램
+  // respawn 으로 띄운 피드는 겉의 bash -c 가 보여 tmux 가 'bash' 라고 한다 — 그 tty 에 feed.py 가 도는지 직접 본다
+  const ps = await $.process.run(['ps', '-t', tty, '-o', 'args='])
+  if (ps.stdout.includes('feed.py')) return ''
+  const r = await $.process.run(['tmux', 'respawn-pane', '-k', '-t', target, `python3 ${shq(`${root}/bin/feed.py`)}; exec bash`])
+  return r.exitCode === 0 ? L($, ` 피드도 ${target} 에 띄웠습니다.`, ` Also opened the feed in ${target}.`) : ''
 }
 
 // 허브 게이지용 — 컨텍스트·비용·사용 한도를 2초마다, 바뀌었을 때만 적는다.
@@ -170,6 +183,7 @@ export const register: Register = (on, options) => {
     tmuxTarget: String(options.tmuxTarget ?? ''),
     followPane: String(options.followPane ?? ''),
     command: String(options.command ?? ''),
+    feedTarget: String(options.feedTarget ?? ''),
   }
   on('session.start', async ($, e, next) => {
     // immediate: 작업 중에도 기다리지 않고 바로 연다 (/reload-plugins 처럼)
