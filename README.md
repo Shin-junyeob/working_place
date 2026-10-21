@@ -78,7 +78,7 @@ bash ~/.claude/mods/install.sh --auto-pull         # (선택) 10분마다 GitHub
 
 ## 점검
 스크린샷은 빈 홈 폴더의 새 사용자 환경에서 마켓 설치 → `/mods` 로 찍었다(포켓몬 탐색 기회만 시험용 토큰 기록으로 채움).
-`python3 pane-tools/bin/<이름>.py --selftest`, `claude plugin test pane-tools`, `claude plugin test long-run-watch`
+`python3 pane-tools/bin/<이름>.py --selftest` (memo · tetris · hub · feed · pokemon — pokemon 은 도감 데이터를 한 번 받은 뒤), `python3 pane-tools/bin/_battle.py`(체육관·사천왕 배틀 규칙) · `python3 pane-tools/bin/_place.py`(허브 설정 화면), `claude plugin test pane-tools`, `claude plugin test long-run-watch`
 
 ## 라이선스
 MIT — `LICENSE`. (포켓몬 관련 명칭, PokeAPI 데이터와 그림(포켓몬·배지)은 이 라이선스에 포함되지 않습니다.)

@@ -106,7 +106,7 @@ if [ $PULL = 1 ]; then
 fi
 
 echo "▶ 자체 점검"
-for t in memo tetris hub feed; do
+for t in memo tetris hub feed _battle; do  # pokemon 은 도감을 받아야 해서 빼고, 배틀 규칙(_battle)은 네트워크 없이 돈다
   (cd "$MODS/pane-tools/bin" && python3 "$t.py" --selftest) >/dev/null && ok "$t" || warn "$t 자체 점검 실패"
 done
 command -v claude >/dev/null && { claude plugin validate "$MODS/pane-tools" >/dev/null 2>&1 && ok "pane-tools mod" || warn "pane-tools mod 검사 실패"; }
