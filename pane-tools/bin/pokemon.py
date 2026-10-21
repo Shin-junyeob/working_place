@@ -158,7 +158,9 @@ BADGES = [('catch1', '첫 포획', 'First catch', lambda st: len(st['caught']) >
     ('super10', '슈퍼볼 10', '10 Great Balls', lambda st: (st['super_earned'] or 0) >= 10),
     ('hyper1', '하이퍼볼 교환', 'Ultra Ball trade', lambda st: st['exchanged'] >= 1)] + \
     [(f'conquer{g}', f'{g}세대 지방 정복', f'Gen {g} gyms cleared',
-      (lambda g: lambda st: all(f'gym:{g}-{i}' in st.get('gym', {}) for i in range(8)))(g)) for g in range(1, 10)]
+      (lambda g: lambda st: all(f'gym:{g}-{i}' in st.get('gym', {}) for i in range(8)))(g)) for g in range(1, 10)] + \
+    [(f'champ{g}', f'{g}세대 챔피언', f'Gen {g} champion', (lambda g: lambda st: str(g) in st.get('league', {}))(g))
+     for g in range(1, 10)]
 
 
 def badge_name(bid):
@@ -181,6 +183,8 @@ def check_badges(st, today=None):
         if b.startswith('gen') and int(b[3:]) not in st['charms']:
             st['charms'].append(int(b[3:]))
             tell(st, 'charm', b[3:])
+        if b.startswith('champ'):  # 사천왕·챔피언을 처음 이기면 하이퍼볼 2개
+            st['hyper'] += 2
         if b.startswith('conquer'):  # 지방 정복 — 하이퍼볼 1개와 알(관마다 하이퍼볼은 너무 많았다, 2026-10-21)
             st['hyper'] += 1
             if not give_egg(st):
@@ -230,7 +234,7 @@ def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
             'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
             'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': [], 'showcase': [],
-            'gym': {}, 'team': []}
+            'gym': {}, 'team': [], 'league': {}}
 
 
 def load(root=ROOT):
@@ -427,6 +431,8 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
         if n['kind'] == 'badge':
             return L(f'{pn}(이)가 새 훈장 [{badge_name(n["arg"])}]을 보고 좋아한다!',
                      f'{pn} admires the new medal [{badge_name(n["arg"])}]!'), False
+        if n['kind'] == 'league':
+            return L(f'{n["arg"]}세대 챔피언이 됐다! {pn}(이)가 자랑스러워한다!', f'Gen {n["arg"]} champion! {pn} is so proud!'), False
         if n['kind'] == 'gym':
             return L(f'{pn}(이)가 [{badge_name(n["arg"])}]를 자랑한다!', f'{pn} shows off the [{badge_name(n["arg"])}]!'), False
     if any(t - e['base'] >= 0.9 * e['need'] for e in st.get('eggs', [])):
@@ -615,6 +621,32 @@ INFO = {}  # 도감 상세(_pokedata.DETAIL) — 상세 화면을 처음 열 때
 KITTY = SIXEL = False  # 진짜 그림을 놓을 수 있나 — __main__ 이 curses 를 켜기 전에 _gfx 로 정한다
 
 
+def battle_info(st, n):
+    """도감 상세의 배틀 정보 줄들 — 종족값(합계)과 가방에서의 레벨, 약점(×4 는 따로), 반감·무효. 데이터가 없으면 [].
+    배틀 데이터는 체육관을 처음 열 때 받는다 — 아직 안 받았으면 여기서는 받지 않고 안내만."""
+    d = _battle.load() if not BATTLE_DATA else BATTLE_DATA[0]
+    if d and not BATTLE_DATA:
+        BATTLE_DATA.append(d)
+    if not d:
+        return [L('배틀 정보는 체육관(g)을 한 번 열면 보인다.', 'Open the gyms (g) once to see battle stats.')]
+    if n not in d['stats'] or n not in d['types']:
+        return []
+    bs = d['stats'][n]
+    lvs = [box_level(m) for m in st['box'] if m['id'] == n]
+    head = L('종족값 ', 'Stats ') + ' '.join(f'{k}{v}' for k, v in zip(L('H 공 방 특공 특방 S', 'H A B C D S').split(), bs)) + \
+        f' ({sum(bs)})' + (L(f' · 가방 Lv{max(lvs)}', f' · bag Lv{max(lvs)}') if lvs else '')
+    tn = lambda t: L(*d['tnames'].get(t, ['?', '?']))  # noqa: E731
+    f = {t: _battle.factor(d, t, d['types'][n]) for t in range(1, 19)}
+    weak = [tn(t) + ('(×4)' if f[t] >= 4 else '') for t in sorted(f, key=lambda t: -f[t]) if f[t] > 1]
+    resist = [tn(t) for t in f if 0 < f[t] < 1]
+    immune = [tn(t) for t in f if f[t] == 0]
+    return [head, L('약점 ', 'Weak ') + ('·'.join(weak) or L('없음', 'none')),
+            L('반감 ', 'Resist ') + ('·'.join(resist) or L('없음', 'none')) + (L(' · 무효 ', ' · Immune ') + '·'.join(immune) if immune else '')]
+
+
+BATTLE_DATA = []  # battle.json 을 한 번만 읽어 둔다
+
+
 def draw_info(scr, st, n, h, w, gold):
     """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 이로치 그림).
     그림은 Sixel·Kitty 가 되면 원본 도트로 — 놓을 그림 (방식, y, x, 키, 데이터, 칸, 줄)을 돌려주고, 화면을 그린 뒤 놓는다."""
@@ -638,10 +670,14 @@ def draw_info(scr, st, n, h, w, gold):
         put(scr, 2, 1, L(f'{d[0]} · {"/".join(d[2])} 타입', f'{d[1]} · {"/".join(d[3])} type'))
         if caught:
             put(scr, 3, 1, L(f'키 {d[4] / 10:g}m · 몸무게 {d[5] / 10:g}kg', f'Height {d[4] / 10:g} m · Weight {d[5] / 10:g} kg'))
+            fy = 5
+            for i, line in enumerate(battle_info(st, n)):  # 종족값 · 약점 · 반감/무효 — 팀을 꾸릴 때 보라고
+                put(scr, 4 + i, 1, line, curses.A_DIM if i else 0)
+                fy = 6 + i
             text = L(d[6], d[7])
-            for i, (_, a, b) in enumerate(memo.wrap([text], w - 3)[:max(1, h - 12)]):
-                put(scr, 5 + i, 1, text[a:b].strip())
-                y = 6 + i
+            for i, (_, a, b) in enumerate(memo.wrap([text], w - 3)[:max(1, h - 9 - fy)]):
+                put(scr, fy + i, 1, text[a:b].strip())
+                y = fy + 1 + i
         else:
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
     room, sid, gray = h - 2 - (y + 1), n + (_pokedata.SHINY if sh else 0), _lang.get('sprite') == 'gray'
@@ -686,7 +722,9 @@ MEDAL_ART = {'catch1': 'poke-ball', 'catch10': 'great-ball', 'catch50': 'ultra-b
              'evo1': 'rare-candy', 'final10': 'exp-share', 'super1': 'nugget', 'super10': 'big-nugget',
              'hyper1': 'gold-bottle-cap', 'conquer1': 'poke-flute', 'conquer2': 'rainbow-wing', 'conquer3': 'red-orb',
              'conquer4': 'adamant-orb', 'conquer5': 'light-stone', 'conquer6': 'zygarde-cube', 'conquer7': 'sun-flute',
-             'conquer8': 'rusted-sword', 'conquer9': 'scarlet-book'}
+             'conquer8': 'rusted-sword', 'conquer9': 'scarlet-book', 'champ1': 'relic-copper', 'champ2': 'relic-silver',
+             'champ3': 'relic-gold', 'champ4': 'relic-vase', 'champ5': 'relic-band', 'champ6': 'relic-statue',
+             'champ7': 'pearl-string', 'champ8': 'big-pearl', 'champ9': 'relic-crown'}
 
 
 def art_id(key):
@@ -759,7 +797,7 @@ def draw_badge_list(scr, st, rows, top, sel, w, btns):
         btns.append((yy, 1, w - 1, ('pin', b)))
 
 
-GYM_COST = 2  # 체육관 도전 1회에 쓰는 탐색 기회
+GYM_COST, LEAGUE_COST = 2, 4  # 체육관 · 사천왕 도전 1회에 쓰는 탐색 기회
 GYM_WIN_XP, GYM_LOSE_XP = 60, 30  # 팀원마다 받는 배틀 경험치(이기면 + 체육관 순서 × 10)
 
 
@@ -786,8 +824,20 @@ def toggle_team(st, i):
 
 
 def gym_opp(d, g, i):
-    """체육관 상대 — 전설·환상은 체육관에 나오지 않는다."""
-    return _battle.gym_team(d, g, i, {n: gen(n) for n in DEX if not DEX[n][5]}, {n for n in DEX if n not in CHILDREN})
+    """체육관 상대 — 전설·환상은 나오지 않는다. i 가 'L' 이면 사천왕·챔피언 팀들 [[(종, 레벨)] × 5]."""
+    gen_of, final = {n: gen(n) for n in DEX if not DEX[n][5]}, {n for n in DEX if n not in CHILDREN}
+    return _battle.league_teams(d, g, gen_of, final) if i == 'L' else _battle.gym_team(d, g, i, gen_of, final)
+
+
+def gym_rate(d, team, g, i):
+    """그 체육관(또는 사천왕 연전) 승률."""
+    opp = gym_opp(d, g, i)
+    return _battle.league_rate(d, team, opp) if i == 'L' else _battle.win_rate(d, team, opp)
+
+
+def gym_rows(st):
+    """체육관 목록 [(세대, 관 또는 'L')] — 한 세대 8관을 모두 이기면 그 아래 사천왕·챔피언이 열린다."""
+    return [(g, i) for g in gym_gens(st) for i in list(range(8)) + (['L'] if f'conquer{g}' in st['badges'] else [])]
 
 
 def gym_gens(st):
@@ -799,28 +849,36 @@ def fight(st, t, d, g, i, rng=random, today=None):
     """체육관 도전 — 탐색 GYM_COST 회를 쓰고 자동 배틀. 팀원 모두 배틀 경험치를 받고, 처음 이기면 그 관의 배지
     (하이퍼볼은 한 세대 8관을 모두 이겼을 때 지방 정복 훈장과 함께 — check_badges).
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
-    team = team_of(st)
+    team, cost = team_of(st), LEAGUE_COST if i == 'L' else GYM_COST
     if not team:
         return None, L('팀이 비었다 — 가방(e)에서 t 로 넣거나 추천(r)을 적용하자.', 'Empty team — add with t in the bag or apply r.'), False
-    if tickets(st, t) < GYM_COST:
-        return None, L(f'탐색 기회가 {GYM_COST}번 있어야 도전할 수 있다.', f'You need {GYM_COST} explores to challenge.'), False
-    st['used'] += GYM_COST
-    won, ev = _battle.battle(d, [(n, lv) for _, n, lv in team], gym_opp(d, g, i), rng)
+    if tickets(st, t) < cost:
+        return None, L(f'탐색 기회가 {cost}번 있어야 도전할 수 있다.', f'You need {cost} explores to challenge.'), False
+    st['used'] += cost
+    mine = [(n, lv) for _, n, lv in team]
+    won, ev = (_battle.gauntlet(d, mine, gym_opp(d, g, i), rng) if i == 'L' else _battle.battle(d, mine, gym_opp(d, g, i), rng))
     for k, _, _ in team:
-        st['box'][k]['bxp'] = st['box'][k].get('bxp', 0) + (GYM_WIN_XP + 10 * i if won else GYM_LOSE_XP)
-    key, first = f'gym:{g}-{i}', False
-    if won and key not in st.setdefault('gym', {}):
-        st['gym'][key] = today or datetime.now().astimezone().strftime('%Y-%m-%d')
-        tell(st, 'gym', key)
+        st['box'][k]['bxp'] = st['box'][k].get('bxp', 0) + (GYM_WIN_XP + 10 * (8 if i == 'L' else i) if won else GYM_LOSE_XP)
+    day, first = today or datetime.now().astimezone().strftime('%Y-%m-%d'), False
+    if won and i == 'L' and str(g) not in st.setdefault('league', {}):
+        st['league'][str(g)] = day  # 챔피언 훈장(하이퍼볼 2개)은 check_badges 가
+        tell(st, 'league', str(g))
+        first = True
+    elif won and i != 'L' and f'gym:{g}-{i}' not in st.setdefault('gym', {}):
+        st['gym'][f'gym:{g}-{i}'] = day
+        tell(st, 'gym', f'gym:{g}-{i}')
         first = True
     return won, ev, first
 
 
 def fight_line(ev):
     """배틀 기록 한 칸 → 화면 한 줄."""
+    if ev[0] == 'trainer':
+        return L(f'— 챔피언 등장! —', '— The Champion appears! —') if ev[1] == _battle.ELITE_COUNT else \
+            L(f'— 사천왕 {ev[1] + 1} 등장! —', f'— Elite Four #{ev[1] + 1} appears! —')
     if ev[0] == 'send':
         return L(f'가라, {name(ev[2])}!', f'Go, {name(ev[2])}!') if ev[1] == 'me' else \
-            L(f'상대가 {name(ev[2])}(을)를 내보냈다!', f'The leader sent out {name(ev[2])}!')
+            L(f'상대가 {name(ev[2])}(을)를 내보냈다!', f'The foe sent out {name(ev[2])}!')
     if ev[0] == 'faint':
         return L(f'{name(ev[2])}(은)는 쓰러졌다!', f'{name(ev[2])} fainted!')
     _, side, a, b, dmg, f, hp, top = ev
@@ -831,15 +889,17 @@ def fight_line(ev):
 
 
 def fight_state(ev, k):
-    """기록 k 칸까지 본 지금 — {'me': [종, HP, 최대], 'foe': [...]}."""
+    """기록 k 칸까지 본 지금 — {'me': [종, HP, 최대, 레벨], 'foe': [...]}."""
     now = {}
     for e in ev[:k]:
-        if e[0] == 'send':
-            now[e[1]] = [e[2], None, None]
+        if e[0] == 'trainer':
+            now.clear()
+        elif e[0] == 'send':
+            now[e[1]] = [e[2], None, None, e[3]]
         elif e[0] == 'hit':
             side = 'foe' if e[1] == 'me' else 'me'
             if side in now:
-                now[side][1:] = [e[6], e[7]]
+                now[side][1:3] = [e[6], e[7]]
     return now
 
 
@@ -1004,7 +1064,7 @@ def main(scr):
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 이동 · Space 장식', '↑↓ move · Space show'), curses.A_DIM)
         elif view == 'gyms':
-            rows = [(g, i) for g in gym_gens(st) for i in range(8)]
+            rows = gym_rows(st)
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
@@ -1012,40 +1072,58 @@ def main(scr):
                                     f'Gym badges {len(st.get("gym", {}))}/{len(rows)} — Enter to prepare · Space to show'), curses.A_DIM)
             for k, (g, i) in enumerate(rows[top:top + body]):
                 key = f'gym:{g}-{i}'
-                won = st.get('gym', {}).get(key)
-                tname = (BATTLE or {}).get('tnames', {}).get(_battle.GYMS[g][i][0], ['', ''])
-                x = put(scr, 2 + k, 0, ('▶ ' if top + k == sel else '  ') + L(f'{g}세대 {i + 1}관 ', f'Gen {g} gym {i + 1} ')
-                        + L(tname[0], tname[1]), 0 if won else curses.A_DIM)
+                if i == 'L':
+                    won = st.get('league', {}).get(str(g))
+                    x = put(scr, 2 + k, 0, ('▶ ' if top + k == sel else '  ') + L(f'{g}세대 사천왕·챔피언', f'Gen {g} Elite Four'),
+                            curses.A_BOLD if won else 0)
+                else:
+                    won = st.get('gym', {}).get(key)
+                    tname = (BATTLE or {}).get('tnames', {}).get(_battle.GYMS[g][i][0], ['', ''])
+                    x = put(scr, 2 + k, 0, ('▶ ' if top + k == sel else '  ') + L(f'{g}세대 {i + 1}관 ', f'Gen {g} gym {i + 1} ')
+                            + L(tname[0], tname[1]), 0 if won else curses.A_DIM)
                 if won:
                     x = put(scr, 2 + k, x + 2, '✔ ' + won)
                 if key in st.get('showcase', []):
                     put(scr, 2 + k, x + 1, '📌')
                 btns.append((2 + k, 1, w - 1, ('gym', (g, i))))
             if w >= 50 and rows:
-                art = badge_art(st, [f'gym:{rows[sel][0]}-{rows[sel][1]}'], 3, w - 14, 4)
+                g_, i_ = rows[sel]
+                art = badge_art(st, [f'champ{g_}' if i_ == 'L' else f'gym:{g_}-{i_}'], 3, w - 14, 4)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 도전 준비 · Space 장식', '↑↓ move · Enter prepare · Space show'), curses.A_DIM)
         elif view == 'gym':
             g, i = gsel
             opp = gym_opp(BATTLE, g, i)
             team = team_of(st)
-            tn = BATTLE['tnames'].get(_battle.GYMS[g][i][0], ['', ''])
-            won = st.get('gym', {}).get(f'gym:{g}-{i}')
-            put(scr, 1, 1, L(f'{g}세대 {i + 1}관 — {tn[0]} 타입', f'Gen {g} gym {i + 1} — {tn[1]} type')
+            tn = lambda tp: BATTLE['tnames'].get(tp, ['', ''])  # noqa: E731
+            won = st.get('league', {}).get(str(g)) if i == 'L' else st.get('gym', {}).get(f'gym:{g}-{i}')
+            put(scr, 1, 1, (L(f'{g}세대 사천왕·챔피언 — 5연전', f'Gen {g} Elite Four — 5 battles') if i == 'L' else
+                            L(f'{g}세대 {i + 1}관 — {tn(_battle.GYMS[g][i][0])[0]} 타입', f'Gen {g} gym {i + 1} — {tn(_battle.GYMS[g][i][0])[1]} type'))
                 + (L(f'  ✔ {won} 승리', f'  ✔ won {won}') if won else ''), curses.A_BOLD)
-            put(scr, 3, 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)} Lv{lv}' for n, lv in opp), curses.A_DIM)
-            put(scr, 4, 1, L('내 팀 ', 'Team  ') + (', '.join(f'{name(n)} Lv{lv}' for _, n, lv in team) or
-                                                   L('(비었다 — 가방 e 에서 t, 또는 추천 r → y)', '(empty — t in the bag, or r → y)')))
+            if i == 'L':  # 다섯 줄 — 사천왕 4명(타입)과 챔피언
+                for k, tm in enumerate(opp):
+                    who = L('챔피언', 'Champ ') if k == _battle.ELITE_COUNT else L(f'사천왕{k + 1} {tn(_battle.LEAGUE[g][k])[0]}', f'E4 #{k + 1} {tn(_battle.LEAGUE[g][k])[1]}')
+                    put(scr, 2 + k, 1, f'{who}: ' + ', '.join(name(n) for n, _ in tm) + f' Lv{tm[0][1]}', curses.A_DIM)
+                base = 7
+            else:
+                put(scr, 3, 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)} Lv{lv}' for n, lv in opp), curses.A_DIM)
+                base = 4
+            put(scr, base, 1, L('내 팀 ', 'Team  ') + (', '.join(f'{name(n)} Lv{lv}' for _, n, lv in team) or
+                                                      L('(비었다 — 가방 e 에서 t, 또는 추천 r → y)', '(empty — t in the bag, or r → y)')))
             wkey = (tuple((n, lv) for _, n, lv in team), g, i)
             if wkey not in wr_cache:
-                wr_cache[wkey] = _battle.win_rate(BATTLE, [(n, lv) for _, n, lv in team], opp)
-            put(scr, 6, 1, L(f'승률 {wr_cache[wkey]:.0%}', f'Win rate {wr_cache[wkey]:.0%}'), curses.A_BOLD)
+                if i == 'L' and team:
+                    put(scr, base + 2, 1, L('승률 계산 중…', 'Working out the odds…'), curses.A_DIM)
+                    scr.refresh()
+                wr_cache[wkey] = gym_rate(BATTLE, [(n, lv) for _, n, lv in team], g, i)
+            put(scr, base + 2, 1, L(f'승률 {wr_cache[wkey]:.0%}', f'Win rate {wr_cache[wkey]:.0%}'), curses.A_BOLD)
             if rec and rec[0] == (g, i):
                 rteam = [(st['box'][k]['id'], box_level(st['box'][k])) for k in rec[1]]
-                put(scr, 7, 1, L('추천  ', 'Pick  ') + ', '.join(name(n) for n, _ in rteam) +
+                put(scr, base + 3, 1, L('추천  ', 'Pick  ') + ', '.join(name(n) for n, _ in rteam) +
                     L(f'  (승률 {rec[2]:.0%}) — y 로 적용', f'  ({rec[2]:.0%}) — y to apply'))
-            put(scr, 9, 1, msg)
-            put(scr, 10, 1, L(f'탐색 기회 {tickets(st, t)}회 · 도전 1번에 {GYM_COST}회', f'{tickets(st, t)} explores · {GYM_COST} per challenge'),
+            cost = LEAGUE_COST if i == 'L' else GYM_COST
+            put(scr, base + 5, 1, msg)
+            put(scr, base + 6, 1, L(f'탐색 기회 {tickets(st, t)}회 · 도전 1번에 {cost}회', f'{tickets(st, t)} explores · {cost} per challenge'),
                 curses.A_DIM)
             x = button(h - 1, 1, L('도전 Enter', 'fight Enter'), 'fight')
             x = button(h - 1, x, L('추천 r', 'pick r'), 'rec')
@@ -1054,14 +1132,13 @@ def main(scr):
         elif view == 'fight':
             ev, k = battle_now['ev'], battle_now['k']
             now = fight_state(ev, k)
-            lvs = battle_now['lv']
             y = 1
             for side, label in (('foe', L('상대', 'Foe ')), ('me', L('나  ', 'Me  '))):
                 if side in now:
-                    n, hp, top_ = now[side]
-                    top_ = top_ or _battle.Mon(BATTLE, n, lvs[side][n]).st[0]
+                    n, hp, top_, lv_ = now[side]
+                    top_ = top_ or _battle.Mon(BATTLE, n, lv_).st[0]
                     hp = top_ if hp is None else hp
-                    x = put(scr, y, 1, f'{label} {name(n)} Lv{lvs[side][n]} ')
+                    x = put(scr, y, 1, f'{label} {name(n)} Lv{lv_} ')
                     put(scr, y, x, f'{bar(hp / top_, 16)} {hp}/{top_}')
                 y += 1
             if 'me' in now and 'foe' in now and (SIXEL or KITTY):
@@ -1082,12 +1159,13 @@ def main(scr):
             for j, line in enumerate(lines):
                 put(scr, y + 1 + j, 1, line, curses.A_BOLD if j == len(lines) - 1 else 0)
             if k >= len(ev):
-                res = (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]를 받았다!',
+                res = (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]을 받았다!' if battle_now['key'].startswith('champ') else f'[{badge_name(battle_now["key"])}]를 받았다!',
                                                   f'Got the [{badge_name(battle_now["key"])}]!') if battle_now['first']
                                                  else L('팀이 경험치를 얻었다.', 'Your team gained experience.'))) \
                     if battle_now['won'] else L('패배… 팀이 경험치를 얻었다. 다시 도전하자!', 'Defeat… your team gained experience.')
                 put(scr, h - 2, 1, res, curses.A_BOLD)
-            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
+            x = button(h - 1, 1, (L('허브로 q', 'to hub q') if battle_now['won'] else L('다시 준비 q', 'retry q'))
+                       if k >= len(ev) else L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('Space 끝까지', 'Space skip'), curses.A_DIM)
         elif view == 'info':
             art = draw_info(scr, st, info, h, w, gold)
@@ -1166,9 +1244,9 @@ def main(scr):
         elif view == 'box' and key in (ord(' '), ord('\n'), curses.KEY_ENTER) and st['box']:
             act = ('partner', max(0, min(sel, len(st['box']) - 1)))
         elif view == 'gyms' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
-            rows = [(g, i) for g in gym_gens(st) for i in range(8)]
+            rows = gym_rows(st)
             gi = rows[max(0, min(sel, len(rows) - 1))]
-            act = ('pin', f'gym:{gi[0]}-{gi[1]}') if key == ord(' ') else ('gym', gi)
+            act = ('pin', f'champ{gi[0]}' if gi[1] == 'L' else f'gym:{gi[0]}-{gi[1]}') if key == ord(' ') else ('gym', gi)
         elif view == 'badges' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
             act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
         elif view == 'dex' and key in (ord(' '), ord('\n'), curses.KEY_ENTER):
@@ -1220,9 +1298,13 @@ def main(scr):
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
             cands = [(k, m['id'], box_level(m)) for k, m in enumerate(st['box'])]
-            pick = _battle.recommend(BATTLE, cands, gym_opp(BATTLE, *gsel))
+            opp = gym_opp(BATTLE, *gsel)
+            if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률로(가볍게 40번씩)
+                pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
+            else:
+                pick = _battle.recommend(BATTLE, cands, opp)
             lv = {k: l for k, _, l in cands}
-            rec = (gsel, pick, _battle.win_rate(BATTLE, [(st['box'][k]['id'], lv[k]) for k in pick], gym_opp(BATTLE, *gsel)))
+            rec = (gsel, pick, gym_rate(BATTLE, [(st['box'][k]['id'], lv[k]) for k in pick], *gsel))
             msg = ''
         if act == 'apply' and view == 'gym' and rec and rec[0] == gsel:
             st['team'] = list(rec[1])
@@ -1235,15 +1317,17 @@ def main(scr):
                 msg = ev
             else:
                 save(st)
-                battle_now = {'ev': ev, 'k': 0, 'won': won, 'first': first, 'key': f'gym:{gsel[0]}-{gsel[1]}',
-                              'lv': {'me': {n: lv for _, n, lv in team}, 'foe': {n: lv for n, lv in gym_opp(BATTLE, *gsel)}}}
+                battle_now = {'ev': ev, 'k': 0, 'won': won, 'first': first,
+                              'key': f'champ{gsel[0]}' if gsel[1] == 'L' else f'gym:{gsel[0]}-{gsel[1]}'}
                 view, msg = 'fight', ''
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
         if act in ('dex', 'box'):
             view, top, dg, msg = act, 0, current_gen(st) or GENS, ''
             sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
         elif act == 'back' and view == 'fight' and battle_now['k'] < len(battle_now['ev']):
-            battle_now['k'] = len(battle_now['ev'])  # 먼저 끝까지 보여 주고, 한 번 더 누르면 돌아간다
+            battle_now['k'] = len(battle_now['ev'])  # 먼저 끝까지 보여 주고, 한 번 더 누르면 나간다
+        elif act == 'back' and view == 'fight' and battle_now['won']:
+            break  # 이겼으면 다시 준비할 일이 없으니 포켓몬 모드를 닫고 허브로 — 지면 준비 화면으로(아래)
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
@@ -1563,6 +1647,16 @@ def selftest():
     gs['gym'].update({f'gym:1-{i}': '2026-10-21' for i in range(8)})
     eggs = len(gs['eggs'])
     assert 'conquer1' in check_badges(gs) and len(gs['eggs']) == eggs + 1 and gs['hyper'] == 1  # 지방 정복 → 하이퍼볼과 알
+    # 도감 상세 배틀 정보: 꼬마돌(바위/땅) — 물·풀 ×4, 전기 무효
+    BATTLE_DATA[:] = [{'stats': {74: [40, 80, 100, 30, 30, 20]}, 'types': {74: [6, 5]},
+                       'eff': {'11,6': 2.0, '11,5': 2.0, '12,6': 2.0, '12,5': 2.0, '13,5': 0.0, '10,6': 0.5, '1,6': 0.5},
+                       'tnames': {1: ['노말', 'Normal'], 10: ['불꽃', 'Fire'], 11: ['물', 'Water'], 12: ['풀', 'Grass'], 13: ['전기', 'Electric']}}]
+    bi = new_state()
+    bi['box'] = [{'id': 74, 'xp': 0, 'bxp': 500}]
+    lines = battle_info(bi, 74)
+    assert lines[0].endswith(f'(300){L(" · 가방 Lv20", " · bag Lv20")}') and L('물(×4)', 'Water(×4)') in lines[1]
+    assert L('무효 전기', 'Immune Electric') in lines[2] and L('불꽃', 'Fire') in lines[2]
+    BATTLE_DATA.clear()
     print('pokemon selftest ok')
 
 
