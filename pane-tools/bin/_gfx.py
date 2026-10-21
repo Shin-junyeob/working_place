@@ -163,3 +163,24 @@ def sixel_hide():
 def sixel_touch():
     """다음 화면에서 그림을 다시 놓게 한다 — 키를 눌러 화면이 바뀔 때."""
     _six['t'] = 0.0
+
+
+def redraw():
+    """tmux 에게 화면 전체를 다시 그리게 한다 — 그림 조각이 남았거나 그림 때문에 터미널이 밀렸을 때 원래대로.
+    tmux 는 바깥으로 보낸 그림을 모르니, 빈칸으로 덮는 것(sixel_hide)만으로는 크기가 어긋나면 조각이 남았다(2026-10-21)."""
+    _six.update(key=None, box=None)
+    if os.environ.get('TMUX_PANE'):
+        subprocess.run(['tmux', 'refresh-client'], capture_output=True)
+
+
+def rows_below(y):
+    """패널 안 y 줄부터 바깥 터미널 맨 아래(상태줄 빼고)까지 남은 줄 수. 모르면 None."""
+    pane = os.environ.get('TMUX_PANE')
+    if not pane:
+        return None
+    out = subprocess.run(['tmux', 'display', '-p', '-t', pane, '#{client_height} #{status}'],
+                         capture_output=True, text=True).stdout.split()
+    if len(out) < 2 or not out[0].isdigit():
+        return None
+    return int(out[0]) - (1 if out[1] == 'on' else 0) - _outer(y, 0)[0]
+
