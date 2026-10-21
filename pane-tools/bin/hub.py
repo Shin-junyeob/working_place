@@ -267,6 +267,29 @@ def read_usage(sid):
         return None, 0
 
 
+def inherited_children():
+    """이 프로세스가 시작할 때 이미 있던 자식들 — 허브가 os.execv 로 스스로 다시 시작하면, 그 전에 뒤에서 돌던
+    `claude agents --json` 이 새 허브의 자식으로 남는데 아무도 거두지 않아 좀비가 됐다(2026-10-21 실제로 남음)."""
+    kids = set()
+    for task in os.listdir('/proc/self/task') if os.path.isdir('/proc/self/task') else []:
+        try:
+            with open(f'/proc/self/task/{task}/children') as f:
+                kids.update(int(p) for p in f.read().split())
+        except OSError:
+            pass
+    return kids
+
+
+def reap(kids):
+    """물려받은 자식 중 끝난 것을 거둔다(아직 도는 건 다음에). 우리가 subprocess 로 띄운 자식은 건드리지 않는다."""
+    for pid in list(kids):
+        try:
+            if os.waitpid(pid, os.WNOHANG)[0]:
+                kids.discard(pid)
+        except ChildProcessError:
+            kids.discard(pid)
+
+
 def main(scr):
     curses.curs_set(0)
     scr.keypad(True)
@@ -285,7 +308,9 @@ def main(scr):
     me = os.path.abspath(__file__)
     my_stamp = seen = os.path.getmtime(me)
     seen_at = time.time()
+    strays = inherited_children()
     while True:
+        reap(strays)
         # 허브 자신이 바뀌면 같은 인자로 다시 뜬다 — 오래 켜 두니 옛 코드로 남지 않게. 단 두 가지를 지킨다(2026-10-20 실측):
         # git switch → pull 사이 몇 초 동안 파일이 옛 버전이었는데 그 순간 옮겨 타서, 이 재시작 코드가 없는 옛 허브에
         # 갇혔다(그 뒤 파일이 돌아와도 모름). 그래서 파일이 5초 동안 안 바뀐 뒤에만, 그리고 새 파일에도 재시작 코드가
@@ -460,6 +485,14 @@ def main(scr):
 def selftest():
     import tempfile
     d = tempfile.mkdtemp()
+    # 물려받은 자식 거두기: 끝난 자식을 만들어 두고 거두면 좀비가 남지 않는다
+    kid = os.fork()
+    if kid == 0:
+        os._exit(0)
+    time.sleep(0.2)
+    left = {kid}
+    reap(left)
+    assert not left and not os.path.exists(f'/proc/{kid}')
     # Sixel: 2×1 그림(검정·투명)을 6픽셀 높이로 → 6×6, 칠한 점만 팔레트에, 투명 배경 머리말
     six, sw, sh = _pokedata.encode_sixel([[(0, 0, 0, 255), (0, 0, 0, 0)]], 6)
     assert (sw, sh) == (12, 6) and six.startswith('\x1bP0;1;0q"1;1;12;6') and six.endswith('\x1b\\')
