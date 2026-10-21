@@ -367,7 +367,8 @@ def summary(root=ROOT):
         return [(L('포켓몬 데이터 없음 — [ pokemon ] 을 열면 받아 옵니다',
                    'No Pokédex yet — open [ pokemon ] to download it'), False, None)]
     st, t = load(root), total_tokens(root)
-    if reward(st):  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다
+    fresh = not st.get('reward_since')
+    if reward(st) or fresh:  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다 · 켠 날은 처음에 적어 둔다
         save(st, root)
     lines = []
     if st['partner'] is None:
@@ -444,8 +445,9 @@ def main(scr):
             return
     while True:
         st, t = load(), total_tokens()
+        fresh = not st.get('reward_since')
         got = reward(st)
-        if got:
+        if got or fresh:
             save(st)
             msg = L(f'오늘 여러 세션이 일을 내보냈다! 슈퍼볼 {got}개를 받았다.', f'Sessions shipped work! Got {got} Great Ball(s).')
         h, w = scr.getmaxyx()
