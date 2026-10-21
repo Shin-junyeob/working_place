@@ -208,7 +208,8 @@ def main(scr):
                         if os.path.exists(f))
             if pokemon and stamp != pk_stamp:
                 pokemon, pk_stamp = importlib.reload(pokemon), stamp
-            lines = pokemon.summary() if pokemon else []
+            lines = pokemon.summary(awake=set(memo.sessions) or None) if pokemon else []
+            hot_attr = lambda hot: curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD if hot == 'warn' else curses.A_BOLD if hot else 0  # noqa: E731
             n = pokemon.partner_id() if lines and w >= 44 else None
             gray = _lang.get('sprite') == 'gray'
             # 동료 그림: Kitty 그래픽이 되면 원본 도트를 3줄에, 아니면 ▀▄ 반높이 칸으로
@@ -231,14 +232,14 @@ def main(scr):
                 for text, hot, frac in lines:
                     parts = text.split(' · ')
                     for i, part in enumerate(parts):
-                        x = put(y, sx, part, curses.A_BOLD if hot else 0)
+                        x = put(y, sx, part, hot_attr(hot))
                         if i == len(parts) - 1 and frac is not None and not hot:
                             put(y, x + 1, bar(frac, 10), curses.A_DIM)
                         y += 1
                 y = max(y, top + used)
             else:
                 for text, hot, frac in lines:
-                    x = put(y, 1, text, curses.A_BOLD if hot else 0)
+                    x = put(y, 1, text, hot_attr(hot))
                     if frac is not None and not hot:
                         put(y, x + 1, bar(frac, 12), curses.A_DIM)
                     y += 1

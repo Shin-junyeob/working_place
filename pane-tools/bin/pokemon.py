@@ -44,6 +44,8 @@ HYPER_COST = 100  # 몬스터볼 몇 개로 하이퍼볼 하나
 BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}
 SUPER_SESSIONS = 3  # 하루에 PR·배포를 끝낸 서로 다른 세션이 이만큼이면 슈퍼볼 1개
 SHIP = re.compile(r'PR|병합|배포|merge|deploy', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
+NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
+DONE_SHOW, NEWS_SHOW, STALE = 120, 300, 12 * 3600  # 완료 반응 · 보상 소식 보이는 시간 · 이보다 오래된 needs 는 무시(초)
 
 DEX, GENS, GEN_SIZE, CHILDREN = {}, 0, {}, {}  # load_dex() 가 채운다
 
@@ -161,7 +163,7 @@ def total_tokens(root=ROOT):
 
 def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
-            'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None}
+            'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': []}
 
 
 def load(root=ROOT):
@@ -304,6 +306,53 @@ def shipped(folder=feed.JOBS):
     return out
 
 
+def tell(st, kind, arg='', now=None):
+    """동료가 말할 소식을 적어 둔다(보상·배지·알 — 세션 기록에 안 남는 것). 최근 10개만."""
+    st['news'] = (st.get('news', []) + [{'at': now or datetime.now().timestamp(), 'kind': kind, 'arg': arg}])[-10:]
+
+
+def _ts(at):
+    return datetime.fromisoformat(at.replace('Z', '+00:00')).timestamp()
+
+
+def speech(st, t, now=None, folder=feed.JOBS, awake=None):
+    """허브 말풍선 (글, 경고인가) — 가장 급한 것 하나. 동료가 없으면 None.
+    우선순위: needs 방치 > needs > 진화 가능 > 최근 소식(보상) > 최근 completed > 풀숲.
+    awake: 깨어 있는 세션 이름들(허브가 넘긴다) — 없으면 STALE 보다 오래된 needs 는 무시."""
+    if st['partner'] is None:
+        return None
+    now = now or datetime.now().timestamp()
+    pn = name(st['box'][st['partner']]['id'])
+    events = feed.feed(folder, limit=None)
+    since = {}
+    for at, nm, state, _ in events:  # 최근 것부터 — 세션마다 가장 최근 blocked 시각
+        if state == 'blocked' and nm not in since:
+            since[nm] = _ts(at)
+    waiting = sorted((since[nm], nm) for nm, g in feed.jobs(folder) if g == 'blocked' and nm in since
+                     and (nm in awake if awake is not None else now - since[nm] < STALE))
+    if waiting:
+        at, nm = waiting[0]
+        more = L(f' 외 {len(waiting) - 1}개', f' +{len(waiting) - 1}') if len(waiting) > 1 else ''
+        if now - at >= NEEDS_NAG:
+            return L(f'{pn}(이)가 {nm}{more} 세션을 콕콕 찌른다! ({int((now - at) // 60)}분째 대기)',
+                     f'{pn} pokes {nm}{more}! (waiting {int((now - at) // 60)} min)'), True
+        return L(f'{pn}(이)가 {nm}{more} 세션을 쳐다본다…', f'{pn} looks at {nm}{more}…'), False
+    if can_evolve(st, t):
+        return L(f'{pn}의 몸이 빛나기 시작했다…', f'{pn} starts to glow…'), False
+    for n in reversed(st.get('news', [])):
+        if now - n['at'] < NEWS_SHOW and n['kind'] == 'super':
+            return L(f'{pn}(이)가 슈퍼볼을 물어 왔다!', f'{pn} brought you a Great Ball!'), False
+    for at, nm, state, detail in events:
+        if now - _ts(at) >= DONE_SHOW:
+            break
+        if state == 'done':
+            return (L(f'{pn}(이)가 박수를 친다! ({nm} 내보냄)', f'{pn} claps! ({nm} shipped)') if SHIP.search(detail) else
+                    L(f'{pn}(이)가 기뻐서 뛰어오른다! ({nm} 끝)', f'{pn} jumps for joy! ({nm} done)')), False
+    if st['wild'] or tickets(st, t) > 0:
+        return L('풀숲이 흔들린다…', 'The tall grass rustles…'), False
+    return None
+
+
 def reward(st, folder=feed.JOBS, today=None):
     """일한 보상 — 기능을 켠 날부터, 조건을 채운 날마다 슈퍼볼 1개(하루 1개). 새로 준 개수."""
     today = today or datetime.now().astimezone().strftime('%Y-%m-%d')
@@ -314,6 +363,7 @@ def reward(st, folder=feed.JOBS, today=None):
             st['rewarded'] = (st['rewarded'] + [day])[-60:]
             st['super'] += 1
             got += 1
+            tell(st, 'super')
     return got
 
 
@@ -364,8 +414,8 @@ def blocked_text(opened):
     return L('진화형이 모두 가방에 있어 진화 못 함', "can't evolve — every evolution is already in the bag")
 
 
-def summary(root=ROOT):
-    """허브용 한두 줄: (글, 강조여부, 진행률 또는 None)."""
+def summary(root=ROOT, awake=None):
+    """허브용 몇 줄: (글, 강조여부 — 'warn' 이면 노랑, 진행률 또는 None). awake: 깨어 있는 세션 이름들."""
     if not DEX:  # 아직 도감을 안 받았다 — 받는 건 pokemon 화면이 한다
         return [(L('포켓몬 데이터 없음 — [ pokemon ] 을 열면 받아 옵니다',
                    'No Pokédex yet — open [ pokemon ] to download it'), False, None)]
@@ -397,6 +447,9 @@ def summary(root=ROOT):
         L(f'탐색 {k}회 가능', f'{k} explore{"" if k == 1 else "s"} ready') if k > 0 else \
         L(f'다음 탐색까지 {nxt}', f'next explore in {nxt}')
     lines.append((f'{dex_text(st)} · {extra}', bool(st['wild'] or k > 0), None))
+    said = speech(st, t, awake=awake)
+    if said:  # ' · ' 는 허브가 줄을 나누는 표시라 쓰지 않는다
+        lines.insert(1, ('💬 ' + said[0].replace(' · ', ', '), 'warn' if said[1] else False, None))
     return lines
 
 
@@ -913,6 +966,34 @@ def selftest():
         [{'type_id': '12', 'local_language_id': '3', 'name': '풀'}, {'type_id': '12', 'local_language_id': '9', 'name': 'Grass'},
          {'type_id': '4', 'local_language_id': '9', 'name': 'Poison'}])
     assert det == {1: ['씨앗포켓몬', 'Seed Pokémon', ['풀', 'Poison'], ['Grass', 'Poison'], 7, 69, '새 설명', 'A seed']}, det
+    # 동료 반응: needs 방치 > needs > 진화 가능 > 슈퍼볼 소식 > 최근 completed > 풀숲, 잠든 세션의 needs 는 무시
+    sd = tempfile.mkdtemp()
+    now = 2_000_000_000.0
+    iso = lambda sec: datetime.fromtimestamp(now - sec).astimezone().isoformat()  # noqa: E731
+    def sjob(j, rows, state='done'):
+        os.makedirs(f'{sd}/{j}', exist_ok=True)
+        with open(f'{sd}/{j}/state.json', 'w') as f:
+            json.dump({'name': j, 'state': state, 'tempo': 'blocked' if state == 'blocked' else 'idle'}, f)
+        with open(f'{sd}/{j}/timeline.jsonl', 'w') as f:
+            f.write(''.join(json.dumps({'at': iso(sec), 'state': stt, 'detail': d, 'text': '…'}) + '\n' for sec, stt, d in rows))
+        feed._cache.clear()
+    sp = new_state()
+    sp['box'], sp['partner'], sp['base'] = [{'id': 25, 'xp': 0}], 0, 0
+    sjob('A', [(300, 'blocked', '물어봄')], 'blocked')
+    said = speech(sp, 0, now, sd)
+    assert said[1] is False and 'A' in said[0], said
+    sjob('A', [(700, 'blocked', '물어봄')], 'blocked')
+    assert speech(sp, 0, now, sd)[1] is True  # 10분 넘게 방치 → 경고
+    assert speech(sp, 0, now, sd, awake=set()) is None  # 잠든 세션의 needs 는 무시
+    sjob('A', [(30, 'done', 'PR #9 병합')])
+    assert 'A' in speech(sp, 0, now, sd)[0] and speech(sp, 0, now, sd)[0] == L('피카츄(이)가 박수를 친다! (A 내보냄)', 'Pikachu claps! (A shipped)')
+    tell(sp, 'super', now=now - 10)
+    assert L('슈퍼볼', 'Great Ball') in speech(sp, 0, now, sd)[0]  # 보상 소식이 완료 반응보다 먼저
+    sp['box'][0]['xp'] = 10**9
+    assert L('빛나', 'glow') in speech(sp, 0, now, sd)[0]  # 진화 가능이 그보다 먼저
+    sp['box'][0]['xp'], sp['news'] = 0, []
+    sjob('A', [(500, 'done', '끝')])
+    assert speech(sp, 0, now, sd) is None and speech(sp, ENCOUNTER_EVERY, now, sd)[0] == L('풀숲이 흔들린다…', 'The tall grass rustles…')
     print('pokemon selftest ok')
 
 
