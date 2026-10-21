@@ -1059,9 +1059,11 @@ def main(scr):
                     put(scr, y, x, f'{bar(hp / top_, 16)} {hp}/{top_}')
                 y += 1
             if 'me' in now and 'foe' in now and (SIXEL or KITTY):
+                # 2줄 높이로 — 5줄은 너무 컸고, 터미널이 칸 크기를 다르게 그려 실제로는 더 커져 기록과 겹쳤다(2026-10-21).
+                # 그래서 그림 아래 자리를 그림 높이의 두 배만큼 비워 둔다.
                 below = _gfx.rows_below(y + 1)
-                rows_ = max(0, min(5, (below - 1) // 2 if below else 5, h - 12))
-                if rows_ >= 2:
+                rows_ = 2 if (below is None or below >= 6) and h >= 16 else 0
+                if rows_:
                     cw_, ch_ = _gfx.cell_px()
                     ids = [now['me'][0], now['foe'][0]]
                     img = _pokedata.strip_image(ids, int(rows_ * ch_), 'six' if SIXEL else 'png')
@@ -1069,7 +1071,7 @@ def main(scr):
                         cols = math.ceil(img[1] / cw_)
                         art = ('six', y + 1, 2, ('fight', tuple(ids), rows_), img[0], cols, rows_) if SIXEL else \
                             ('kitty', y + 1, 2, 200000 + ids[0] * 2000 + ids[1], img[0], cols, rows_)
-                    y += rows_ + 1
+                    y += rows_ * 2 + 1
             lines = [fight_line(e) for e in ev[:k]][-(h - y - 3):]
             for j, line in enumerate(lines):
                 put(scr, y + 1 + j, 1, line, curses.A_BOLD if j == len(lines) - 1 else 0)
