@@ -210,6 +210,12 @@ def main(scr):
                 pokemon, pk_stamp = importlib.reload(pokemon), stamp
             lines = pokemon.summary(awake=set(memo.sessions) or None) if pokemon else []
             hot_attr = lambda hot: curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD if hot == 'warn' else curses.A_BOLD if hot else 0  # noqa: E731
+            said = next((ln for ln in lines if ln[0].startswith('💬')), None)
+            if said:  # 말풍선은 포켓몬 정보 위에 폭 전체로 — 오른쪽 세션 목록은 그 아래부터(길면 세션 이름을 가렸다)
+                lines.remove(said)
+                put(y, 1, said[0], hot_attr(said[1]))
+                y += 1
+                list_top = y
             n = pokemon.partner_id() if lines and w >= 44 else None
             gray = _lang.get('sprite') == 'gray'
             # 동료 그림: Kitty 그래픽이 되면 원본 도트를 3줄에, 아니면 ▀▄ 반높이 칸으로

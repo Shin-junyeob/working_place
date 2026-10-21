@@ -250,19 +250,22 @@ _sprites, _fetching = {}, set()
 _pairs = {}  # draw_sprite 의 (글자색, 배경색) → curses 색 쌍 번호
 
 
+def color(fg, bg=-1):
+    """(글자색, 배경색) 의 curses 속성 — 색 쌍은 처음 쓸 때 16번부터 만든다(그림·배지가 같이 쓴다)."""
+    if (fg, bg) not in _pairs:
+        if len(_pairs) + 17 >= curses.COLOR_PAIRS:  # 쌍이 모자라면 처음부터 다시 쓴다(이전 그림의 쌍)
+            _pairs.clear()
+        _pairs[(fg, bg)] = 16 + len(_pairs)
+        curses.init_pair(_pairs[(fg, bg)], fg, bg)
+    return curses.color_pair(_pairs[(fg, bg)])
+
+
 def draw_sprite(scr, y, x, grid, gray=False):
     """(r, g, b) 그림을 ▀▄ 반높이 칸으로 — 한 줄에 그림 두 줄. gray 면 밝기만(포켓몬 모드의 [ 그림 c ]).
     색 쌍은 처음 쓸 때 16번부터 만든다."""
     to = gray256 if gray else xterm256
     grid = [[c and to(*c) for c in row] for row in grid]
-
-    def pair(fg, bg):
-        if (fg, bg) not in _pairs:
-            if len(_pairs) + 17 >= curses.COLOR_PAIRS:  # 쌍이 모자라면 처음부터 다시 쓴다(이전 그림의 쌍)
-                _pairs.clear()
-            _pairs[(fg, bg)] = 16 + len(_pairs)
-            curses.init_pair(_pairs[(fg, bg)], fg, bg)
-        return curses.color_pair(_pairs[(fg, bg)])
+    pair = color
     for r in range(0, len(grid), 2):
         bot = grid[r + 1] if r + 1 < len(grid) else [None] * len(grid[r])
         for k, (a, b) in enumerate(zip(grid[r], bot)):
