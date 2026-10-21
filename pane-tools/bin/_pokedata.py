@@ -24,6 +24,7 @@ KO, EN = '3', '9'  # PokeAPI 의 언어 번호
 SPRITES = f'{ROOT}/sprites'
 SPRITE_URL = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{}.png'
 SHINY = 10000  # 그림 번호에 더하면 이로치 그림(sprites/pokemon/shiny/<번호>.png) — 허브는 번호를 정수 그대로 쓴다
+BADGE = 20000  # 그림 번호에 더하면 체육관 배지 그림(sprites/badges/<번호>.png, 1~77) — 포켓몬 모드의 배지
 
 
 def _csv(name):
@@ -127,9 +128,9 @@ def decode_png(data):
     if not hdr:
         raise ValueError('IHDR 없음')
     w, h, depth, ctype, _, _, interlace = hdr
-    if interlace or ctype not in (2, 3, 6) or (ctype != 3 and depth != 8):
+    if interlace or ctype not in (0, 2, 3, 4, 6) or (ctype != 3 and depth != 8):
         raise ValueError(f'지원 안 하는 PNG (색 유형 {ctype}, {depth}비트)')
-    ch = {2: 3, 3: 1, 6: 4}[ctype]
+    ch = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]  # 0 회색 · 4 회색+투명 — 배지 그림 일부(2026-10-21)
     bpp, stride = max(1, ch * depth // 8), (w * ch * depth + 7) // 8
     raw, prev, rows, p = zlib.decompress(idat), bytearray(stride), [], 0
     for _ in range(h):
@@ -152,6 +153,8 @@ def decode_png(data):
             per = 8 // depth
             idx = [(line[x // per] >> (8 - depth * (x % per + 1))) & ((1 << depth) - 1) for x in range(w)]
             rows.append([plte[j] + (trns[j] if j < len(trns) else 255,) for j in idx])
+        elif ctype in (0, 4):
+            rows.append([(line[ch * x],) * 3 + ((line[ch * x + 1],) if ch == 2 else (255,)) for x in range(w)])
         else:
             rows.append([tuple(line[ch * x:ch * x + ch]) + (() if ch == 4 else (255,)) for x in range(w)])
     return rows
@@ -220,12 +223,24 @@ def encode_sixel(px, height):
     s = height / len(px)
     w = max(1, round(len(px[0]) * s))
     img = [[px[min(len(px) - 1, int(y / s))][min(len(px[0]) - 1, int(x / s))] for x in range(w)] for y in range(height)]
-    gray = all(c[0] == c[1] == c[2] for row in px for c in row if c[3] > 127)
-    if len({c[:3] for row in px for c in row if c[3] > 127}) <= 255:  # 도트는 보통 수십 색 — 원본 색 그대로(216색으로 깎으면 색이 틀어졌다)
+    used = {}
+    for row in px:
+        for c in row:
+            if c[3] > 127:
+                used[c[:3]] = used.get(c[:3], 0) + 1
+    if len(used) <= 255:  # 도트는 보통 수십 색 — 원본 색 그대로(216색으로 깎으면 색이 틀어졌다)
         key, top = (lambda c: tuple(c[:3])), 255  # noqa: E731
-    else:
-        key = (lambda c: (c[0] * 31 // 255,) * 3) if gray else (lambda c: tuple(v * 5 // 255 for v in c[:3]))  # noqa: E731
-        top = 31 if gray else 5
+    else:  # 배지처럼 색이 많은 그림: 비슷한 색(채널당 16단계)끼리 묶어 평균 낸 색 중 많이 쓰인 96개 — 255색이면 40줄 그림이
+        # 245KB 라 무겁고, 많이 쓰인 색만 고르면 드문 색(분홍 하트의 아랫부분)이 엉뚱한 색이 됐다(2026-10-21)
+        box = {}
+        for c, k in used.items():
+            b = box.setdefault(tuple(v >> 4 for v in c), [0, 0, 0, 0])
+            for i in range(3):
+                b[i] += c[i] * k
+            b[3] += k
+        pal = [tuple(b[i] // b[3] for i in range(3)) for b in sorted(box.values(), key=lambda b: -b[3])[:96]]
+        near = {c: min(pal, key=lambda p: sum((a - b) ** 2 for a, b in zip(p, c))) for c in used}
+        key, top = (lambda c: near[tuple(c[:3])]), 255  # noqa: E731
     pal, idx = {}, [[None] * w for _ in range(height)]
     for y, row in enumerate(img):
         for x, c in enumerate(row):
@@ -278,9 +293,61 @@ def draw_sprite(scr, y, x, grid, gray=False):
                 pass
 
 
+def _src(n):
+    """그림 번호 → sprites/ 아래 이름(받는 주소도 같은 꼴). 배지 · 이로치 · 기본 순."""
+    return f'badges/{n - BADGE}' if n > BADGE else f'shiny/{n - SHINY}' if n > SHINY else str(n)
+
+
+def resize(px, height):
+    """RGBA 그림을 높이 height 로 — 줄일 땐 칸마다 평균(고해상도 배지 그림이 뭉개지지 않게), 키울 땐 가장 가까운 점."""
+    s = len(px) / height
+    w = max(1, round(len(px[0]) / s))
+    if s <= 1:
+        return [[px[min(len(px) - 1, int(y * s))][min(len(px[0]) - 1, int(x * s))] for x in range(w)] for y in range(height)]
+    out = []
+    for y in range(height):
+        row = []
+        for x in range(w):
+            cs = [px[j][i] for j in range(int(y * s), max(int(y * s) + 1, int((y + 1) * s)))
+                  for i in range(int(x * s), max(int(x * s) + 1, int((x + 1) * s))) if j < len(px) and i < len(px[0])]
+            op = [c for c in cs if c[3] > 127]
+            row.append(tuple(sum(c[k] for c in op) // len(op) for k in range(3)) + (255,)
+                       if len(op) * 2 >= len(cs) else (0, 0, 0, 0))
+        out.append(row)
+    return out
+
+
+def strip(ids, height, gap=4):
+    """그림 번호들을 높이 height 픽셀로 맞춰 가로로 이어 붙인 RGBA 한 장 — 하나라도 아직 못 받았으면 None."""
+    parts = []
+    for n in ids:
+        path = _local(n)
+        if not path:
+            return None
+        with open(path, 'rb') as f:
+            px = crop(decode_png(f.read()))
+        if px:
+            parts.append(resize(px, height))
+    if not parts:
+        return None
+    blank = (0, 0, 0, 0)
+    return [sum((p[y] + [blank] * gap for p in parts), [])[:-gap or None] for y in range(height)]
+
+
+def strip_image(ids, height, kind='six'):
+    """strip() 을 Sixel (문자열, 가로, 세로) 또는 PNG (바이트, 가로, 세로) 로 — 같은 조합은 다시 만들지 않는다."""
+    key = ('strip', tuple(ids), height, kind)
+    if key not in _sprites:
+        px = strip(ids, height)
+        if px is None:
+            return None  # 아직 받는 중 — 다음에 다시
+        _sprites[key] = encode_sixel(px, height) if kind == 'six' else (encode_png(px), len(px[0]), len(px))
+    return _sprites[key]
+
+
 def _local(n):
     """받아 둔 그림 파일 경로. 없으면 뒤에서 받기 시작하고 None — 허브가 멈추지 않게."""
-    path = f'{SPRITES}/{f"shiny/{n - SHINY}" if n > SHINY else n}.png'
+    path = f'{SPRITES}/{_src(n)}.png'
     if os.path.exists(path):
         return path
     if n not in _fetching:  # ponytail: 실패해도 이 허브가 켜져 있는 동안은 다시 안 받는다
@@ -343,7 +410,7 @@ def sprite_sixel_fit(n, gray, max_w, max_h):
 
 def _fetch(n, path):
     try:
-        with urllib.request.urlopen(SPRITE_URL.format(f'shiny/{n - SHINY}' if n > SHINY else n), timeout=20) as r:
+        with urllib.request.urlopen(SPRITE_URL.format(_src(n)).replace('/pokemon/badges/', '/badges/'), timeout=20) as r:
             data = r.read()
         decode_png(data)  # 깨진 파일은 저장하지 않는다
         os.makedirs(os.path.dirname(path), exist_ok=True)

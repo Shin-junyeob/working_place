@@ -23,6 +23,7 @@ import os
 import random
 import re
 import sys
+import zlib
 from datetime import datetime
 
 import _gfx
@@ -659,13 +660,26 @@ def draw_info(scr, st, n, h, w, gold):
 
 
 SHOWCASE_MAX = 5
-GYM = [None, 160, 214, 34, 27, 245, 33, 202, 129, 197]  # 세대 완성 배지 바탕색(256색) — 체육관 배지처럼 세대마다 다르게
-# 배지 모양: (아이콘, 글자색, 바탕색)
-LOOK = {'catch1': ('◓', 231, 160), 'catch10': ('◓', 231, 130), 'catch50': ('◓', 16, 250), 'catch100': ('◓', 16, 220),
-        'catch500': ('◓', 231, 129), 'shiny1': ('✦', 16, 220), 'shiny5': ('✦✦', 16, 226), 'legend': ('♛', 220, 54),
-        'myth': ('✧', 16, 213), 'evo1': ('⇧', 231, 30), 'final10': ('★', 220, 23), 'super1': ('◍', 231, 27),
-        'super10': ('◍◍', 231, 21), 'hyper1': ('◉', 220, 236),
-        **{f'gen{g}': ('◆', 231, GYM[g]) for g in range(1, 10)}}
+# 배지 → PokeAPI 체육관 배지 그림 번호(sprites/badges/<번호>.png) — 2026-10-21 사용자가 미리보기로 고름
+BADGE_ART = {'catch1': 1, 'catch10': 2, 'catch50': 3, 'catch100': 4, 'catch500': 8,
+             'gen1': 7, 'gen2': 16, 'gen3': 24, 'gen4': 32, 'gen5': 40, 'gen6': 51, 'gen7': 60, 'gen8': 62, 'gen9': 77,
+             'shiny1': 23, 'shiny5': 11, 'legend': 15, 'myth': 19, 'evo1': 10, 'final10': 18,
+             'super1': 12, 'super10': 14, 'hyper1': 13}
+
+
+def badge_art(st, bids, y, x, rows):
+    """배지 그림들을 한 장으로 (y, x) 에 rows 줄 높이로 놓을 그림 — main 이 화면을 그린 뒤 놓는다. 못 그리면 None."""
+    if not bids or not (SIXEL or KITTY):
+        return None
+    ids = [_pokedata.BADGE + BADGE_ART[b] for b in bids]
+    cw_, ch_ = _gfx.cell_px()
+    img = _pokedata.strip_image(ids, int(rows * ch_), 'six' if SIXEL else 'png')
+    if not img:
+        return None
+    cols = math.ceil(img[1] / cw_)
+    if SIXEL:
+        return ('six', y, x, ('badges', tuple(ids), rows), img[0], cols, rows)
+    return ('kitty', y, x, 100000 + zlib.crc32(repr(ids).encode()) % 100000, img[0], cols, rows)
 
 
 def badge_goal(st, b):
@@ -680,43 +694,33 @@ def badge_goal(st, b):
             'super10': (st['super_earned'] or 0, 10), 'hyper1': (st['exchanged'], 1)}.get(b)
 
 
-def chip(b, got=True):
-    """배지 한 개의 (글, 속성) — 바탕색이 있는 알약 모양. 못 받은 것은 흐리게."""
-    icon, fg, bg = LOOK[b]
-    text = f' {icon} {badge_name(b)} '
-    if not got:
-        return text, curses.A_DIM
-    return text, (_pokedata.color(fg, bg) if curses.COLORS >= 256 else curses.A_REVERSE) | curses.A_BOLD
-
-
-def draw_showcase(scr, st, y, w, gold):
-    """포켓몬 화면 맨 위 — 배지(a)에서 고른 장식 배지(최대 5개)와 빛나는 부적. 다음에 쓸 줄을 돌려준다."""
+def draw_showcase(scr, st, y, w):
+    """포켓몬 화면 맨 위 — 배지(a)에서 고른 장식 배지(최대 5개)를 체육관 배지 그림으로 한 줄에(2줄 높이), 옆에 빛나는 부적.
+    (다음에 쓸 줄, 놓을 그림) — 그림을 못 그리는 터미널이면 이름만."""
     shown = [b for b in st.get('showcase', []) if b in st['badges']]
-    x, top = 1, y
+    charm = ('✦' + ' '.join(ROMAN[g] for g in sorted(st['charms']))) if st['charms'] else ''
     if not shown:
-        x = put(scr, y, 1, L('배지(a)에서 장식할 배지를 고르세요', 'Pick badges to show in Badges (a)'), curses.A_DIM) + 2
-    for text, attr in [chip(b) for b in shown] + ([('✦' + ' '.join(ROMAN[g] for g in sorted(st['charms'])), gold)]
-                                                 if st['charms'] else []):
-        wd = sum(memo.cw(c) for c in text)
-        if x > 1 and x + wd >= w:
-            y, x = y + 1, 1
-        x = put(scr, y, x, text, attr) + 1
-    return max(y, top) + 2
+        put(scr, y, 1, L('배지(a)에서 장식할 배지를 고르세요', 'Pick badges to show in Badges (a)') + ('  ' + charm if charm else ''),
+            curses.A_DIM)
+        return y + 2, None
+    art = badge_art(st, shown, y, 1, 2)
+    if art:
+        put(scr, y, art[5] + 2, charm)
+        return y + 3, art
+    put(scr, y, 1, '  '.join(badge_name(b) for b in shown) + ('  ' + charm if charm else ''))
+    return y + 2, None
 
 
 def draw_badge_list(scr, st, rows, top, sel, w, btns):
-    """배지(a) 화면 — 전부 나열, 받은 것은 날짜, 못 받은 것은 진행. 📌 는 장식 중."""
+    """배지(a) 화면 — 전부 나열, 받은 것은 날짜, 못 받은 것은 진행. 📌 는 장식 중. 색은 쓰지 않는다."""
     for k, b in enumerate(rows):
         yy, got = 2 + k, b in st['badges']
-        text, attr = chip(b, got)
-        if top + k == sel:
-            put(scr, yy, 0, '▶')
-        x = put(scr, yy, 1, text, attr) + 1
+        x = put(scr, yy, 0, ('▶ ' if top + k == sel else '  ') + badge_name(b), 0 if got else curses.A_DIM) + 2
         goal = badge_goal(st, b)
         note = st['badges'][b] if got else (f'{min(goal[0], goal[1])}/{goal[1]}' if goal else L('아직', 'not yet'))
         x = put(scr, yy, x, note, 0 if got else curses.A_DIM)
         if b in st.get('showcase', []):
-            put(scr, yy, x + 1, L('📌 장식 중', '📌 shown'), curses.A_BOLD)
+            put(scr, yy, x + 1, '📌')
         btns.append((yy, 1, w - 1, ('pin', b)))
 
 
@@ -795,7 +799,8 @@ def main(scr):
             return end + 2
 
         if view == 'main':
-            y = y0 = draw_showcase(scr, st, 2, w, gold)  # 장식 배지는 동료 정보 위에 — 아래 줄들은 y0 기준
+            y0, art = draw_showcase(scr, st, 2, w)  # 장식 배지는 동료 정보 위에 — 아래 줄들은 y0 기준
+            y = y0
             if st['partner'] is None:
                 put(scr, y, 1, L('아직 동료가 없습니다. 풀숲을 탐색해 보세요.', 'No partner yet. Try exploring the tall grass.'))
             else:
@@ -872,6 +877,8 @@ def main(scr):
                                     f'Badges {len(st["badges"])}/{len(BADGES)} · shown {len(st.get("showcase", []))}/{SHOWCASE_MAX}'
                                     ' — Space to show/hide'), curses.A_DIM)
             draw_badge_list(scr, st, rows[top:top + body], top, sel, w, btns)
+            if rows[sel] in st['badges'] and w >= 50:  # 커서가 놓인 배지 그림을 오른쪽에 크게
+                art = badge_art(st, [rows[sel]], 3, w - 14, 4)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 이동 · Space 장식', '↑↓ move · Space show'), curses.A_DIM)
         elif view == 'info':
@@ -1270,7 +1277,7 @@ def selftest():
     assert sc['showcase'] == ['catch1', 'catch50', 'evo1', 'super1']  # 빼기 · 안 받은 건 못 고름
     sc['caught'] = list(range(1, 86))
     assert badge_goal(sc, 'catch100') == (85, 100) and badge_goal(sc, 'gen1') == (85, 151) and badge_goal(sc, 'legend') is None
-    assert set(LOOK) == {b for b, _, _, _ in BADGES}  # 모든 배지에 모양이 있다
+    assert set(BADGE_ART) == {b for b, _, _, _ in BADGES}  # 모든 배지에 그림이 있다
     print('pokemon selftest ok')
 
 
