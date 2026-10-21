@@ -37,6 +37,9 @@ except Exception:  # 포켓몬이 깨져도 허브는 뜬다
     pokemon = None
 
 USAGE = os.path.expanduser('~/.claude/pane-tools/usage')
+JOBS = os.path.expanduser('~/.claude/jobs')
+# claude agents 의 상태 묶음 — needs 가 맨 위, 끝난 것은 아래(같은 묶음 안에선 최근 것 먼저)
+ORDER = {'blocked': 0, 'needs_input': 0, 'failed': 1, 'working': 2, 'done': 3}
 
 
 def tools(folder=BIN):
@@ -267,6 +270,31 @@ def read_usage(sid):
         return None, 0
 
 
+def jobs(folder=JOBS):
+    """claude agents 목록의 세션 [(이름, 상태)] — 데몬이 작업마다 쓰는 state.json 을 읽는다.
+    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다."""
+    out = []
+    for j in os.listdir(folder) if os.path.isdir(folder) else []:
+        try:
+            with open(os.path.join(folder, j, 'state.json'), encoding='utf-8') as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        out.append((d.get('updatedAt') or '', d.get('name') or j, d.get('state') or ''))
+    out.sort(reverse=True)  # updatedAt 은 ISO 시각이라 글자 순 = 시간 순
+    out.sort(key=lambda r: ORDER.get(r[2], 2))  # 안정 정렬 — 묶음 안에선 최근 것 먼저가 유지된다
+    return [r[1:] for r in out]
+
+
+def job_attr(state):
+    """claude agents 와 같은 색 — completed 녹색, needs 노랑, working 회색."""
+    if state == 'done':
+        return curses.color_pair(1)
+    if ORDER.get(state) == 0:
+        return curses.color_pair(2) | curses.A_BOLD
+    return curses.color_pair(3) if state == 'failed' else curses.A_DIM
+
+
 def inherited_children():
     """이 프로세스가 시작할 때 이미 있던 자식들 — 허브가 os.execv 로 스스로 다시 시작하면, 그 전에 뒤에서 돌던
     `claude agents --json` 이 새 허브의 자식으로 남는데 아무도 거두지 않아 좀비가 됐다(2026-10-21 실제로 남음)."""
@@ -332,7 +360,12 @@ def main(scr):
 
         h, w = scr.getmaxyx()
         scr.erase()
-        put = lambda y, x, t, a=0: memo.put(scr, y, x, t, a)
+        edge = {}  # 줄마다 왼쪽 글이 끝나는 칸 — 오른쪽 세션 목록이 그 뒤에만 그리게
+
+        def put(y, x, t, a=0):
+            end = memo.put(scr, y, x, t, a)
+            edge[y] = max(edge.get(y, 0), end or 0)
+            return end
         head = L(' 모드 허브 → ', ' Mod hub → ') + (name or L('(없음)', '(none)')) + (L(' · 작업 중', ' · working') if busy else '')
         put(0, 0, head + ' ' * max(0, w - tw(head)), curses.A_REVERSE)
 
@@ -373,6 +406,7 @@ def main(scr):
                 put(y, 1, L(f'({int(time.time() - at)}초 전 값)', f'(as of {int(time.time() - at)}s ago)'), curses.A_DIM)
                 y += 1
         y += 1
+        list_top = y  # 게이지는 폭을 다 쓰니 세션 목록은 그 아래 오른쪽 빈자리에
 
         try:
             # 허브는 오래 켜 두므로, 포켓몬 코드·데이터가 바뀌면 다시 읽는다(안 그러면 두 화면의 규칙이 어긋난다)
@@ -431,6 +465,18 @@ def main(scr):
         for by, x0, x1, btn in (close, lang_btn):
             put(by, x0, btn, curses.A_BOLD | curses.A_REVERSE)
         put(h - 1, lang_btn[2] + 2, L('클릭·숫자키 · l 언어 · q 닫기', 'click/number · l lang · q close'), curses.A_DIM)
+        # 세션 상태(claude agents 와 같은 색) — 오른쪽 열, 왼쪽 글이 끝난 칸 뒤에만, 자리가 모자라면 이름을 자른다
+        rows = jobs()[:max(0, h - 2 - list_top)]
+        colw = max((tw(n) for n, _ in rows), default=0)
+        for i, (n, st) in enumerate(rows):
+            yy = list_top + i
+            x0 = max(edge.get(yy, 0) + 3, w - colw - 2)
+            room = w - x0 - 1
+            if room < 4:
+                continue
+            while tw(n) > room:
+                n = n[:-1]
+            memo.put(scr, yy, x0, n, job_attr(st))
         if _six['key'] is not None and (art_six is None or _six['key'] != art_six[2]):
             sixel_hide()  # 전 그림을 지운다 — 투명 배경이라 새 그림만 덮어쓰면 옛 점이 남는다
         scr.refresh()
@@ -500,6 +546,15 @@ def selftest():
     for f in ('memo.py', 'tetris.py', 'hub.py', '_lib.py', 'notes.txt'):
         open(os.path.join(d, f), 'w').close()
     assert tools(d) == ['memo', 'tetris']
+    # 세션 목록: needs → working → done, 묶음 안에선 최근 것 먼저, state.json 없는(지운) 작업은 빠진다
+    jd = os.path.join(d, 'jobs')
+    for j, st, at in (('a', 'done', '2026-10-21T01:00'), ('b', 'working', '2026-10-20T01:00'), ('c', 'done', '2026-10-21T02:00'),
+                      ('d', 'blocked', '2026-10-01T00:00'), ('e', None, None)):
+        os.makedirs(os.path.join(jd, j, 'tmp'))
+        if st:
+            with open(os.path.join(jd, j, 'state.json'), 'w') as f:
+                json.dump({'state': st, 'name': j.upper(), 'updatedAt': at}, f)
+    assert jobs(jd) == [('D', 'blocked'), ('B', 'working'), ('C', 'done'), ('A', 'done')]
     assert bar(0.5, 10) == '█' * 5 + '░' * 5
     assert bar(1.7, 4) == '████' and bar(-1, 4) == '░░░░'
     assert fmt_k(84321) == '84k' and fmt_k(512) == '512'
