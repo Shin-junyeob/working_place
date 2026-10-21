@@ -1,97 +1,148 @@
 # working_place
-> Claude Code 에서 `/mods` 한 번으로 여는 **모드 허브** — 세션의 컨텍스트·비용 게이지, 세션에 보낼 메모장, 기다리는 동안의 테트리스·포켓몬.
-> 한국어 / English — 허브의 `[ 한/EN ]` 버튼 하나로 mods 전체 글자가 바뀝니다. *(English summary below.)*
 
-![Claude 옆에 뜬 모드 허브](docs/images/hub-ko.png)
+> A small set of **Claude Code mods**. Type `/mods` and a hub opens next to your session: live context/cost gauges, the status of every `claude agents` session, a session activity feed, a memo you can send to the session, Tetris, and an unofficial Pokémon collection game that grows with the tokens you spend.
 
-## 들어 있는 것
-| 플러그인 | 하는 일 |
-|------|---------|
-| `pane-tools` | `/mods` 를 입력하면(세션이 작업 중이어도 바로) 허브가 뜬다. 위에는 세션의 컨텍스트·비용·사용 한도 게이지와 동료 포켓몬, 아래에는 모드 버튼. 오른쪽 빈자리에는 `claude agents` 의 깨어 있는 세션 이름이 같은 색으로 한 줄씩(needs 노랑 · working 회색 · completed 녹색) — 다른 세션이 끝났는지 들어가 보지 않아도 된다. 허브·포켓몬·테트리스의 단축키는 한글 자판인 채로 눌러도 먹는다(ㅣ→l 처럼 같은 자리 영문 키로). 다만 한글 입력기는 자모 하나를 '조합 중'으로 잡아 두어 두 번 눌러야 하므로, macOS 에서 [`macism`](https://github.com/laishulu/macism)(`brew install laishulu/homebrew/macism`)이 있으면 허브 패널에 들어올 때 영문 자판으로 바꾸고 나갈 때(·메모장을 열 때·허브를 닫을 때) 원래 자판으로 되돌린다 — 터미널의 포커스 신호를 쓴다 |
-| ├ `feed` | 세션 활동 피드 — `claude agents` 세션들이 끝내거나(✔) 묻거나(▲) 시작한(●) 순간을 그 한 줄 요약과 함께 최근 것부터. 데몬이 남기는 `~/.claude/jobs/*/timeline.jsonl` 을 읽기만 한다. `sett` 는 2번 패널에 이걸 띄운다 |
-| ├ `memo` | 세션에 보낼 메모장. [send] 하면 그 세션이 작업 중이면 끝난 뒤 들어간다. 세션마다 메모가 따로 |
-| ├ `tetris` | 테트리스. `c` 로 블럭 1개 보관. 패널이 22줄보다 낮으면 판을 반높이(12줄)로 그린다 |
-| └ `pokemon` | 쓴 토큰만큼 포켓몬을 발견·포획·진화시켜 1~9세대 도감을 채운다(비공식 팬메이드 — 아래 참고)<br>· 규칙: 가방에 있는 종은 다른 종의 1/10 확률로만 나온다(나오면 몬스터볼로) · 잡을 때마다 몬스터볼 +1 · 진화형이 이미 가방에 있으면 그 모습으로는 진화하지 않는다<br>· 볼: 몬스터볼(b) · 슈퍼볼(u, 1.5배) · 하이퍼볼(h, 2배). 전설·환상은 하이퍼볼로만 잡힌다. 하이퍼볼은 가방(e)에서 몬스터볼 100개로 교환(x). 슈퍼볼은 일한 보상 — 하루에 서로 다른 세션 3개 이상이 PR 병합·배포가 든 completed 를 내면 1개(하루 1개, `~/.claude/jobs` 기록을 읽는다)<br>· 이로치: 1/256 확률, 같은 종의 기본 모습이 가방에 있어도 따로 잡을 수 있다(이로치끼리만 중복). 이름은 금색, 동료 그림도 이로치 도트<br>· 동료 말풍선: 허브에서 동료가 게이지 아래 한 줄로 세션 상황에 반응 — needs(10분 넘게 두면 노랑으로 재촉) · 진화 가능 · 보상·훈장·체육관 배지·지방 정복·알 소식 · 방금 끝난 세션(PR·배포면 박수) · 풀숲<br>· 훈장 41개(수집·세대 완성·이로치·전설/환상·진화·슈퍼볼·교환·지방 정복·챔피언) — 훈장(a) 화면에서 받은 날짜·진행도를 보고, Space 로 훈장이나 체육관 배지를 최대 5개 골라 포켓몬 화면 맨 위에 글자 한 칸 크기로 장식(훈장은 PokeAPI 도구 그림, 배지는 실제 체육관 배지 그림 — Sixel·Kitty). 세대를 완성하면 그 세대의 빛나는 부적(I~IX) — 그 세대 포켓몬만 이로치 2배<br>· 체육관(g): 열린 세대마다 8관(원작 타입 순서, 7세대는 시련 타입). 가방(e)에서 t 로 팀(최대 6)을 꾸리거나 추천(r → y) — 가진 포켓몬 중 승률이 가장 오르는 조합. 도전(Enter)은 탐색 2회, 완전 자동 배틀(종족값·레벨·자기 타입 공격·상성·스피드)을 한 줄씩 보여 준다. 처음 이기면 그 관의 배지, 이기든 지든 팀은 배틀 경험치(레벨 = 15 + 진화 단계×12 + 경험치/100). 한 세대 8관을 모두 이기면 지방 정복 훈장과 하이퍼볼 1개·알, 그리고 그 세대의 **사천왕·챔피언**(사천왕 4명 각 4마리 + 챔피언 6마리 5연전, 탐색 4회, 승률·추천은 연전 기준)이 열린다 — 처음 이기면 N세대 챔피언 훈장과 하이퍼볼 2개. 배틀이 끝나면 이겼을 땐 q 로 허브로 바로, 졌을 땐 q 로 다시 준비 화면으로<br>· 알: 슈퍼볼을 3번 받을 때마다 1개(최대 3개). 열린 세대의 1단계 중 가방에 없는 종(베이비 ×3 · 스타팅 ×2, 전설·환상 제외)이 들어 있고, 그 종의 부화 걸음 × 5천 토큰을 쓰면 부화. 알 이로치 1/64(부적이면 1/32)<br>· 도감(d): ↑↓ 로 고르고 Enter 면 상세 — 분류·타입, 잡았으면 키·몸무게·종족값(가방에 있으면 배틀 레벨)·약점(×4 표시)·반감·무효·한국어 도감 설명(없으면 영어)과 큰 그림(Sixel·Kitty 면 원본 도트를 정수 배로, 원본 색 그대로), ←→ 로 같은 세대 앞뒤. 이로치를 잡은 종은 도감 이름도 금색. 상세 데이터는 처음 열 때 PokeAPI CSV 에서 받아 `pokedex_detail.json` 으로<br>· 그림: 허브에 동료 도트를 3줄 크기로 — Kitty 그래픽 터미널(cmux·Ghostty·kitty)은 원본 그대로, Sixel 터미널(Windows Terminal 1.22+·WezTerm·foot 등)은 Sixel 이미지(1.5줄)로, 둘 다 아니면 `▀▄` 칸 — 터미널에 물어 저절로 고른다. tmux 안에서는 tmux 3.4 가 바깥 칸 크기를 몰라 그림을 'SIXEL IMAGE' 글자로 바꾸므로, 허브가 **자기 패널만** passthrough 를 켜고 그림을 터미널로 바로 보낸다. 감지를 위해 `~/.tmux.conf` 에 `set -as terminal-features ',xterm*:sixel'`(`install.sh --tmux-layout` 이 넣어 줌) 후 tmux 에 다시 붙기 · 포켓몬 모드 `c` 로 컬러/회색(PC마다) |
-| `long-run-watch` | 오래 걸리는 Bash 명령에 예상 시간·초과 경고·끝남 알림 |
+![The mods hub next to a Claude session](docs/images/hub.png)
 
-<p><img src="docs/images/pokemon-caught.png" alt="포켓몬" width="48%"> <img src="docs/images/tetris-en.png" alt="테트리스" width="36%"></p>
+Every screen switches between English and Korean with the hub's `[ 한/EN ]` button.
 
-새 모드는 `pane-tools/bin/<이름>.py` (curses 프로그램) 하나만 두면 허브에 `[ <이름> ]` 버튼이 저절로 생긴다. `_` 로 시작하는 파일은 버튼이 안 된다. 글자는 `from _lang import L` 후 `L('한국어', 'English')`.
+## What's inside
 
-## 설치 1 — 마켓플레이스 (그냥 쓰기)
-준비: [Claude Code](https://docs.claude.com/claude-code), `python3`. (tmux 는 선택)
+| Plugin / mode | What it does |
+|---|---|
+| `pane-tools` | `/mods` opens the **hub** — even while the session is busy. Gauges, a partner Pokémon with a speech bubble, the awake sessions, and one button per mode. |
+| ├ `feed` | **Session activity** — when each `claude agents` session finishes ✔, asks ▲ or starts ●, newest first, with its one-line summary. |
+| ├ `memo` | A memo for the session. **send** queues it until the session is idle, then submits it. One memo per session. |
+| ├ `tetris` | Tetris with hold (`c`). Draws a half-height board in short panes. |
+| └ `pokemon` | Catch, evolve and battle with the tokens you spend — a fan-made game, see the [notice](#pokémon--unofficial-fan-project). |
+| `long-run-watch` | Estimates how long a Bash command will take (median of its last runs, or "(about 30 min)" in the description), shows it in the status line and warns when it overruns. |
 
-Claude Code 프롬프트에서:
+New modes are one file: drop a curses program at `pane-tools/bin/<name>.py` and the hub grows a `[ <name> ]` button. Files starting with `_` are helpers, not buttons. Text goes through `from _lang import L` → `L('한국어', 'English')`.
+
+## The hub
+
+- **Gauges** — context, cost and rate limits of the session it follows (each session's mod writes them every 2 s).
+- **Speech bubble** — the partner reacts in one line: a session waiting for input (yellow after 10 minutes), ready to evolve, rewards, medals, gym badges and eggs, a session that just finished (it claps when it shipped a PR or a deploy), or rustling grass.
+- **Sessions** — the awake `claude agents` sessions on the right, in the same colors as `claude agents` (needs yellow, working gray, completed green).
+- **Partner art** — real sprites: Kitty graphics (cmux, Ghostty, kitty) or Sixel (Windows Terminal 1.22+, WezTerm, foot), detected automatically, `▀▄` blocks otherwise. Inside tmux the hub enables passthrough for its own pane only; add `set -as terminal-features ',xterm*:sixel'` to `~/.tmux.conf` (`install.sh --tmux-layout` does it).
+- Keys work with a Korean keyboard layout too; on macOS with [`macism`](https://github.com/laishulu/macism) the hub switches to an English layout while focused.
+
+### Session activity and memo
+
+![Session activity feed](docs/images/feed.png)
+
+![Memo](docs/images/memo.png)
+
+### Tetris
+
+<img src="docs/images/tetris.png" alt="Tetris" width="420">
+
+## Pokémon
+
+Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generation by generation (1–9); the next generation opens when the current one is complete.
+
+![Pokémon screen with showcased medals and badges](docs/images/pokemon.png)
+
+**Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
+Poké Ball (`b`), Great Ball (`u`, ×1.5) and Ultra Ball (`h`, ×2). Legendaries and mythicals only fall to Ultra Balls.
+A species already in your bag shows up rarely and turns into Poké Balls. Trade 100 Poké Balls for an Ultra Ball in the bag (`x`).
+
+**Rewards from work** — one Great Ball on a day when three or more different sessions finish with a PR merge or a deploy (read from the `claude agents` timelines). Every third Great Ball brings an **egg** (up to three): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64.
+
+**Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. It never evolves into a form already in your bag.
+
+**Shinies** — 1/256 per encounter, counted apart from the normal form, shown in gold. Completing a generation gives that generation's **Shiny Charm** (I–IX), doubling the shiny rate for its species.
+
+**Medals** — 41 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions), drawn with item sprites. Pick up to five medals or gym badges in the medal screen (`a`) to show at the top of the Pokémon screen.
+
+![Medals](docs/images/medals.png)
+
+**Pokédex** (`d`) — pick a species and press Enter: category, types, height and weight, base stats, weaknesses (×4 marked), resistances and immunities, the Pokédex entry and a crisp sprite.
+
+![Pokédex detail](docs/images/dex.png)
+
+### Gyms, Elite Four and Champion
+
+Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six in the bag (`t`) or let the gym screen suggest one (`r`, apply with `y`) — it picks the combination from your Pokémon that raises the win rate most.
+
+![Gym list with real gym badges](docs/images/gyms.png)
+
+![Gym detail with win rate and a suggested team](docs/images/gym.png)
+
+A challenge costs two explores and plays a fully automatic battle line by line: base stats, level (15 + 12 per evolution stage + battle experience), each Pokémon's own type attack, type matchups and speed. The first win gives that gym's **badge** (the real badge art); every battle gives the team experience. After a win `q` goes straight back to the hub, after a loss back to the prep screen.
+
+![A gym battle](docs/images/battle.png)
+
+Clearing all eight gyms of a generation gives the region conquest medal, an Ultra Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and two Ultra Balls.
+
+Keys — `s` explore · `b`/`u`/`h` throw · `r` run · `v` evolve · `d` Pokédex · `e` bag (`Space` partner, `t` team, `x` trade) · `a` medals · `g` gyms · `c` color/gray partner art · `q` close.
+
+## Install
+
+### Marketplace (just use it)
+
+Requires [Claude Code](https://docs.claude.com/claude-code) and `python3` (tmux is optional).
+
 ```
 /plugin install pane-tools --marketplace Shin-junyeob/working_place
 /plugin install long-run-watch --marketplace Shin-junyeob/working_place
 ```
-셸에서는 `claude plugin install pane-tools --marketplace Shin-junyeob/working_place`.
-데스크톱 앱에서는 프롬프트 옆 **+** → Plugins → Add marketplace `Shin-junyeob/working_place` → Add plugin.
 
-그다음 아무 세션에서 `/mods`.
+From a shell: `claude plugin install pane-tools --marketplace Shin-junyeob/working_place`. Then type `/mods` in any session.
+Auto-update is off for third-party marketplaces: turn it on in `/plugin` → Marketplaces → `working-place`, or run `claude plugin update pane-tools@working-place`.
 
-**자동 업데이트:** 직접 만든 마켓은 자동 업데이트가 기본으로 꺼져 있다. `/plugin` → Marketplaces → `working-place` 에서 자동 업데이트를 켜거나, 손으로 `claude plugin update pane-tools@working-place`.
+### Clone (hack on it, keep several PCs in sync)
 
-## 허브를 어디에 띄울지 — 허브의 `[ 설정 ]` 또는 `/config` → pane-tools
-허브 아래줄의 `[ 설정 ]`(`s` 키)에서 **자동 · 새 창 · 현재 창에 서브패널 · 다른 패널 · 사용자 명령**과 따라갈 패널을 고른다. 고른 값은 `~/.claude/pane-tools/settings.json` 에 적혀 `/config` 보다 먼저 쓰이고, 바로 다음 `/mods` 부터 적용된다(`r` 로 지우면 다시 `/config`). 설치할 때도 같은 `/config` 설정 화면이 나온다.
-
-![설치 중 설정 화면](docs/images/install-config.png)
-
-| 설정 | 값 | 동작 |
-|------|----|------|
-| `launcher` | `auto` (기본) | tmux 가 돌고 있으면 tmux, 아니면 새 터미널 창 |
-| | `tmux` | tmux 패널 — `tmuxTarget` 이 비면 지금 창을 오른쪽으로 나눠 새 패널, 값(예: `dev:0.3`)이 있으면 그 패널을 갈아 끼운다(빈 셸이거나 허브일 때만) |
-| | `window` | 새 터미널 창 — WSL 은 Windows Terminal, macOS 는 Terminal, 리눅스는 `x-terminal-emulator` |
-| | `command` | 내 명령으로 — `command` 의 `{cmd}` 자리에 허브 실행 명령(따옴표로 감싼 한 덩어리)이 들어가 bash 로 돈다 |
-| `followPane` | 비움 (기본) | 허브·메모가 **`/mods` 를 입력한 세션**을 따라간다 |
-| | 예: `dev:0.0` | 그 tmux 패널에 열린 Claude 세션(예: `claude agents`)을 따라간다 — 세션을 바꾸면 허브도 바뀐다 |
-| | 예: `cmux:0` | cmux 에서는 패널 번호로 — 허브가 떠 있는 워크스페이스의 0번 패널에 열린 세션을 따라간다(cmux 를 다시 켜도 번호는 그대로) |
-| `feedTarget` | 비움 (기본) · 예: `dev:0.2` | `/mods` 때 그 tmux 패널이 빈 셸이면 세션 활동 피드도 띄운다(이미 피드가 돌면 그대로, 다른 프로그램이면 건드리지 않음) |
-
-`command` 예:
-- WezTerm: `wezterm cli split-pane -- bash -lc {cmd}`
-- Zellij: `zellij run -- bash -lc {cmd}`
-- cmux 등 다른 도구: 그 도구의 "새 패널(분할)에서 명령 실행" 문법에 `bash -lc {cmd}` 를 넣는다
-
-## 설치 2 — clone (고치고 여러 PC 에서 맞추기)
 ```bash
 git clone https://github.com/Shin-junyeob/working_place.git ~/.claude/mods
-bash ~/.claude/mods/install.sh                     # 세션마다 이 폴더를 자동으로 불러오게 + 자체 점검
-bash ~/.claude/mods/install.sh --tmux-layout       # (선택) tmux 마우스·sett 레이아웃(0 claude agents · 1 셸 · 2 활동 피드 · 3 허브, 둘 다 바로 뜸)
-bash ~/.claude/mods/install.sh --pokemon-backup    # (선택) 매일 17:59 포켓몬 기록 백업
-bash ~/.claude/mods/install.sh --auto-pull         # (선택) 10분마다 GitHub 에서 새 커밋을 받아 옴
+bash ~/.claude/mods/install.sh                   # load this folder in every new session + self-check
+bash ~/.claude/mods/install.sh --tmux-layout     # optional: tmux mouse, Sixel passthrough, the `sett` layout
+bash ~/.claude/mods/install.sh --pokemon-backup  # optional: back up the Pokémon save daily at 17:59
+bash ~/.claude/mods/install.sh --auto-pull       # optional: pull new commits from GitHub every 10 minutes
 ```
-이 방식은 `~/.claude/settings.json` 의 `env` 에 `CLAUDE_CODE_PLUGIN_DIRS` 를 넣어, **새로 여는 세션마다 이 폴더의 mod 가 붙고 파일을 고치면 저절로 다시 불러온다**. 마켓에서 설치한 같은 플러그인과 함께 켜지 않는다(두 번 걸린다).
-고친 것은 `git pull` / `git push` 로 PC 끼리 맞춘다. `--auto-pull` 을 켜면 받아 오기는 저절로 된다(이 PC 에 커밋 안 한 수정이나 안 올린 커밋이 있으면 건너뛰고 `~/.claude/pane-tools/autopull.log` 에 남김). 다른 사람은 fork 나 Pull Request 로 제안할 수 있다.
 
-## 기록은 어디에 (저장소에 안 들어감)
-`~/.claude/pane-tools/` — `settings.json`(한/영·동료 그림 컬러/회색·허브 [ 설정 ] 의 띄울 곳), `pokemon.json`(포켓몬 진행), `pokedex.json`·`pokedex_detail.json`(PokeAPI 에서 받은 도감·상세), `battle.json`(PokeAPI 에서 받은 종족값·타입·상성), `sprites/`(포켓몬 도트 · `shiny/` 이로치 · `badges/` 체육관 배지 · `items/` 훈장 도구 그림 — PokeAPI 에서 필요할 때 한 장씩 받음), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).
+`install.sh` sets `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, so every new session loads these mods and reloads them when a file changes. Don't enable the marketplace copy at the same time. `--auto-pull` skips when there are local edits or unpushed commits and logs to `~/.claude/pane-tools/autopull.log`.
 
-## 포켓몬 — 비공식 팬메이드
-- 이 프로젝트는 **비공식 팬메이드**이며 Nintendo · Creatures · GAME FREAK · The Pokémon Company 와 관계가 없고, 이들의 승인이나 후원을 받지 않았습니다. 포켓몬과 각 포켓몬 이름은 해당 권리자의 상표입니다. 비영리 목적으로만 만들었습니다.
-- 저장소에는 포켓몬 데이터도 그림도 **들어 있지 않습니다**. 모두 각자의 PC 에서 [PokeAPI](https://pokeapi.co/) 로부터 받습니다.
-  - 데이터: `pokemon` 모드를 처음 열 때 공개 CSV([PokeAPI/pokeapi](https://github.com/PokeAPI/pokeapi) `data/v2/csv`)에서 이름(한·영)·세대·진화 관계·포획률·베이비·부화 걸음을 받아 `~/.claude/pane-tools/pokedex.json` 을, 도감 상세를 처음 열 때 분류·타입·키·몸무게·도감 설명을 받아 `pokedex_detail.json` 을, 체육관을 처음 열 때 종족값·타입·상성을 받아 `battle.json` 을 만듭니다. 다시 받으려면 `python3 pane-tools/bin/_pokedata.py`.
-  - 그림: 포켓몬 도트·이로치 도트·**체육관 배지 그림**·**도구 그림(훈장)** 은 [PokeAPI/sprites](https://github.com/PokeAPI/sprites) 의 `sprites/pokemon/<번호>.png`·`sprites/pokemon/shiny/<번호>.png`·`sprites/badges/<번호>.png`·`sprites/items/<이름>.png` 를 화면에 처음 나올 때 한 장씩 받아 `~/.claude/pane-tools/sprites/` 에 둡니다. 저장소의 코드(`pokemon.py`·`_battle.py`)에는 그림 **번호·이름**과 체육관 타입 표만 적혀 있습니다.
-  - `docs/images/` 의 그림은 이 프로그램 화면을 찍은 스크린샷입니다.
-- 권리자의 요청이 있으면 이 모드는 내립니다.
+The `sett` layout (`--tmux-layout`) is `claude agents` on the left and, on the right, a spare shell, the activity feed and the hub — both started automatically.
 
-## 점검
-스크린샷은 빈 홈 폴더의 새 사용자 환경에서 마켓 설치 → `/mods` 로 찍었다(포켓몬 탐색 기회만 시험용 토큰 기록으로 채움).
-`python3 pane-tools/bin/<이름>.py --selftest` (memo · tetris · hub · feed · pokemon — pokemon 은 도감 데이터를 한 번 받은 뒤), `python3 pane-tools/bin/_battle.py`(체육관·사천왕 배틀 규칙) · `python3 pane-tools/bin/_place.py`(허브 설정 화면), `claude plugin test pane-tools`, `claude plugin test long-run-watch`
+## Where the hub opens
 
-## 라이선스
-MIT — `LICENSE`. (포켓몬 관련 명칭, PokeAPI 데이터와 그림(포켓몬·배지)은 이 라이선스에 포함되지 않습니다.)
+Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's choice wins and applies from the next `/mods`.
 
----
+![Hub setup](docs/images/setup.png)
 
-## English summary
-![The mods hub in English](docs/images/hub-en.png)
+| Option | Value | Behavior |
+|---|---|---|
+| `launcher` | `auto` (default) | split the current tmux window, or open a new terminal window outside tmux |
+| | `tmux` | `tmuxTarget` empty → split the current window; set (e.g. `dev:0.3`) → replace that pane when it is an idle shell or the hub |
+| | `window` | a new terminal window — Windows Terminal on WSL, Terminal on macOS, `x-terminal-emulator` on Linux |
+| | `command` | your own command; `{cmd}` becomes the hub command, e.g. `wezterm cli split-pane -- bash -lc {cmd}` or `zellij run -- bash -lc {cmd}` |
+| `followPane` | empty (default) | follow the session that ran `/mods` |
+| | e.g. `dev:0.0` / `cmux:0` | follow whichever Claude session is open in that pane |
+| `feedTarget` | e.g. `dev:0.2` | `/mods` also opens the activity feed there when that pane is an idle shell |
 
-**working_place** is a Claude Code mod set. Type `/mods` (works even while the session is busy) to open a hub showing the session's context/cost/rate-limit gauges, the status of every awake `claude agents` session (needs yellow, working gray, completed green) and buttons for small tools: a session activity feed (when each session finishes, asks or starts, with its one-line summary — `/mods` can also open it in its own tmux pane via `feedTarget`), a memo you can send to the session (queued until it is idle), Tetris (with hold), and an unofficial Pokémon collection game fed by the tokens you spend (Great Balls for days when 3+ sessions ship a PR/deploy, Ultra Balls for 100 Poké Balls, 1/256 shinies in gold, a Pokédex detail view with crisp Sixel/Kitty sprites, a partner speech bubble that reacts to your sessions, 41 medals with per-generation Shiny Charms, eggs earned every third Great Ball, and auto-played gym battles per generation with win rates and suggested teams that award the real gym badges, plus an Ultra Ball and an egg for clearing a generation's eight gyms, which opens a five-battle Elite Four and Champion run; the dex detail also shows base stats, weaknesses and resistances). `long-run-watch` estimates long Bash commands and warns when they overrun. The `[ 한/EN ]` button switches every screen between Korean and English.
+![The same options while installing](docs/images/install-config.png)
 
-**Install:** `/plugin install pane-tools --marketplace Shin-junyeob/working_place` (and `long-run-watch`), then `/mods`. Requires `python3`.
-**Where it opens:** the hub's `[ setup ]` button (`s`) — auto / new window / split this window / another pane / custom command, plus the pane to follow; saved in `~/.claude/pane-tools/settings.json`, it overrides `/config` from the next `/mods`. Or `/config` → pane-tools → `launcher` = `auto` · `tmux` (split, or replace `tmuxTarget`) · `window` (Windows Terminal / macOS Terminal / x-terminal-emulator) · `command` (your own command with a `{cmd}` placeholder, e.g. `wezterm cli split-pane -- bash -lc {cmd}`). `followPane` makes the hub follow the Claude session shown in a pane (tmux `dev:0.0`, or cmux `cmux:0` = pane 0 of the hub's workspace); empty = the session that ran `/mods`.
-**Add a mode:** drop `pane-tools/bin/<name>.py` (a curses program); the hub shows a `[ <name> ]` button.
-**Pokémon notice:** unofficial, non-commercial fan project, not affiliated with or endorsed by Nintendo, Creatures, GAME FREAK or The Pokémon Company. No Pokémon data or images ship in this repo: the data (incl. base stats and type matchups for gym battles) comes from PokeAPI's CSVs and the Pokémon, shiny, gym badge and item sprites from [PokeAPI/sprites](https://github.com/PokeAPI/sprites), each downloaded to `~/.claude/pane-tools/` on first use (the code only stores badge-to-image numbers). It will be taken down on request from the rights holders.
-**License:** MIT (Pokémon names, PokeAPI data and sprites — Pokémon and badges — are not covered).
+## Data on disk
+
+Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
+`settings.json` (language, partner art color, hub setup), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+
+## Pokémon — unofficial fan project
+
+- This is an **unofficial, non-commercial fan project**. It is not affiliated with, endorsed or sponsored by Nintendo, Creatures, GAME FREAK or The Pokémon Company. Pokémon and Pokémon character names are trademarks of their respective owners.
+- **No Pokémon data or images ship in this repository.** Everything is downloaded on your machine from [PokeAPI](https://pokeapi.co/):
+  - data — the public CSVs in [PokeAPI/pokeapi](https://github.com/PokeAPI/pokeapi) (`data/v2/csv`): names, generations, evolutions, capture rates, baby/hatch info, Pokédex entries, base stats and type matchups;
+  - images — [PokeAPI/sprites](https://github.com/PokeAPI/sprites): `sprites/pokemon/<id>.png`, `sprites/pokemon/shiny/<id>.png`, `sprites/badges/<n>.png` and `sprites/items/<name>.png`, each fetched the first time it is shown.
+  - The code only holds sprite numbers and names, the gym/Elite Four type tables and the game rules. Re-download the data with `python3 pane-tools/bin/_pokedata.py`.
+- The screenshots in `docs/images/` are captures of this program running in a test environment; the sprites in them were drawn from PokeAPI at runtime.
+- The Pokémon mode will be taken down on request from the rights holders.
+
+## Development
+
+- Self-checks: `python3 pane-tools/bin/<name>.py --selftest` for `memo`, `tetris`, `hub`, `feed` and `pokemon` (after the Pokédex has been downloaded once); `python3 pane-tools/bin/_battle.py` (battle rules) and `python3 pane-tools/bin/_place.py` (hub setup); `claude plugin test pane-tools` and `claude plugin test long-run-watch`.
+- Bump `version` in the plugin's `.claude-plugin/plugin.json` so marketplace users see the update.
+
+## License
+
+MIT — see `LICENSE`. Pokémon names, PokeAPI data and sprites (Pokémon, badges, items) are not covered.
