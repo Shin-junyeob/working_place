@@ -11,7 +11,7 @@
 | ├ `feed` | 세션 활동 피드 — `claude agents` 세션들이 끝내거나(✔) 묻거나(▲) 시작한(●) 순간을 그 한 줄 요약과 함께 최근 것부터. 데몬이 남기는 `~/.claude/jobs/*/timeline.jsonl` 을 읽기만 한다. `sett` 는 2번 패널에 이걸 띄운다 |
 | ├ `memo` | 세션에 보낼 메모장. [send] 하면 그 세션이 작업 중이면 끝난 뒤 들어간다. 세션마다 메모가 따로 |
 | ├ `tetris` | 테트리스. `c` 로 블럭 1개 보관. 패널이 22줄보다 낮으면 판을 반높이(12줄)로 그린다 |
-| └ `pokemon` | 쓴 토큰만큼 포켓몬을 발견·포획·진화시켜 1~9세대 도감을 채운다(비공식 팬메이드 — 아래 참고)<br>· 규칙: 가방에 있는 종은 다른 종의 1/10 확률로만 나온다(나오면 몬스터볼로) · 잡을 때마다 몬스터볼 +1 · 진화형이 이미 가방에 있으면 그 모습으로는 진화하지 않는다<br>· 볼: 몬스터볼(b) · 슈퍼볼(u, 1.5배) · 하이퍼볼(h, 2배). 전설·환상은 하이퍼볼로만 잡힌다. 하이퍼볼은 가방(e)에서 몬스터볼 100개로 교환(x). 슈퍼볼은 일한 보상 — 하루에 서로 다른 세션 3개 이상이 PR 병합·배포가 든 completed 를 내면 1개(하루 1개, `~/.claude/jobs` 기록을 읽는다)<br>· 이로치: 1/256 확률, 같은 종의 기본 모습이 가방에 있어도 따로 잡을 수 있다(이로치끼리만 중복). 이름은 금색, 동료 그림도 이로치 도트<br>· 그림: 허브에 동료 도트를 3줄 크기로 — Kitty 그래픽 터미널(cmux·Ghostty·kitty)은 원본 그대로, Sixel 터미널(Windows Terminal 1.22+·WezTerm·foot 등)은 Sixel 이미지(1.5줄)로, 둘 다 아니면 `▀▄` 칸 — 터미널에 물어 저절로 고른다. tmux 안에서는 tmux 3.4 가 바깥 칸 크기를 몰라 그림을 'SIXEL IMAGE' 글자로 바꾸므로, 허브가 **자기 패널만** passthrough 를 켜고 그림을 터미널로 바로 보낸다. 감지를 위해 `~/.tmux.conf` 에 `set -as terminal-features ',xterm*:sixel'`(`install.sh --tmux-layout` 이 넣어 줌) 후 tmux 에 다시 붙기 · 포켓몬 모드 `c` 로 컬러/회색(PC마다) |
+| └ `pokemon` | 쓴 토큰만큼 포켓몬을 발견·포획·진화시켜 1~9세대 도감을 채운다(비공식 팬메이드 — 아래 참고)<br>· 규칙: 가방에 있는 종은 다른 종의 1/10 확률로만 나온다(나오면 몬스터볼로) · 잡을 때마다 몬스터볼 +1 · 진화형이 이미 가방에 있으면 그 모습으로는 진화하지 않는다<br>· 볼: 몬스터볼(b) · 슈퍼볼(u, 1.5배) · 하이퍼볼(h, 2배). 전설·환상은 하이퍼볼로만 잡힌다. 하이퍼볼은 가방(e)에서 몬스터볼 100개로 교환(x). 슈퍼볼은 일한 보상 — 하루에 서로 다른 세션 3개 이상이 PR 병합·배포가 든 completed 를 내면 1개(하루 1개, `~/.claude/jobs` 기록을 읽는다)<br>· 이로치: 1/256 확률, 같은 종의 기본 모습이 가방에 있어도 따로 잡을 수 있다(이로치끼리만 중복). 이름은 금색, 동료 그림도 이로치 도트<br>· 도감(d): ↑↓ 로 고르고 Enter 면 상세 — 분류·타입, 잡았으면 키·몸무게·한국어 도감 설명(없으면 영어)과 큰 그림, ←→ 로 같은 세대 앞뒤. 이로치를 잡은 종은 도감 이름도 금색. 상세 데이터는 처음 열 때 PokeAPI CSV 에서 받아 `pokedex_detail.json` 으로<br>· 그림: 허브에 동료 도트를 3줄 크기로 — Kitty 그래픽 터미널(cmux·Ghostty·kitty)은 원본 그대로, Sixel 터미널(Windows Terminal 1.22+·WezTerm·foot 등)은 Sixel 이미지(1.5줄)로, 둘 다 아니면 `▀▄` 칸 — 터미널에 물어 저절로 고른다. tmux 안에서는 tmux 3.4 가 바깥 칸 크기를 몰라 그림을 'SIXEL IMAGE' 글자로 바꾸므로, 허브가 **자기 패널만** passthrough 를 켜고 그림을 터미널로 바로 보낸다. 감지를 위해 `~/.tmux.conf` 에 `set -as terminal-features ',xterm*:sixel'`(`install.sh --tmux-layout` 이 넣어 줌) 후 tmux 에 다시 붙기 · 포켓몬 모드 `c` 로 컬러/회색(PC마다) |
 | `long-run-watch` | 오래 걸리는 Bash 명령에 예상 시간·초과 경고·끝남 알림 |
 
 <p><img src="docs/images/pokemon-caught.png" alt="포켓몬" width="48%"> <img src="docs/images/tetris-en.png" alt="테트리스" width="36%"></p>
@@ -66,7 +66,7 @@ bash ~/.claude/mods/install.sh --auto-pull         # (선택) 10분마다 GitHub
 고친 것은 `git pull` / `git push` 로 PC 끼리 맞춘다. `--auto-pull` 을 켜면 받아 오기는 저절로 된다(이 PC 에 커밋 안 한 수정이나 안 올린 커밋이 있으면 건너뛰고 `~/.claude/pane-tools/autopull.log` 에 남김). 다른 사람은 fork 나 Pull Request 로 제안할 수 있다.
 
 ## 기록은 어디에 (저장소에 안 들어감)
-`~/.claude/pane-tools/` — `settings.json`(한/영·동료 그림 컬러/회색·허브 [ 설정 ] 의 띄울 곳), `pokemon.json`(포켓몬 진행), `pokedex.json`(PokeAPI 에서 받은 도감), `sprites/`(동료 그림 — 필요할 때 한 장씩 받음), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).
+`~/.claude/pane-tools/` — `settings.json`(한/영·동료 그림 컬러/회색·허브 [ 설정 ] 의 띄울 곳), `pokemon.json`(포켓몬 진행), `pokedex.json`·`pokedex_detail.json`(PokeAPI 에서 받은 도감·상세), `sprites/`(동료 그림 — 필요할 때 한 장씩 받음), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).
 
 ## 포켓몬 — 비공식 팬메이드
 - 이 프로젝트는 **비공식 팬메이드**이며 Nintendo · Creatures · GAME FREAK · The Pokémon Company 와 관계가 없고, 이들의 승인이나 후원을 받지 않았습니다. 포켓몬과 각 포켓몬 이름은 해당 권리자의 상표입니다. 비영리 목적으로만 만들었습니다.

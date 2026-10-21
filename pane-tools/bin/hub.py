@@ -52,32 +52,6 @@ def bar(frac, width):
     return '█' * filled + '░' * (width - filled)
 
 
-_pairs = {}
-
-
-def draw_sprite(scr, y, x, grid, gray=False):
-    """(r, g, b) 그림을 ▀▄ 반높이 칸으로 — 한 줄에 그림 두 줄. gray 면 밝기만(포켓몬 모드의 [ 그림 c ]).
-    색 쌍은 처음 쓸 때 16번부터 만든다."""
-    to = _pokedata.gray256 if gray else _pokedata.xterm256
-    grid = [[c and to(*c) for c in row] for row in grid]
-
-    def pair(fg, bg):
-        if (fg, bg) not in _pairs:
-            if len(_pairs) + 17 >= curses.COLOR_PAIRS:  # 쌍이 모자라면 처음부터 다시 쓴다(이전 그림의 쌍)
-                _pairs.clear()
-            _pairs[(fg, bg)] = 16 + len(_pairs)
-            curses.init_pair(_pairs[(fg, bg)], fg, bg)
-        return curses.color_pair(_pairs[(fg, bg)])
-    for r in range(0, len(grid), 2):
-        bot = grid[r + 1] if r + 1 < len(grid) else [None] * len(grid[r])
-        for k, (a, b) in enumerate(zip(grid[r], bot)):
-            if a is None and b is None:
-                continue
-            ch, attr = ('▀', pair(a, -1 if b is None else b)) if a is not None else ('▄', pair(b, -1))
-            try:
-                scr.addstr(y + r // 2, x + k, ch, attr)
-            except curses.error:
-                pass
 
 
 KITTY = False  # __main__ 이 curses 를 켜기 전에 kitty_ok() 로 정한다
@@ -405,7 +379,7 @@ def main(scr):
                     art_six = (y, 1, (n, gray, six[2], y), six[0], cols, used)
                 else:
                     cols, used = len(grid[0]), (len(grid) + 1) // 2
-                    draw_sprite(scr, y, 1, grid, gray)
+                    _pokedata.draw_sprite(scr, y, 1, grid, gray)
                 sx = cols + 3
                 for text, hot, frac in lines:
                     parts = text.split(' · ')
