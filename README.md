@@ -30,6 +30,8 @@ Claude Code 프롬프트에서:
 
 그다음 아무 세션에서 `/mods`.
 
+**자동 업데이트:** 직접 만든 마켓은 자동 업데이트가 기본으로 꺼져 있다. `/plugin` → Marketplaces → `working-place` 에서 자동 업데이트를 켜거나, 손으로 `claude plugin update pane-tools@working-place`.
+
 ## 허브를 어디에 띄울지 — `/config` → pane-tools
 설치할 때도 같은 설정 화면이 나온다.
 
@@ -56,9 +58,10 @@ git clone https://github.com/Shin-junyeob/working_place.git ~/.claude/mods
 bash ~/.claude/mods/install.sh                     # 세션마다 이 폴더를 자동으로 불러오게 + 자체 점검
 bash ~/.claude/mods/install.sh --tmux-layout       # (선택) tmux 마우스·sett 레이아웃·허브를 dev:0.3 에
 bash ~/.claude/mods/install.sh --pokemon-backup    # (선택) 매일 17:59 포켓몬 기록 백업
+bash ~/.claude/mods/install.sh --auto-pull         # (선택) 10분마다 GitHub 에서 새 커밋을 받아 옴
 ```
 이 방식은 `~/.claude/settings.json` 의 `env` 에 `CLAUDE_CODE_PLUGIN_DIRS` 를 넣어, **새로 여는 세션마다 이 폴더의 mod 가 붙고 파일을 고치면 저절로 다시 불러온다**. 마켓에서 설치한 같은 플러그인과 함께 켜지 않는다(두 번 걸린다).
-고친 것은 `git pull` / `git push` 로 PC 끼리 맞춘다. 다른 사람은 fork 나 Pull Request 로 제안할 수 있다.
+고친 것은 `git pull` / `git push` 로 PC 끼리 맞춘다. `--auto-pull` 을 켜면 받아 오기는 저절로 된다(이 PC 에 커밋 안 한 수정이나 안 올린 커밋이 있으면 건너뛰고 `~/.claude/pane-tools/autopull.log` 에 남김). 다른 사람은 fork 나 Pull Request 로 제안할 수 있다.
 
 ## 기록은 어디에 (저장소에 안 들어감)
 `~/.claude/pane-tools/` — `settings.json`(한/영·동료 그림 컬러/회색), `pokemon.json`(포켓몬 진행), `pokedex.json`(PokeAPI 에서 받은 도감), `sprites/`(동료 그림 — 필요할 때 한 장씩 받음), `memos/`, `usage/`(세션별 게이지·누적 토큰), `inbox/`(보낼 메모).

@@ -4,17 +4,19 @@
 #                                      (macOS 에 cmux 가 있으면 허브를 cmux 분할 패널에 — 이미 정해 둔 곳이 있으면 그대로)
 #   bash install.sh --tmux-layout      + tmux 마우스 · sett 레이아웃(~/dev-layout.sh, alias sett) · 허브를 dev:0.3 에, dev:0.0 세션을 따라가게
 #   bash install.sh --pokemon-backup   + 매일 17:59 포켓몬 기록 백업(cron)
+#   bash install.sh --auto-pull        + 10분마다 GitHub 에서 새 커밋을 받아 온다(cron, 고치던 게 있으면 건너뜀)
 # 리눅스 · WSL · macOS 에서 돈다. 여러 번 돌려도 같은 줄을 두 번 넣지 않는다. 덮어쓰기 전엔 .bak-<시각> 으로 남긴다.
 set -euo pipefail
 MODS="$(cd "$(dirname "$0")" && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OS="$(uname -s)"  # Darwin = macOS
-LAYOUT=0 BACKUP=0
+LAYOUT=0 BACKUP=0 PULL=0
 for a in "$@"; do
   case "$a" in
     --tmux-layout) LAYOUT=1 ;;
     --pokemon-backup) BACKUP=1 ;;
-    *) echo "모르는 옵션: $a (--tmux-layout, --pokemon-backup)" >&2; exit 1 ;;
+    --auto-pull) PULL=1 ;;
+    *) echo "모르는 옵션: $a (--tmux-layout, --pokemon-backup, --auto-pull)" >&2; exit 1 ;;
   esac
 done
 ok() { echo "  ✔ $*"; }
@@ -90,6 +92,16 @@ if [ $BACKUP = 1 ]; then
     fi
   else
     warn "crontab 없음 — 백업 예약을 건너뜀"
+  fi
+fi
+
+if [ $PULL = 1 ]; then
+  echo "▶ 10분마다 GitHub 에서 받아 오기"
+  if command -v crontab >/dev/null; then
+    (crontab -l 2>/dev/null | grep -v extras/autopull.sh || true; echo "*/10 * * * * bash $MODS/extras/autopull.sh") | crontab -
+    ok "cron 등록 — 기록: ~/.claude/pane-tools/autopull.log"
+  else
+    warn "crontab 없음 — 받아 오기 예약을 건너뜀"
   fi
 fi
 
