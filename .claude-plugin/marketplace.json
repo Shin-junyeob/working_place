@@ -9,7 +9,7 @@
     {
       "name": "pane-tools",
       "source": "./pane-tools",
-      "description": "/mods 모드 허브 — 게이지·세션 상태·활동 피드·메모·테트리스·포켓몬 · Mods hub: gauges, session status, activity feed, memo, Tetris, Pokémon"
+      "description": "/mods 모드 허브 — 게이지·세션 상태·활동 피드·메모·테트리스·포켓몬(체육관 배틀) · Mods hub: gauges, session status, activity feed, memo, Tetris, Pokémon with gym battles"
     },
     {
       "name": "long-run-watch",
