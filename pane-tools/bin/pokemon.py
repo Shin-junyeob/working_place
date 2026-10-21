@@ -45,6 +45,8 @@ BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}
 SUPER_SESSIONS = 3  # 하루에 PR·배포를 끝낸 서로 다른 세션이 이만큼이면 슈퍼볼 1개
 SHIP = re.compile(r'PR|병합|배포|merge|deploy', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
+EGG_EVERY, EGG_MAX, EGG_STEP = 3, 3, 5000  # 슈퍼볼 몇 번마다 알 · 가질 수 있는 알 · 부화 걸음 하나당 토큰
+EGG_SHINY = 1 / 64
 DONE_SHOW, NEWS_SHOW, STALE = 120, 300, 12 * 3600  # 완료 반응 · 보상 소식 보이는 시간 · 이보다 오래된 needs 는 무시(초)
 
 DEX, GENS, GEN_SIZE, CHILDREN = {}, 0, {}, {}  # load_dex() 가 채운다
@@ -215,7 +217,7 @@ def total_tokens(root=ROOT):
 def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
             'super': 0, 'hyper': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
-            'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None}
+            'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': []}
 
 
 def load(root=ROOT):
@@ -400,9 +402,17 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
         if n['kind'] == 'charm':
             return L(f'빛나는 부적 {ROMAN[int(n["arg"])]}을 얻었다! ({n["arg"]}세대 이로치 2배)',
                      f'Got Shiny Charm {ROMAN[int(n["arg"])]}! (Gen {n["arg"]} shinies x2)'), False
+        if n['kind'] == 'hatch':
+            hn = int(n['arg'].rstrip('*'))
+            return L(f'알이 부화했다! {"✨이로치 " if n["arg"].endswith("*") else ""}{name(hn)}(이)가 태어났다!',
+                     f'An egg hatched! {"✨shiny " if n["arg"].endswith("*") else ""}{name(hn)} was born!'), False
+        if n['kind'] == 'egg':
+            return L(f'{pn}(이)가 알을 안고 왔다!', f'{pn} brought an egg!'), False
         if n['kind'] == 'badge':
             return L(f'{pn}(이)가 새 배지 [{badge_name(n["arg"])}]를 보고 좋아한다!',
                      f'{pn} admires the new badge [{badge_name(n["arg"])}]!'), False
+    if any(t - e['base'] >= 0.9 * e['need'] for e in st.get('eggs', [])):
+        return L('알이 흔들린다! 곧 태어날 것 같다.', 'The egg is wobbling! It will hatch soon.'), False
     for at, nm, state, detail in events:
         if now - _ts(at) >= DONE_SHOW:
             break
@@ -412,6 +422,58 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
     if st['wild'] or tickets(st, t) > 0:
         return L('풀숲이 흔들린다…', 'The tall grass rustles…'), False
     return None
+
+
+def egg_pool(st):
+    """알에서 나올 수 있는 종과 가중치 — 열린 세대의 1단계(진화 전 없음) 중 가방에 없는 것, 전설·환상 빼고.
+    베이비 ×3 · 스타팅 ×2."""
+    top, inbag = current_gen(st) or GENS, boxed(st)
+    return [(n, 3 if DEX[n][7:8] == [1] else 2 if n in STARTERS else 1) for n in DEX
+            if gen(n) <= top and not DEX[n][3] and not DEX[n][5] and n not in inbag]
+
+
+def _pick_egg(st, rng):
+    pool = egg_pool(st)
+    return rng.choices([n for n, _ in pool], weights=[k for _, k in pool])[0] if pool else None
+
+
+def give_egg(st, t=None, rng=random):
+    """알 하나 — 종은 지금 정해 두고(부화할 때까지 ???) 그 종의 부화 걸음만큼 토큰을 쓰면 부화한다. 가득 차면 못 받는다."""
+    n = _pick_egg(st, rng)
+    if n is None or len(st.setdefault('eggs', [])) >= EGG_MAX:
+        return False
+    st['eggs'].append({'id': n, 'base': total_tokens() if t is None else t, 'need': (DEX[n][8] if len(DEX[n]) > 8 else 20) * EGG_STEP})
+    tell(st, 'egg')
+    return True
+
+
+def hatch(st, t, rng=random):
+    """다 자란 알을 부화한다 — 그새 같은 종이 가방에 들어왔으면 다시 고른다. 이로치는 이때 정한다. [(번호, 이로치)]."""
+    out = []
+    for e in [e for e in st.get('eggs', []) if t - e['base'] >= e['need']]:
+        st['eggs'].remove(e)
+        n = e['id'] if e['id'] not in boxed(st) else _pick_egg(st, rng)
+        if n is None:
+            st['balls'] += 5  # 나올 종이 없으면 볼로
+            continue
+        shiny = rng.random() < shiny_rate(st, n, EGG_SHINY)
+        st['box'].append({'id': n, 'xp': 0, **({'shiny': True} if shiny else {})})
+        for key in ('seen', 'caught') + (('shiny',) if shiny else ()):
+            _mark(st, key, n)
+        if st['partner'] is None:
+            set_partner(st, t, len(st['box']) - 1)
+        tell(st, 'hatch', f'{n}{"*" if shiny else ""}')
+        out.append((n, shiny))
+    return out
+
+
+def egg_text(st, t):
+    """'알 2개 · 다음 부화까지 18k' — 알이 없으면 ''."""
+    eggs = st.get('eggs', [])
+    if not eggs:
+        return ''
+    left = min(e['need'] - (t - e['base']) for e in eggs)
+    return L(f'알 {len(eggs)}개 · 다음 부화까지 {fmt_tok(max(0, left))}', f'{len(eggs)} egg(s) · next hatch in {fmt_tok(max(0, left))}')
 
 
 def reward(st, folder=feed.JOBS, today=None):
@@ -426,6 +488,8 @@ def reward(st, folder=feed.JOBS, today=None):
             st['super_earned'] = (st.get('super_earned') or 0) + 1
             got += 1
             tell(st, 'super')
+            if st['super_earned'] % EGG_EVERY == 0:
+                give_egg(st)
     return got
 
 
@@ -484,7 +548,7 @@ def summary(root=ROOT, awake=None):
                    'No Pokédex yet — open [ pokemon ] to download it'), False, None)]
     st, t = load(root), total_tokens(root)
     fresh = not st.get('reward_since') or st.get('super_earned') is None
-    if reward(st) + len(check_badges(st)) or fresh:  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다 · 켠 날은 처음에 적어 둔다
+    if reward(st) + len(hatch(st, t)) + len(check_badges(st)) or fresh:  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다 · 켠 날은 처음에 적어 둔다
         save(st, root)
     lines = []
     if st['partner'] is None:
@@ -629,7 +693,7 @@ def main(scr):
     gold = curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD  # 이로치 이름 — 256색 220(#ffd700)
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
-    if not DEX:  # 처음 열었다 — 도감을 받아 온다
+    if not DEX or len(DEX[1]) < 9:  # 처음 열었거나 옛 형식(알에 쓸 베이비·부화 걸음 없음) — 도감을 받아 온다
         put(scr, 0, 0, L('PokeAPI 에서 포켓몬 도감을 받는 중…', 'Downloading the Pokédex from PokeAPI…'))
         scr.refresh()
         try:
@@ -649,9 +713,12 @@ def main(scr):
     while True:
         st, t = load(), total_tokens()
         fresh = not st.get('reward_since') or st.get('super_earned') is None
-        got, badges = reward(st), check_badges(st)
-        if got or badges or fresh:
+        got, born = reward(st), hatch(st, t)
+        badges = check_badges(st)
+        if got or born or badges or fresh:
             save(st)
+        if born:
+            msg = L('알이 부화했다! ', 'Eggs hatched! ') + ', '.join(('✨' if sh else '') + name(n) for n, sh in born)
         if got:
             msg = L(f'오늘 여러 세션이 일을 내보냈다! 슈퍼볼 {got}개를 받았다.', f'Sessions shipped work! Got {got} Great Ball(s).')
         if badges:
@@ -695,6 +762,10 @@ def main(scr):
                 else:
                     x = put(scr, y + 1, 1, L('진화 ', 'Evolve '))
                     put(scr, y + 1, x, f'{bar(ev[1] / ev[2], 24)} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
+            if st.get('eggs'):
+                e = min(st['eggs'], key=lambda e: e['need'] - (t - e['base']))
+                x = put(scr, y0 + 2, 1, '🥚 ' + egg_text(st, t) + ' ')
+                put(scr, y0 + 2, x, bar((t - e['base']) / e['need'], 12), curses.A_DIM)
             y = y0 + 4
             if st['wild']:
                 sh = st['wild'].get('shiny')
@@ -1088,6 +1159,26 @@ def selftest():
     assert any(n['kind'] == 'charm' and n['arg'] == '1' for n in bd['news'])
     bd['super_earned'], bd['exchanged'] = 1, 1
     assert set(check_badges(bd)) == {'super1', 'hyper1'}
+    # 알: 풀에는 열린 세대의 1단계·가방에 없는 것만(전설·환상 빼고), 베이비 ×3 · 최대 3개 · 다 자라야 부화
+    eg = new_state()
+    eg['caught'] = [n for n in DEX if gen(n) == 1]  # 1세대 완성 → 2세대까지 열림
+    eg['box'] = [{'id': 1, 'xp': 0}]
+    pool = dict(egg_pool(eg))
+    assert 1 not in pool and 2 not in pool and 144 not in pool and 4 in pool and pool[172] == 3 and pool[4] == 2 and pool[10] == 1
+    assert all(gen(n) <= 2 for n in pool)
+    first = type('R', (), {'choices': lambda s, xs, weights: [172], 'random': lambda s: 0.5})()
+    assert give_egg(eg, 1000, first) and eg['eggs'][0] == {'id': 172, 'base': 1000, 'need': 10 * EGG_STEP}
+    assert give_egg(eg, 1000, first) and give_egg(eg, 1000, first) and not give_egg(eg, 1000, first) and len(eg['eggs']) == EGG_MAX
+    assert hatch(eg, 1000 + 10 * EGG_STEP - 1, first) == []  # 덜 자랐다
+    eg['eggs'] = eg['eggs'][:1]
+    eg['box'].append({'id': 172, 'xp': 0})  # 그새 피츄가 가방에 → 다시 고른다
+    other = type('R', (), {'choices': lambda s, xs, weights: [175], 'random': lambda s: 0.0})()
+    assert hatch(eg, 1000 + 10 * EGG_STEP, other) == [(175, True)] and eg['box'][-1] == {'id': 175, 'xp': 0, 'shiny': True}
+    assert 175 in eg['caught'] and 175 in eg['shiny'] and not eg['eggs'] and eg['news'][-1]['kind'] == 'hatch'
+    # 슈퍼볼 3번째에 알
+    ew = new_state()
+    ew['super_earned'], ew['reward_since'] = 2, '2026-10-01'
+    assert reward(ew, jd) == 1 and len(ew['eggs']) == 1
     print('pokemon selftest ok')
 
 
