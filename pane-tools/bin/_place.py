@@ -10,7 +10,7 @@ import _lang
 from _lang import L
 from memo import cw, getkey, put
 
-KEYS = ('launcher', 'tmuxTarget', 'followPane', 'command')
+KEYS = ('launcher', 'tmuxTarget', 'followPane', 'command', 'feedTarget')
 CONFIG = os.path.expanduser('~/.claude/settings.json')
 
 
@@ -29,7 +29,7 @@ def from_config(path=CONFIG):
 
 def current(config=CONFIG):
     """지금 /mods 가 쓰는 값 — 허브에서 고른 것이 있으면 그것, 없으면 /config, 그것도 없으면 기본값."""
-    o = {'launcher': 'auto', 'tmuxTarget': '', 'followPane': '', 'command': ''}
+    o = {'launcher': 'auto', 'tmuxTarget': '', 'followPane': '', 'command': '', 'feedTarget': ''}
     o.update({k: str(v) for k, v in from_config(config).items() if k in KEYS})
     o.update({k: str(_lang.get(k)) for k in KEYS if _lang.get(k) is not None})
     return o
@@ -96,7 +96,8 @@ def screen(scr):
                 ('pane', L('다른 패널', 'Another pane'), o['tmuxTarget'] or L('Enter 로 패널 입력 (예: dev:0.3)', 'Enter a pane (e.g. dev:0.3)')),
                 ('command', L('사용자 명령', 'Custom command'), o['command'] or L('{cmd} 자리를 넣은 명령 (예: wezterm cli split-pane -- bash -lc {cmd})',
                                                                               'a command with {cmd} (e.g. wezterm cli split-pane -- bash -lc {cmd})')),
-                ('follow', L('따라갈 패널', 'Follow pane'), o['followPane'] or L('비움 — /mods 를 입력한 세션', 'empty — the session that ran /mods'))]
+                ('follow', L('따라갈 패널', 'Follow pane'), o['followPane'] or L('비움 — /mods 를 입력한 세션', 'empty — the session that ran /mods')),
+                ('feed', L('피드 패널', 'Feed pane'), o['feedTarget'] or L('비움 — /mods 때 피드는 안 띄움(허브 버튼으로)', 'empty — /mods does not open the feed'))]
         if sel is None:
             sel = [r[0] for r in rows].index(mode(o))
         h, w = scr.getmaxyx()
@@ -107,8 +108,10 @@ def screen(scr):
         for i, (key, name, hint) in enumerate(rows):
             if key == 'follow':
                 y += 1
-                put(scr, y, 1, L('허브·메모가 따라갈 세션', 'Session the hub and memo follow'), curses.A_BOLD)
+                put(scr, y, 1, L('허브·메모가 따라갈 세션 · /mods 때 같이 띄울 피드', 'Session to follow · feed opened with /mods'), curses.A_BOLD)
                 y += 1
+                mark = '  '
+            elif key == 'feed':
                 mark = '  '
             else:
                 mark = '(•)' if key == mode(o) else '( )'
@@ -142,6 +145,10 @@ def screen(scr):
                 v = ask(scr, h - 2, L('명령:', 'Command:'), o['command'])
                 if v and '{cmd}' in v:
                     save('command', v)
+            elif key == 'feed':
+                v = ask(scr, h - 2, L('피드 패널(예: dev:0.2, 비우면 안 띄움):', 'Feed pane (e.g. dev:0.2, empty = none):'), o['feedTarget'])
+                if v is not None:
+                    _lang.put('feedTarget', v)
             else:
                 v = ask(scr, h - 2, L('따라갈 패널(비우면 /mods 세션):', 'Follow pane (empty = /mods session):'), o['followPane'])
                 if v is not None:

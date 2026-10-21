@@ -47,6 +47,7 @@ Claude Code 프롬프트에서:
 | `followPane` | 비움 (기본) | 허브·메모가 **`/mods` 를 입력한 세션**을 따라간다 |
 | | 예: `dev:0.0` | 그 tmux 패널에 열린 Claude 세션(예: `claude agents`)을 따라간다 — 세션을 바꾸면 허브도 바뀐다 |
 | | 예: `cmux:0` | cmux 에서는 패널 번호로 — 허브가 떠 있는 워크스페이스의 0번 패널에 열린 세션을 따라간다(cmux 를 다시 켜도 번호는 그대로) |
+| `feedTarget` | 비움 (기본) · 예: `dev:0.2` | `/mods` 때 그 tmux 패널이 빈 셸이면 세션 활동 피드도 띄운다(이미 피드가 돌면 그대로, 다른 프로그램이면 건드리지 않음) |
 
 `command` 예:
 - WezTerm: `wezterm cli split-pane -- bash -lc {cmd}`

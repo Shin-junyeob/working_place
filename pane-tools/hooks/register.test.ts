@@ -161,3 +161,24 @@ test('허브 [ 설정 ] 에서 고른 띄울 곳이 /config 값보다 먼저 쓰
   expect(runs.some(a => a[1] === 'split-window')).toBe(true) // 지정 패널(dev:0.3) 대신 지금 창을 나눴다
   expect(runs.some(a => a.includes('respawn-pane'))).toBe(false)
 })
+
+test('/mods 는 피드 패널이 빈 셸이면 피드도 띄우고, 이미 피드가 돌면 그대로 둔다',
+  { options: { launcher: 'tmux', tmuxTarget: 'dev:0.3', feedTarget: 'dev:0.2' } }, async ($, on) => {
+  const runs: string[][] = []
+  let feedPane = '-bash'  // 피드 패널 tty 에서 도는 것
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? '/h' : undefined }) as never)
+  on('session.id', () => ({ value: 'S1' }))
+  on('fs.read', () => { throw new Error('없음') })
+  on('process.run', ($, e) => {
+    runs.push([...e.argv])
+    const out = e.argv[1] === 'display' ? (e.argv.includes('dev:0.2') ? 'bash\t/dev/pts/9' : 'bash\t')
+      : e.argv[0] === 'ps' ? feedPane : ''
+    return { value: { exitCode: 0, stdout: out + '\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+  })
+  expect(JSON.stringify(await $.command.run({ command: 'mods', args: '' } as never))).toContain('피드도 dev:0.2')
+  expect(runs.some(a => a.includes('respawn-pane') && a.includes('dev:0.2') && a.at(-1)!.includes('feed.py'))).toBe(true)
+  runs.length = 0
+  feedPane = "bash -c python3 '/p/bin/feed.py'; exec bash\npython3 /p/bin/feed.py"
+  expect(JSON.stringify(await $.command.run({ command: 'mods', args: '' } as never))).not.toContain('피드도')
+  expect(runs.some(a => a.includes('respawn-pane') && a.includes('dev:0.2'))).toBe(false)
+})
