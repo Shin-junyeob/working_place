@@ -677,13 +677,16 @@ def draw_info(scr, st, n, h, w, gold):
 
 
 SHOWCASE_MAX = 5
-# 훈장 → PokeAPI 도구 그림(sprites/items/<이름>.png) — 2026-10-21 미리보기로 보여 드린 짝. 지방 정복은 그 지방 8관 배지 그림.
+# 훈장 → PokeAPI 도구 그림(sprites/items/<이름>.png) — 2026-10-21 미리보기로 보여 드린 짝. 지방 정복은 그 지방 이야기의
+# 상징물(처음엔 8관 배지 그림을 썼더니 훈장과 배지가 같은 그림이 됐다).
 MEDAL_ART = {'catch1': 'poke-ball', 'catch10': 'great-ball', 'catch50': 'ultra-ball', 'catch100': 'luxury-ball',
              'catch500': 'master-ball', 'gen1': 'fire-stone', 'gen2': 'water-stone', 'gen3': 'thunder-stone',
              'gen4': 'leaf-stone', 'gen5': 'moon-stone', 'gen6': 'sun-stone', 'gen7': 'shiny-stone', 'gen8': 'dusk-stone',
              'gen9': 'dawn-stone', 'shiny1': 'star-piece', 'shiny5': 'comet-shard', 'legend': 'red-chain', 'myth': 'gracidea',
              'evo1': 'rare-candy', 'final10': 'exp-share', 'super1': 'nugget', 'super10': 'big-nugget',
-             'hyper1': 'gold-bottle-cap'}
+             'hyper1': 'gold-bottle-cap', 'conquer1': 'poke-flute', 'conquer2': 'rainbow-wing', 'conquer3': 'red-orb',
+             'conquer4': 'adamant-orb', 'conquer5': 'light-stone', 'conquer6': 'zygarde-cube', 'conquer7': 'sun-flute',
+             'conquer8': 'rusted-sword', 'conquer9': 'scarlet-book'}
 
 
 def art_id(key):
@@ -691,8 +694,6 @@ def art_id(key):
     if key.startswith('gym:'):
         g, i = map(int, key[4:].split('-'))
         return _pokedata.BADGE + _battle.GYMS[g][i][1]
-    if key.startswith('conquer'):
-        return _pokedata.BADGE + _battle.GYMS[int(key[7:])][7][1]
     return 'item:' + MEDAL_ART[key]
 
 
@@ -1537,8 +1538,9 @@ def selftest():
     assert sc['showcase'] == ['catch1', 'catch50', 'evo1', 'super1']  # 빼기 · 안 받은 건 못 고름
     sc['caught'] = list(range(1, 86))
     assert badge_goal(sc, 'catch100') == (85, 100) and badge_goal(sc, 'gen1') == (85, 151) and badge_goal(sc, 'legend') is None
-    assert set(MEDAL_ART) | {f'conquer{g}' for g in range(1, 10)} == {b for b, _, _, _ in BADGES}  # 모든 훈장에 그림이 있다
-    assert art_id('catch1') == 'item:poke-ball' and art_id('gym:1-0') == _pokedata.BADGE + 1 and art_id('conquer1') == _pokedata.BADGE + 8
+    assert set(MEDAL_ART) == {b for b, _, _, _ in BADGES}  # 모든 훈장에 그림이 있다
+    assert art_id('catch1') == 'item:poke-ball' and art_id('gym:1-0') == _pokedata.BADGE + 1 and art_id('conquer1') == 'item:poke-flute'
+    assert not {art_id(b) for b, _, _, _ in BADGES} & {art_id(f'gym:{g}-{i}') for g in range(1, 10) for i in range(8)}  # 훈장과 배지는 다른 그림
     # 체육관: 팀 최대 6 · 탐색 2회 · 처음 이기면 배지+하이퍼볼, 다시 이기면 경험치만 · 8관 모두면 지방 정복 훈장과 알
     gd = {'stats': {74: [40, 80, 100, 30, 30, 20], 7: [44, 48, 65, 50, 64, 43]}, 'types': {74: [6, 5], 7: [11]},
           'eff': {'11,6': 2.0, '11,5': 2.0, '6,11': 1.0, '5,11': 1.0}, 'tnames': {6: ['바위', 'Rock']}}
