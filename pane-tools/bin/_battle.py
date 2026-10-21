@@ -36,7 +36,7 @@ LEAGUE = {1: [ICE, FIGHTING, GHOST, DRAGON], 2: [PSYCHIC, POISON, FIGHTING, DARK
           7: [FIGHTING, ROCK, GHOST, FLYING], 8: [DARK, STEEL, FAIRY, DRAGON], 9: [GROUND, STEEL, FLYING, DRAGON]}
 ELITE_COUNT, CHAMP_COUNT = 4, 6
 TEAM_MAX = 6
-XP_PER_LEVEL, XP_LEVEL_CAP = 100, 40
+XP_PER_LEVEL, XP_LEVEL_CAP = 50, 40  # 50 마다 1레벨 — 100 이면 져서는(+30) 4번에 1레벨이라 못 넘는 관을 키워서 넘을 수 없었다(2026-10-21)
 
 
 def build(stats, mons, ptypes, eff, tnames):
@@ -263,7 +263,7 @@ def selftest():
          'eff': d['eff'], 'tnames': {int(k): v for k, v in d['tnames'].items()}}
     assert d['types'][1] == [11] and d['stats'][2] == [50] * 6 and d['tnames'][11] == ['물', 'Water']
     assert factor(d, 11, [10]) == 2.0 and factor(d, 10, [11]) == 0.5 and matchup(d, 1, 2) == 4.0
-    assert level(0, 0) == 15 and level(2, 999) == 48 and level(1, 10**6) == 27 + XP_LEVEL_CAP
+    assert level(0, 0) == 15 and level(2, 999) == 15 + 24 + 999 // XP_PER_LEVEL and level(1, 10**6) == 27 + XP_LEVEL_CAP
     # 같은 레벨이면 상성이 이긴다 · 시드가 같으면 결과도 같다
     assert win_rate(d, [(1, 30)], [(2, 30)]) > 0.9 and win_rate(d, [(3, 30)], [(2, 30)]) < 0.1
     assert win_rate(d, [(1, 30)], [(2, 30)], seed=3) == win_rate(d, [(1, 30)], [(2, 30)], seed=3)

@@ -44,8 +44,8 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 ![Pokémon screen with showcased medals and badges](docs/images/pokemon.png)
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
-Poké Ball (`b`), Great Ball (`u`, ×1.5), Ultra Ball (`h`, ×2) and Master Ball (`m`, always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
-A species already in your bag shows up rarely and turns into Poké Balls. Trade 100 Poké Balls for an Ultra Ball in the bag (`x`).
+Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
+A species already in your bag shows up rarely and turns into Poké Balls. Trade 100 Poké Balls for an Ultra Ball with the bag's **trade** button.
 
 **Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an **egg** (up to three): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
 
@@ -53,29 +53,29 @@ A species already in your bag shows up rarely and turns into Poké Balls. Trade 
 
 **Shinies** — 1/256 per encounter, counted apart from the normal form, shown in gold. Completing a generation gives that generation's **Shiny Charm** (I–IX), doubling the shiny rate for its species.
 
-**Medals** — 41 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions), drawn with item sprites. Pick up to five medals or gym badges in the medal screen (`a`) to show at the top of the Pokémon screen.
+**Medals** — 41 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
 ![Medals](docs/images/medals.png)
 
-**Pokédex** (`d`) — pick a species and press Enter: category, types, height and weight, base stats, weaknesses (×4 marked), resistances and immunities, the Pokédex entry and a crisp sprite.
+**Pokédex** — pick a species and press Enter (←→ switches generation): category, types, height and weight, base stats, weaknesses (×4 marked), resistances and immunities, the Pokédex entry and a crisp sprite.
 
 ![Pokédex detail](docs/images/dex.png)
 
 ### Gyms, Elite Four and Champion
 
-Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six in the bag (`t`) or let the gym screen suggest one (`r`, apply with `y`) — it picks the combination from your Pokémon that raises the win rate most.
+Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six with the bag's **team** button or let the gym screen suggest one (**pick**, then **apply**) — it picks the combination from your Pokémon that raises the win rate most.
 
 ![Gym list with real gym badges](docs/images/gyms.png)
 
 ![Gym detail with win rate and a suggested team](docs/images/gym.png)
 
-A challenge costs two explores and plays a fully automatic battle line by line: base stats, level (15 + 12 per evolution stage + battle experience), each Pokémon's own type attack, type matchups and speed. The first win gives that gym's **badge** (the real badge art); every battle gives the team experience. After a win `q` goes straight back to the hub, after a loss back to the prep screen.
+A challenge costs two explores and plays a fully automatic battle line by line: base stats, level (15 + 12 per evolution stage + one per 50 battle XP, up to +40; a loss gives the team +30 XP, a win +60 + 10 × gym number — the bag shows each Pokémon's progress like `Lv16 (10/50)`), each Pokémon's own type attack, type matchups and speed. The first win gives that gym's **badge** (the real badge art); every battle gives the team experience. After a win `q` goes straight back to the hub, after a loss back to the prep screen.
 
 ![A gym battle](docs/images/battle.png)
 
 Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation.
 
-Keys — `s` explore · `b`/`u`/`h` throw · `r` run · `v` evolve · `d` Pokédex · `e` bag (`Space` partner, `t` team, `x` trade) · `a` medals · `g` gyms · `c` color/gray partner art · `q` close.
+Controls — arrow keys, Enter and `q` only (2026-10-21; there were too many letter shortcuts). Arrows move between buttons and Enter presses the highlighted one; in lists (bag, medals, gyms, Pokédex) ↑↓ picks the row and ←→ the button below it, which acts on that row. In the Pokédex ←→ switches generation, in the detail view the previous/next species. `q` goes back or closes. The mouse works too.
 
 ## Install
 
