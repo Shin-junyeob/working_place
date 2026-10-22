@@ -98,7 +98,7 @@ fi
 if [ $PULL = 1 ]; then
   echo "▶ 켤 때와 10분마다 GitHub 에서 받아 오기"
   if command -v crontab >/dev/null; then
-    (crontab -l 2>/dev/null | grep -v extras/autopull.sh || true; printf "%s\n" "*/10 * * * * bash $MODS/extras/autopull.sh" "@reboot sleep 30 && bash $MODS/extras/autopull.sh") | crontab -  # @reboot: 켜자마자 한 번(네트워크 잡힐 때까지 30초)
+    (crontab -l 2>/dev/null | grep -v extras/autopull.sh || true; printf "%s\n" "*/10 * * * * bash $MODS/extras/autopull.sh" "@reboot bash $MODS/extras/autopull.sh --boot") | crontab -  # @reboot: 켜자마자 한 번
     ok "cron 등록 — 기록: ~/.claude/pane-tools/autopull.log"
   else
     warn "crontab 없음 — 받아 오기 예약을 건너뜀"

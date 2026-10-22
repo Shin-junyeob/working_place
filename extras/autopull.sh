@@ -10,7 +10,11 @@ say() { echo "$(date '+%F %T') $*" >> "$LOG"; tail -n 200 "$LOG" > "$LOG.tmp" &&
 
 cd "$REPO" || exit 0
 [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = main ] || { say "main 브랜치가 아니라 건너뜀"; exit 0; }
-git fetch -q origin main 2>/dev/null || { say "가져오기 실패(네트워크?)"; exit 0; }
+tries=1; [ "${1:-}" = --boot ] && tries=60  # 켜진 직후(@reboot)엔 네트워크가 잡힐 때까지 2초마다 최대 2분 다시 시도
+until git fetch -q origin main 2>/dev/null; do
+  tries=$((tries - 1)); [ "$tries" -gt 0 ] || { say "가져오기 실패(네트워크?)"; exit 0; }
+  sleep 2
+done
 behind=$(git rev-list --count HEAD..origin/main)
 [ "$behind" -gt 0 ] || exit 0  # 받을 게 없으면 조용히 끝
 if [ -n "$(git status --porcelain)" ]; then
