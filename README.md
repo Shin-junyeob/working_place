@@ -98,7 +98,7 @@ git clone https://github.com/Shin-junyeob/working_place.git ~/.claude/mods
 bash ~/.claude/mods/install.sh                   # load this folder in every new session + self-check
 bash ~/.claude/mods/install.sh --tmux-layout     # optional: tmux mouse, Sixel passthrough, the `sett` layout
 bash ~/.claude/mods/install.sh --pokemon-backup  # optional: back up the Pokémon save daily at 17:59
-bash ~/.claude/mods/install.sh --auto-pull       # optional: pull new commits from GitHub every 10 minutes
+bash ~/.claude/mods/install.sh --auto-pull       # optional: pull new commits from GitHub at boot and every 10 minutes
 ```
 
 `install.sh` sets `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, so every new session loads these mods and reloads them when a file changes. Don't enable the marketplace copy at the same time. `--auto-pull` skips when there are local edits or unpushed commits and logs to `~/.claude/pane-tools/autopull.log`.
