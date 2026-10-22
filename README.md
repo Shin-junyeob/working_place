@@ -101,7 +101,7 @@ bash ~/.claude/mods/install.sh --pokemon-backup  # optional: back up the Pokémo
 bash ~/.claude/mods/install.sh --auto-pull       # optional: pull new commits from GitHub at boot and every 10 minutes
 ```
 
-`install.sh` sets `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, so every new session loads these mods and reloads them when a file changes. Don't enable the marketplace copy at the same time. `--auto-pull` skips when there are local edits or unpushed commits and logs to `~/.claude/pane-tools/autopull.log`.
+`install.sh` sets `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, so every new session loads these mods and reloads them when a file changes. Don't enable the marketplace copy at the same time. `--auto-pull` adds two cron lines: one every 10 minutes and one `@reboot` that runs as soon as the machine (or WSL) starts, retrying every 2 s for up to 2 minutes until the network is up. It skips when there are local edits or unpushed commits and logs to `~/.claude/pane-tools/autopull.log`. An open hub restarts itself when any file in `pane-tools/bin/` changes; an open mode screen (Pokémon, Tetris…) gets the new code the next time you open it.
 
 The `sett` layout (`--tmux-layout`) is `claude agents` on the left and, on the right, a spare shell, the activity feed and the hub — both started automatically.
 
