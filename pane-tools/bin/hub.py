@@ -8,6 +8,7 @@
 """
 import argparse
 import curses
+import glob
 import importlib
 import json
 import locale
@@ -128,7 +129,9 @@ def main(scr):
     global pokemon
     pk_stamp = 0
     me = os.path.abspath(__file__)
-    my_stamp = seen = os.path.getmtime(me)
+    # 허브가 함께 불러 쓰는 memo·feed·_gfx 등도 바뀌면 옮겨 탄다(모드 화면은 열 때마다 새로 읽으니 상관없다)
+    code = lambda: max(os.path.getmtime(p) for p in glob.glob(os.path.join(BIN, '*.py')))  # noqa: E731
+    my_stamp = seen = code()
     seen_at = time.time()
     strays = inherited_children()
     while True:
@@ -137,7 +140,7 @@ def main(scr):
         # git switch → pull 사이 몇 초 동안 파일이 옛 버전이었는데 그 순간 옮겨 타서, 이 재시작 코드가 없는 옛 허브에
         # 갇혔다(그 뒤 파일이 돌아와도 모름). 그래서 파일이 5초 동안 안 바뀐 뒤에만, 그리고 새 파일에도 재시작 코드가
         # 있을 때만 옮겨 탄다.
-        m = os.path.getmtime(me)
+        m = code()
         if m != seen:
             seen, seen_at = m, time.time()
         elif m != my_stamp and time.time() - seen_at >= 5:
