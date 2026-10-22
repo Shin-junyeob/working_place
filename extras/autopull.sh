@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# working_place 를 GitHub 에서 저절로 받아 온다 — cron 이 10분마다 부른다(install.sh --auto-pull).
+# working_place 를 GitHub 에서 저절로 받아 온다 — cron 이 10분마다, 그리고 켤 때(@reboot, --boot) 부른다(install.sh --auto-pull).
 # GitHub 가 PC 로 밀어 줄 수는 없어서 PC 가 가서 확인한다. 이 폴더는 세션이 자동으로 다시 불러오므로 받으면 바로 적용된다.
 # 이 PC 에서 고치던 것(커밋 안 한 수정·안 올린 커밋)이 있으면 받지 않는다 — 덮어쓰거나 병합을 만들지 않게.
 set -u
