@@ -47,7 +47,11 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
 A species already in your bag shows up rarely and turns into Poké Balls. Trade 100 Poké Balls for an Ultra Ball with the bag's **trade** button.
 
-**Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an **egg** (up to three): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
+**Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
+
+**Eggs** — each wild catch has a 10% chance to come with an **egg** (up to three; the region conquest gives one too): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
+
+**Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls and 3 Great Balls.
 
 **Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. It never evolves into a form already in your bag.
 
@@ -57,7 +61,7 @@ A species already in your bag shows up rarely and turns into Poké Balls. Trade 
 
 ![Medals](docs/images/medals.png)
 
-**Pokédex** — pick a species and press Enter (←→ switches generation): category, types, height and weight, base stats, weaknesses (×4 marked), resistances and immunities, the Pokédex entry and a crisp sprite.
+**Pokédex** — each uncaught entry shows how to get it (wild · evolve from … · legendary/mythical), and the bottom line counts what is left in the wild, evolve-only and legendary, plus who is in the grass right now. Pick a species and press Enter (←→ switches generation): category, types, height and weight, base stats, weaknesses (×4 marked), resistances and immunities, the Pokédex entry and a crisp sprite.
 
 ![Pokédex detail](docs/images/dex.png)
 
