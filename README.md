@@ -39,7 +39,7 @@ New modes are one file: drop a curses program at `pane-tools/bin/<name>.py` and 
 
 ## Pokémon
 
-Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generation by generation (1–9); the next generation opens when the current one is complete.
+Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generation by generation (1–9); the next generation opens when you beat that generation's Elite Four and Champion **or** complete its Pokédex, whichever comes first. The grass shows the newest open generation; species left in older generations are still yours to finish through evolution.
 
 ![Pokémon screen with showcased medals and badges](docs/images/pokemon.png)
 
@@ -51,7 +51,7 @@ A species already in your bag shows up rarely and turns into Poké Balls. Trade 
 
 **Eggs** — each wild catch has a 10% chance to come with an **egg** (up to three; the region conquest gives one too): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
 
-**Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls and 3 Great Balls.
+**Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls, 3 Great Balls and a **Rare Candy**, which evolves your partner on the spot when it has a form to evolve into (one candy a week).
 
 **Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. It never evolves into a form already in your bag.
 

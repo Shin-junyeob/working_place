@@ -2,7 +2,8 @@
 """포켓몬 — Claude 를 쓴 만큼(누적 토큰) 포켓몬을 발견해 잡고, 한 마리를 데리고 다니며 진화시켜 세대별 도감을 채운다.
 
 누적 토큰: 각 세션의 pane-tools mod 가 usage/<sid>.json 의 gained 에 적는 값(컨텍스트가 늘어난 만큼)을 모두 더한 것.
-- 도감은 세대별(1~9세대). 데이터는 처음 열 때 PokeAPI 에서 받아 ~/.claude/pane-tools/pokedex.json 에 둔다(_pokedata.py). 지금 세대를 다 채우면 다음 세대가 열리고, 야생에선 지금 세대 포켓몬만 나온다.
+- 도감은 세대별(1~9세대). 데이터는 처음 열 때 PokeAPI 에서 받아 ~/.claude/pane-tools/pokedex.json 에 둔다(_pokedata.py). 그 세대 도감을 다 채우거나
+  사천왕·챔피언을 이기면 다음 세대가 열리고(opened_gen), 야생에선 열린 세대 중 가장 최근 세대가 나온다. 이상한사탕(주간 상)은 동료를 바로 진화시킨다.
 - 나오는 순서: 스타팅·피카츄·이브이 → 일반(원작 포획률 높은 = 흔한 것부터) → 전설 → 환상. 앞쪽 WINDOW 마리 중 무작위.
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
 - 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나오고(BOXED_WEIGHT), 나오면 잡지 않고 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
@@ -59,7 +60,7 @@ EGG_CATCH, EGG_MAX, EGG_STEP = 0.1, 3, 5000  # 잡을 때 알을 함께 얻을 �
 WEEKLY = [('catch', 8, '포켓몬 {n}마리 잡기', 'Catch {n} Pokémon'), ('explore', 15, '풀숲 {n}번 탐색', 'Explore {n} times'),
           ('gym', 5, '체육관·사천왕 {n}번 이기기', 'Win {n} gym/league battles'), ('evolve', 2, '{n}번 진화시키기', 'Evolve {n} times'),
           ('ship', 4, 'push·PR·배포한 날 {n}일', 'Ship on {n} days'), ('hatch', 1, '알 {n}개 부화', 'Hatch {n} egg(s)')]
-WEEKLY_PRIZE = [('hyper', 2), ('super', 3)]  # 일주일에 한 번이라 후하게
+WEEKLY_PRIZE = [('hyper', 2), ('super', 3), ('candy', 1)]  # 일주일에 한 번이라 후하게 · 이상한사탕은 매주 1개(동료 즉시 진화)
 EGG_SHINY = 1 / 64
 # 알에서 포켓몬과 함께 나오는 덤 — (볼 종류, 개수, 확률%) (2026-10-21 정함)
 EGG_BONUS = [('balls', 1, 60), ('balls', 2, 20), ('balls', 3, 10), ('super', 1, 7), ('hyper', 1, 3)]
@@ -131,14 +132,27 @@ def current_gen(st):
     return None  # 전 세대 완성
 
 
+def opened_gen(st):
+    """열린 가장 높은 세대 — 1세대부터, 도감을 다 채웠거나 사천왕·챔피언을 이긴 세대의 다음 세대가 열린다(2026-10-27:
+    도감만으로는 진화로만 얻는 종 때문에 한 달씩 갇혔다)."""
+    g = 1
+    while g < GENS and (gen_done(st, g) or str(g) in st.get('league', {})):
+        g += 1
+    return g
+
+
 def wild_pool(st):
-    """지금 세대에서 나올 차례인 포켓몬들, 순서대로. 아직 못 잡은 같은 세대 진화형이 남은 계열도 계속 나온다."""
-    g, caught = current_gen(st), set(st['caught'])
-    if g is None:
+    """야생에서 나올 차례인 포켓몬들, 순서대로 — 열린 세대 중 가장 최근 세대부터, 그 세대 야생을 다 잡았으면 이전 세대.
+    아직 못 잡은 같은 세대 진화형이 남은 계열도 계속 나온다."""
+    if current_gen(st) is None:
         return []
-    pool = [n for n in DEX if gen(n) == g and wild_ok(n)
-            and (n not in caught or any(gen(d) == g and d not in caught for d in descendants(n)))]
-    return sorted(pool, key=order_key)
+    caught = set(st['caught'])
+    for g in range(opened_gen(st), 0, -1):
+        pool = [n for n in DEX if gen(n) == g and wild_ok(n)
+                and (n not in caught or any(gen(d) == g and d not in caught for d in descendants(n)))]
+        if pool:
+            return sorted(pool, key=order_key)
+    return []
 
 
 ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX']
@@ -248,7 +262,7 @@ def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
             'super': 0, 'hyper': 0, 'master': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
             'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': [], 'showcase': [],
-            'gym': {}, 'team': [], 'league': {}, 'weekly': None}
+            'gym': {}, 'team': [], 'league': {}, 'weekly': None, 'candy': 0}
 
 
 def load(root=ROOT):
@@ -287,7 +301,7 @@ def dupe_balls(n):
 
 def opened_evolutions(st, n):
     """지금 열린 세대 안의 다음 모습들(가방 상태와 무관)."""
-    g = current_gen(st) or GENS
+    g = opened_gen(st)
     return [c for c in CHILDREN.get(n, []) if gen(c) <= g]
 
 
@@ -443,10 +457,14 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
             ko, en = (ball_name(*extra.split(':')) if extra else ('', ''))
             return L(f'알이 부화했다! {"✨이로치 " if sh else ""}{name(hn)}(이)가 태어났다!' + (f' 덤으로 {ko}!' if extra else ''),
                      f'An egg hatched! {"✨shiny " if sh else ""}{name(hn)} was born!' + (f' Plus {en}!' if extra else '')), False
+        if n['kind'] == 'opengen':
+            return L(f'{n["arg"]}세대가 열렸다! 풀숲에서 새 포켓몬이 나온다.', f'Gen {n["arg"]} is open! New Pokémon in the tall grass.'), False
         if n['kind'] == 'streak':
             return L(f'{n["arg"]}일 연속! {pn}(이)가 하이퍼볼을 물어 왔다!', f'{n["arg"]}-day streak! {pn} brought an Ultra Ball!'), False
         if n['kind'] == 'weekly':
-            return L(f'주간 과제 달성! {pn}(이)가 하이퍼볼 2개·슈퍼볼 3개를 받아 왔다!', f'Weekly challenge done! {pn} brought 2 Ultra Balls and 3 Great Balls!'), False
+            ko = '·'.join(ball_name(b, c)[0] for b, c in WEEKLY_PRIZE)
+            en = ', '.join(ball_name(b, c)[1] for b, c in WEEKLY_PRIZE)
+            return L(f'주간 과제 달성! {pn}(이)가 {ko}를 받아 왔다!', f'Weekly challenge done! {pn} brought {en}!'), False
         if n['kind'] == 'egg':
             return L(f'{pn}(이)가 알을 안고 왔다!', f'{pn} brought an egg!'), False
         if n['kind'] == 'badge' and n['arg'].startswith('conquer'):
@@ -476,7 +494,7 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
 def egg_pool(st):
     """알에서 나올 수 있는 종과 가중치 — 열린 세대의 1단계(진화 전 없음) 중 가방에 없는 것, 전설·환상 빼고.
     베이비 ×3 · 스타팅 ×2."""
-    top, inbag = current_gen(st) or GENS, boxed(st)
+    top, inbag = opened_gen(st), boxed(st)
     return [(n, 3 if DEX[n][7:8] == [1] else 2 if n in STARTERS else 1) for n in DEX
             if gen(n) <= top and not DEX[n][3] and not DEX[n][5] and n not in inbag]
 
@@ -522,7 +540,9 @@ def hatch(st, t, rng=random):
 def ball_name(kind, k):
     """('balls'|'super'|'hyper'|'master', 개수) → (한국어, 영어) — '몬스터볼 2개'."""
     ko, en = {'balls': ('몬스터볼', 'Poké Ball'), 'super': ('슈퍼볼', 'Great Ball'), 'hyper': ('하이퍼볼', 'Ultra Ball'),
-              'master': ('마스터볼', 'Master Ball')}[kind]
+              'master': ('마스터볼', 'Master Ball'), 'candy': ('이상한사탕', 'Rare Cand')}[kind]
+    if kind == 'candy':
+        return f'{ko} {k}개', f'{k} {en}{"ies" if int(k) > 1 else "y"}'
     return f'{ko} {k}개', f'{k} {en}{"s" if int(k) > 1 else ""}'
 
 
@@ -627,16 +647,31 @@ def dex_summary(st, g):
     evo = sum(1 for n in left if not DEX[n][5] and not wild_ok(n))
     wild = len(left) - leg - evo
     out = L(f'야생에서 남은 것 {wild} · 진화로만 {evo} · 전설·환상 {leg}', f'Wild left {wild} · evolve-only {evo} · legendary {leg}')
-    if g == current_gen(st):
+    if wild_pool(st) and gen(wild_pool(st)[0]) == g:
         now = [n for n, w in wild_odds(st) if w == 1]
         if now:
             out += L(' · 지금 풀숲: ', ' · in the grass now: ') + '·'.join(name(n) if n in st['seen'] else '???' for n in now)
     return out
 
 
+def use_candy(st, t, rng=random):
+    """이상한사탕 — 동료가 진화할 수 있는 모습이 있으면 경험치와 상관없이 바로 진화. 진화한 번호 · 못 쓰면 None."""
+    if st.get('candy', 0) <= 0 or st['partner'] is None:
+        return None
+    m = st['box'][st['partner']]
+    if not evolutions(st, m['id'], m.get('shiny')):
+        return None
+    st['candy'] -= 1
+    return _evolve(st, t, rng)
+
+
 def evolve(st, t, rng=random):
     if not can_evolve(st, t):
         return None
+    return _evolve(st, t, rng)
+
+
+def _evolve(st, t, rng):
     mon = st['box'][st['partner']]
     mon['id'], mon['xp'] = rng.choice(evolutions(st, mon['id'], mon.get('shiny'))), 0  # 이로치는 이로치로 진화
     st['base'] = t
@@ -654,7 +689,7 @@ def fmt_tok(n):
 
 
 def dex_text(st):
-    g, caught = current_gen(st), set(st['caught'])
+    g, caught = (opened_gen(st) if current_gen(st) else None), set(st['caught'])
     if g is None:
         return L(f'도감 완성! {len(caught)}/{len(DEX)}', f'Pokédex complete! {len(caught)}/{len(DEX)}')
     have = sum(1 for n in caught if gen(n) == g)
@@ -985,7 +1020,7 @@ def gym_rows(st):
 
 def gym_gens(st):
     """도전할 수 있는 세대 — 도감이 열린 세대까지."""
-    return range(1, (current_gen(st) or GENS) + 1)
+    return range(1, opened_gen(st) + 1)
 
 
 def fight(st, t, d, g, i, rng=random, today=None):
@@ -1008,6 +1043,8 @@ def fight(st, t, d, g, i, rng=random, today=None):
     if won and i == 'L' and str(g) not in st.setdefault('league', {}):
         st['league'][str(g)] = day  # 챔피언 훈장(마스터볼)은 check_badges 가
         tell(st, 'league', str(g))
+        if g < GENS and not gen_done(st, g):
+            tell(st, 'opengen', str(g + 1))
         first = True
     elif won and i != 'L' and f'gym:{g}-{i}' not in st.setdefault('gym', {}):
         st['gym'][f'gym:{g}-{i}'] = day
@@ -1146,8 +1183,8 @@ def main(scr):
                 if ev[0] == 'final':
                     put(scr, y + 1, 1, L('더 진화하지 않는 포켓몬입니다.', 'This Pokémon does not evolve any further.'), curses.A_DIM)
                 elif ev[0] == 'locked':
-                    put(scr, y + 1, 1, L('진화형은 다음 세대 도감이 열리면 만날 수 있다.',
-                                          'Its evolution unlocks with the next generation.'), curses.A_DIM)
+                    put(scr, y + 1, 1, L('진화형은 다음 세대가 열리면(사천왕 클리어 또는 도감 완성) 만날 수 있다.',
+                                          'Its evolution unlocks with the next generation (beat the Elite Four or finish the dex).'), curses.A_DIM)
                 elif ev[0] == 'blocked':
                     put(scr, y + 1, 1, blocked_text(ev[1]), curses.A_DIM)
                 elif ev[0] == 'ready':
@@ -1155,7 +1192,9 @@ def main(scr):
                     button(y + 1, x + 3, L('진화', 'evolve'), 'evolve')
                 else:
                     x = put(scr, y + 1, 1, L('진화 ', 'Evolve '))
-                    put(scr, y + 1, x, f'{bar(ev[1] / ev[2], 24)} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
+                    x = put(scr, y + 1, x, f'{bar(ev[1] / ev[2], 24)} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
+                    if st.get('candy'):
+                        button(y + 1, x + 3, L(f'이상한사탕 ({st["candy"]})', f'Rare Candy ({st["candy"]})'), 'candy')
             if st.get('eggs'):
                 e = min(st['eggs'], key=lambda e: e['need'] - (t - e['base']))
                 x = put(scr, y0 + 2, 1, '🥚 ' + egg_text(st, t) + ' ')
@@ -1181,7 +1220,8 @@ def main(scr):
                 if k > 0:
                     put(scr, y, 1, L(f'탐색 {k}회 가능 · 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
                                      f'{k} explore{"" if k == 1 else "s"} ready · Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}')
-                        + (L(f' · 마스터볼 {st["master"]}', f' · Master {st["master"]}') if st['master'] else ''))
+                        + (L(f' · 마스터볼 {st["master"]}', f' · Master {st["master"]}') if st['master'] else '')
+                        + (L(f' · 이상한사탕 {st["candy"]}', f' · Rare Candy {st["candy"]}') if st.get('candy') else ''))
                     button(y + 1, 1, L('풀숲 탐색', 'explore grass'), 'explore')
                 else:
                     left = ENCOUNTER_EVERY - t % ENCOUNTER_EVERY
@@ -1334,7 +1374,7 @@ def main(scr):
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('←→ 앞뒤 포켓몬', '←→ prev/next'), curses.A_DIM)
         else:
-            open_gen = current_gen(st) or GENS
+            open_gen = opened_gen(st)
             rows = ([(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
                       + f'{n:04d} ' + (name(n) if n in st['seen'] else '???')
                       + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in DEX if gen(n) == dg]
@@ -1500,7 +1540,7 @@ def main(scr):
                 view, msg = 'fight', ''
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
         if act in ('dex', 'box'):
-            view, top, dg, msg = act, 0, current_gen(st) or GENS, ''
+            view, top, dg, msg = act, 0, opened_gen(st), ''
             sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
         elif act == 'back' and view == 'fight' and battle_now['k'] < len(battle_now['ev']):
             battle_now['k'] = len(battle_now['ev'])  # 먼저 끝까지 보여 주고, 한 번 더 누르면 나간다
@@ -1522,7 +1562,7 @@ def main(scr):
             save(st)
             pn = name(st['box'][act[1]]['id'])
             msg, view = L(f'{pn}(을)를 데리고 다닙니다.', f'{pn} is now your partner.'), 'main'
-        elif view == 'main' and act in ('explore', 'throw', 'super', 'hyper', 'master', 'run', 'evolve'):
+        elif view == 'main' and act in ('explore', 'throw', 'super', 'hyper', 'master', 'run', 'evolve', 'candy'):
             if act == 'explore':
                 got = explore(st, t)
                 if not got:
@@ -1547,9 +1587,9 @@ def main(scr):
                     msg += L(' 풀숲에서 알도 하나 주웠다!', ' Found an egg in the grass too!')
             elif act == 'run' and st['wild']:
                 msg, st['wild'] = L('무사히 도망쳤다.', 'Got away safely.'), None
-            elif act == 'evolve':
+            elif act in ('evolve', 'candy'):
                 before = name(st['box'][st['partner']]['id']) if st['partner'] is not None else ''
-                n = evolve(st, t)
+                n = evolve(st, t) if act == 'evolve' else use_candy(st, t)
                 msg = L(f'오잉!? {before}의 모습이… {name(n)}(으)로 진화했다!', f'What? {before} evolved into {name(n)}!') if n else ''
             save(st)
 
@@ -1830,6 +1870,7 @@ def selftest():
     for _ in range(goal):
         bump(wk, kind, key='2026-W43')
     assert wk['weekly']['done'] and wk['hyper'] == 2 and wk['super'] == 3 and wk['news'][-1]['kind'] == 'weekly'
+    assert wk['candy'] == 1  # 이상한사탕은 매주 1개
     bump(wk, kind, key='2026-W43')
     assert wk['hyper'] == 2  # 두 번 주지 않는다
     assert weekly(wk, '2026-W44')['n'] == 0 and not wk['weekly']['done']  # 다음 주는 새 과제
@@ -1837,6 +1878,23 @@ def selftest():
     sw['rewarded'], sw['weekly'] = ['2026-10-19', '2026-10-20', '2026-10-25', '2026-10-26'], {'key': '2026-W43', 'kind': 'ship', 'n': 0, 'done': False}
     assert weekly(sw, '2026-W43')['n'] == 3  # ship 은 보상받은 날 중 이번 주(월~일) 날짜 수
     assert week_key(datetime(2026, 10, 26)) == '2026-W44' and week_key(datetime(2026, 10, 25)) == '2026-W43'  # 월요일에 바뀐다
+    # 다음 세대: 도감 완성 또는 사천왕 클리어 — 야생은 열린 세대 중 최신부터, 다 잡았으면 이전 세대
+    og = new_state()
+    og['caught'] = [n for n in DEX if gen(n) == 1 and wild_ok(n)]  # 1세대 야생만 다 잡고 진화형은 남음
+    assert opened_gen(og) == 1 and current_gen(og) == 1
+    og['league'] = {'1': '2026-10-26'}
+    assert opened_gen(og) == 2 and current_gen(og) == 1 and all(gen(n) == 2 for n in wild_pool(og))
+    assert gym_gens(og) == range(1, 3) and any(gen(n) == 2 for n, _ in egg_pool(og))
+    og['caught'] += [n for n in DEX if gen(n) == 2 and wild_ok(n)]  # 2세대 야생을 다 잡아도 진화형이 남은 계열은 계속 2세대에서
+    assert wild_pool(og) and all(gen(n) == 2 for n in wild_pool(og))
+    # 이상한사탕: 진화할 모습이 있으면 경험치와 상관없이 바로 진화, 없으면 쓰지 않는다
+    cd = new_state()
+    cd['box'], cd['partner'], cd['candy'], cd['caught'] = [{'id': 10, 'xp': 0}], 0, 1, [10]
+    assert use_candy(cd, 0) == 11 and cd['candy'] == 0 and cd['box'][0]['id'] == 11 and 11 in cd['caught']
+    assert use_candy(cd, 0) is None  # 사탕이 없다
+    cd['candy'], cd['box'] = 1, [{'id': 12, 'xp': 0}]
+    assert use_candy(cd, 0) is None and cd['candy'] == 1  # 버터플은 더 진화하지 않는다 → 사탕은 그대로
+    assert ball_name('candy', 1) == ('이상한사탕 1개', '1 Rare Candy') and ball_name('candy', 2)[1] == '2 Rare Candies'
     # 도감 힌트: 잡은 건 빈칸, 전설·진화·야생 · 요약은 남은 것을 셋으로 나눈다
     dh = new_state()
     dh['caught'], dh['seen'] = [1], [1, 2]
