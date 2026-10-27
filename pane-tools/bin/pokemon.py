@@ -55,6 +55,7 @@ SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이�
 SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
 STREAK_DAYS = 3  # 보상받은 날이 며칠 연속이면 하이퍼볼(3·6·9일째) — 2026-10-23 알에서 바꿈(알은 포획 때 EGG_CATCH)
+OLD_GEN_RATE = 0.2  # 탐색 5번 중 1번은 이전 세대 전체에서 — 다 채운 세대도 이로치를 노릴 수 있게(현재 8 : 이전 2)
 EGG_CATCH, EGG_MAX, EGG_STEP = 0.1, 3, 5000  # 잡을 때 알을 함께 얻을 확률 · 가질 수 있는 알 · 부화 걸음 하나당 토큰
 # 주간 과제 (종류, 목표, 한국어, 영어) — 주 번호로 하나를 고른다. 이번 주에 쌓인 횟수로 센다
 WEEKLY = [('catch', 8, '포켓몬 {n}마리 잡기', 'Catch {n} Pokémon'), ('explore', 15, '풀숲 {n}번 탐색', 'Explore {n} times'),
@@ -153,6 +154,13 @@ def wild_pool(st):
         if pool:
             return sorted(pool, key=order_key)
     return []
+
+
+def old_pool(st):
+    """이전 세대(열린 세대보다 아래 전부) 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 빼고.
+    모든 세대를 다 채웠으면 전 세대에서."""
+    top = opened_gen(st) if wild_pool(st) else GENS + 1
+    return [n for n in DEX if gen(n) < top and wild_ok(n) and not DEX[n][5]]
 
 
 ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX']
@@ -332,12 +340,15 @@ def _mark(st, key, n):
 def explore(st, t, rng=random):
     if st['wild'] or tickets(st, t) <= 0:
         return None
-    odds = wild_odds(st)
-    if not odds:
+    odds, old = wild_odds(st), old_pool(st)
+    if not odds and not old:
         return None
     st['used'] += 1
     bump(st, 'explore')
-    n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
+    if old and (not odds or rng.random() < OLD_GEN_RATE):
+        n = rng.choice(old)
+    else:
+        n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     shiny = rng.random() < shiny_rate(st, n)
     _mark(st, 'seen', n)
     if n in boxed(st, shiny):  # 같은 모습(기본/이로치)이 이미 가방에 있다 → 몬스터볼로
@@ -1966,6 +1977,16 @@ def selftest():
     # 배틀 경험치 진행도: 50 마다 1레벨, 상한이면 (최대)
     assert xp_text({'id': 1, 'bxp': 60}) == '(10/50)' and xp_text({'id': 1, 'bxp': 10**6}) == L('(최대)', '(max)')
     assert box_level({'id': 1, 'bxp': 60}) == 16  # 이상해씨 15 + 60 // 50
+    # 이전 세대 섞기: 1세대만 열렸으면 없음, 2세대가 열리면 탐색의 약 20%가 1세대(잡은 종 포함, 전설 빼고)
+    assert old_pool(new_state()) == []
+    o2 = new_state(); o2['league'] = {'1': True}
+    op = old_pool(o2)
+    assert op and all(gen(n) == 1 and not DEX[n][5] for n in op) and 1 in op and 150 not in op
+    r, hits = random.Random(3), 0
+    for _ in range(2000):
+        o2['wild'], o2['used'] = None, 0
+        hits += gen(explore(o2, 10**12, r)[0]) == 1
+    assert 300 < hits < 500, hits
     print('pokemon selftest ok')
 
 
