@@ -57,7 +57,9 @@ A species already in your bag shows up rarely and turns into Poké Balls. Trade 
 
 **Shinies** — 1/256 per encounter, counted apart from the normal form, shown in gold. Completing a generation gives that generation's **Shiny Charm** (I–IX), doubling the shiny rate for its species. One explore in five draws from all earlier generations instead (caught species and legendaries included), so a finished generation can still be shiny-hunted.
 
-**Medals** — 41 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
+**Regional forms** — a side collection of 57 Alolan, Galarian, Hisuian and Paldean forms. Once a species' generation is behind you (Elite Four beaten or Pokédex complete), its regional forms join the earlier-generation explores (one in five) — evolved forms too, caught directly. They stay out of the bag, the Pokédex count, evolution and battles; the last page of the Pokédex (→ past the newest generation) lists them, with a sprite beside each caught one. No shiny forms; a form you already have turns into Poké Balls; Galarian Articuno, Zapdos and Moltres need an Ultra or Master Ball.
+
+**Medals** — 43 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
 ![Medals](docs/images/medals.png)
 
@@ -130,13 +132,13 @@ Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's ch
 ## Data on disk
 
 Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
-`settings.json` (language, partner art color, hub setup), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+`settings.json` (language, partner art color, hub setup), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
 
 ## Pokémon — unofficial fan project
 
 - This is an **unofficial, non-commercial fan project**. It is not affiliated with, endorsed or sponsored by Nintendo, Creatures, GAME FREAK or The Pokémon Company. Pokémon and Pokémon character names are trademarks of their respective owners.
 - **No Pokémon data or images ship in this repository.** Everything is downloaded on your machine from [PokeAPI](https://pokeapi.co/):
-  - data — the public CSVs in [PokeAPI/pokeapi](https://github.com/PokeAPI/pokeapi) (`data/v2/csv`): names, generations, evolutions, capture rates, baby/hatch info, Pokédex entries, base stats and type matchups;
+  - data — the public CSVs in [PokeAPI/pokeapi](https://github.com/PokeAPI/pokeapi) (`data/v2/csv`): names, generations, evolutions, capture rates, baby/hatch info, Pokédex entries, base stats, type matchups and regional forms;
   - images — [PokeAPI/sprites](https://github.com/PokeAPI/sprites): `sprites/pokemon/<id>.png`, `sprites/pokemon/shiny/<id>.png`, `sprites/badges/<n>.png` and `sprites/items/<name>.png`, each fetched the first time it is shown.
   - The code only holds sprite numbers and names, the gym/Elite Four type tables and the game rules. Re-download the data with `python3 pane-tools/bin/_pokedata.py`.
 - The screenshots in `docs/images/` are captures of this program running in a test environment; the sprites in them were drawn from PokeAPI at runtime.
