@@ -21,6 +21,7 @@ import zlib
 ROOT = os.path.expanduser('~/.claude/pane-tools')
 OUT = f'{ROOT}/pokedex.json'
 DETAIL = f'{ROOT}/pokedex_detail.json'  # 도감 상세(분류·타입·키·몸무게·설명) — 상세 화면을 처음 열 때 받는다
+FORMS = f'{ROOT}/forms.json'  # 리전폼 [그림 번호, 종 번호, 폼 이름] — 포켓몬 화면을 처음 열 때 받는다
 BASE = 'https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv/'
 KO, EN = '3', '9'  # PokeAPI 의 언어 번호
 SPRITES = f'{ROOT}/sprites'
@@ -68,6 +69,27 @@ def ensure(force=False):
         json.dump(rows, f, ensure_ascii=False, separators=(',', ':'))
     os.replace(OUT + '.tmp', OUT)
     return OUT
+
+
+def build_forms(forms, mons):
+    """CSV 두 개(행 목록) → 리전폼 [[그림 번호, 종 번호, 'alola' · 'paldea-aqua-breed' …]]. 토템·캡 피카츄·달마모드처럼
+    지방 모습이 아닌 것과 배틀 중에만 되는 모습은 뺀다."""
+    species = {r['id']: int(r['species_id']) for r in mons}
+    return sorted([int(r['pokemon_id']), species[r['pokemon_id']], r['form_identifier']] for r in forms
+                  if r['is_battle_only'] == '0' and r['form_identifier'].split('-')[0] in ('alola', 'galar', 'hisui', 'paldea')
+                  and r['form_identifier'] != 'alola-cap')
+
+
+def ensure_forms(force=False):
+    """리전폼 파일이 없으면 받아 만든다(CSV 2개, 처음 한 번). 네트워크 오류는 그대로 올린다."""
+    if os.path.exists(FORMS) and not force:
+        return FORMS
+    rows = build_forms(_csv('pokemon_forms'), _csv('pokemon'))
+    os.makedirs(ROOT, exist_ok=True)
+    with open(FORMS + '.tmp', 'w', encoding='utf-8') as f:
+        json.dump(rows, f, separators=(',', ':'))
+    os.replace(FORMS + '.tmp', FORMS)
+    return FORMS
 
 
 def build_detail(names, flavor, mons, ptypes, tnames):
@@ -296,9 +318,10 @@ def draw_sprite(scr, y, x, grid, gray=False):
 
 
 def _src(n):
-    """그림 번호 → 이 PC 의 sprites/ 아래 이름. 'item:<이름>' 은 도구 그림(훈장) · 배지 · 이로치 · 기본 순."""
+    """그림 번호 → 이 PC 의 sprites/ 아래 이름. 'item:<이름>' 은 도구 그림(훈장), 'form:<번호>' 는 리전폼(번호가 10000 을
+    넘어 이로치 번호와 겹치므로 글자로) · 배지 · 이로치 · 기본 순."""
     if isinstance(n, str):
-        return f'items/{n[5:]}'
+        return n[5:] if n.startswith('form:') else f'items/{n[5:]}'
     return f'badges/{n - BADGE}' if n > BADGE else f'shiny/{n - SHINY}' if n > SHINY else str(n)
 
 
