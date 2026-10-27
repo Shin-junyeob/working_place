@@ -55,7 +55,7 @@ A species already in your bag shows up rarely and turns into Poké Balls. Trade 
 
 **Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. It never evolves into a form already in your bag.
 
-**Shinies** — 1/256 per encounter, counted apart from the normal form, shown in gold. Completing a generation gives that generation's **Shiny Charm** (I–IX), doubling the shiny rate for its species.
+**Shinies** — 1/256 per encounter, counted apart from the normal form, shown in gold. Completing a generation gives that generation's **Shiny Charm** (I–IX), doubling the shiny rate for its species. One explore in five draws from all earlier generations instead (caught species included, legendaries excluded), so a finished generation can still be shiny-hunted.
 
 **Medals** — 41 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
