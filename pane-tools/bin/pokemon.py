@@ -157,10 +157,10 @@ def wild_pool(st):
 
 
 def old_pool(st):
-    """이전 세대(열린 세대보다 아래 전부) 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 빼고.
+    """이전 세대(열린 세대보다 아래 전부) 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 포함.
     모든 세대를 다 채웠으면 전 세대에서."""
     top = opened_gen(st) if wild_pool(st) else GENS + 1
-    return [n for n in DEX if gen(n) < top and wild_ok(n) and not DEX[n][5]]
+    return [n for n in DEX if gen(n) < top and wild_ok(n)]
 
 
 ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX']
@@ -1977,11 +1977,11 @@ def selftest():
     # 배틀 경험치 진행도: 50 마다 1레벨, 상한이면 (최대)
     assert xp_text({'id': 1, 'bxp': 60}) == '(10/50)' and xp_text({'id': 1, 'bxp': 10**6}) == L('(최대)', '(max)')
     assert box_level({'id': 1, 'bxp': 60}) == 16  # 이상해씨 15 + 60 // 50
-    # 이전 세대 섞기: 1세대만 열렸으면 없음, 2세대가 열리면 탐색의 약 20%가 1세대(잡은 종 포함, 전설 빼고)
+    # 이전 세대 섞기: 1세대만 열렸으면 없음, 2세대가 열리면 탐색의 약 20%가 1세대(잡은 종·전설 포함)
     assert old_pool(new_state()) == []
     o2 = new_state(); o2['league'] = {'1': True}
     op = old_pool(o2)
-    assert op and all(gen(n) == 1 and not DEX[n][5] for n in op) and 1 in op and 150 not in op
+    assert op and all(gen(n) == 1 for n in op) and 1 in op and 150 in op
     r, hits = random.Random(3), 0
     for _ in range(2000):
         o2['wild'], o2['used'] = None, 0
