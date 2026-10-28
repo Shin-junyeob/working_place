@@ -879,11 +879,15 @@ def draw_info(scr, st, n, h, w, gold):
         except Exception as e:  # 네트워크 오류 등 — 죽지 말고 보여 준다
             put(scr, 2, 1, f'{type(e).__name__}: {e}')
             return
-    d, caught, sh = INFO.get(str(n)), n in st['caught'], n in st['shiny']
-    x = put(scr, 1, 1, f'No.{n:04d}  ', curses.A_BOLD)
+    form = FORMS.get(n)  # 리전폼 — 폼별 타입·설명 자료는 받지 않아 이름·원래 종·그림만
+    d, caught, sh = None if form else INFO.get(str(n)), n in st['forms' if form else 'caught'], n in st['shiny']
+    x = put(scr, 1, 1, f'No.{form[0] if form else n:04d}  ', curses.A_BOLD)
     x = put(scr, 1, x, ('✨' if sh else '') + name(n), gold if sh else curses.A_BOLD)
-    put(scr, 1, x + 2, L(f'{gen(n)}세대', f'Gen {gen(n)}') + (L(' · 잡음', ' · caught') if caught else L(' · 봄', ' · seen')), curses.A_DIM)
+    put(scr, 1, x + 2, (L('리전폼', 'Regional form') if form else L(f'{gen(n)}세대', f'Gen {gen(n)}'))
+        + (L(' · 잡음', ' · caught') if caught else L(' · 봄', ' · seen')), curses.A_DIM)
     y = 3
+    if form:
+        put(scr, 2, 1, L(f'{name(form[0])}의 {REGION[form[1].split("-")[0]][0]} 모습', f'{REGION[form[1].split("-")[0]][1]} form of {name(form[0])}'), curses.A_DIM)
     if d:
         put(scr, 2, 1, L(f'{d[0]} · {"/".join(d[2])} 타입', f'{d[1]} · {"/".join(d[3])} type'))
         if caught:
@@ -898,7 +902,7 @@ def draw_info(scr, st, n, h, w, gold):
                 y = fy + 1 + i
         else:
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
-    room, sid, gray = h - 2 - (y + 1), n + (_pokedata.SHINY if sh else 0), _lang.get('sprite') == 'gray'
+    room, sid, gray = h - 2 - (y + 1), f'form:{n}' if form else n + (_pokedata.SHINY if sh else 0), _lang.get('sprite') == 'gray'
     loading = lambda: put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM) and None  # noqa: E731
     if room < 4:
         return None
@@ -920,7 +924,7 @@ def draw_info(scr, st, n, h, w, gold):
         if not png:
             return loading()
         cols = _gfx.kitty_cols(png[1], png[2], room)
-        return ('kitty', y + 1, max(1, (w - cols) // 2), sid * 2 + gray, png[0], cols, room)
+        return ('kitty', y + 1, max(1, (w - cols) // 2), (300000 + n if form else sid) * 2 + gray, png[0], cols, room)
     if curses.COLORS >= 256:
         grid = _pokedata.sprite(sid, room * 2, w - 4)
         if grid:
@@ -1434,7 +1438,7 @@ def main(scr):
         elif view == 'dex' and dg > GENS:  # 도감 마지막 쪽 — 리전폼 수집
             top_g = opened_gen(st) if wild_pool(st) else GENS + 1
             rows = [(p, ('● ' if p in st['forms'] else '○ ' if p in st['forms_seen'] else '  ')
-                     + (name(p) if p in st['forms_seen'] else L(REGION[ident.split('-')[0]][0], REGION[ident.split('-')[0]][1]) + ' ???')
+                     + f'{sp:04d} ' + (name(p) if p in st['forms_seen'] else L(REGION[ident.split('-')[0]][0], REGION[ident.split('-')[0]][1]) + ' ???')
                      + ('' if p in st['forms'] else '   · ' + (
                          L(f'{gen(sp)}세대를 넘기면 나온다', f'appears once Gen {gen(sp)} is behind you') if gen(sp) >= top_g else
                          L('이전 세대 탐색 · 하이퍼볼·마스터볼', 'earlier-gen explore · Ultra/Master') if DEX[sp][5] else
@@ -1446,14 +1450,14 @@ def main(scr):
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             for k, (p, text) in enumerate(rows[top:top + body]):
+                if p in st['forms_seen']:
+                    btns.append((2 + k, 1, w - 1, ('info', p)))
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
-            if rows and rows[sel][0] in st['forms'] and w >= 50:  # 잡은 폼은 오른쪽에 그림
-                art = badge_art(st, [f'form:{rows[sel][0]}'], 3, w - 14, 4)
             ready = sum(1 for p, (sp, _) in FORMS.items() if gen(sp) < top_g and p not in st['forms'])
             put(scr, h - 2, 1, L(f'이전 세대 탐색(5번 중 1번)에서 나온다 · 지금 나올 수 있는 폼 {ready}',
                                  f'They show up in earlier-generation explores (1 in 5) · {ready} can appear now')[:w - 2], curses.A_DIM)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
-            put(scr, h - 1, x, L('↑↓ 이동 · ← 세대', '↑↓ move · ← generation'), curses.A_DIM)
+            put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ← 세대', '↑↓ move · Enter details · ← generation'), curses.A_DIM)
         else:
             open_gen = opened_gen(st)
             rows = ([(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
@@ -1527,7 +1531,8 @@ def main(scr):
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS + bool(FORMS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 마지막 쪽은 리전폼
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
-            seen = sorted(n for n in st['seen'] if gen(n) == gen(info))  # 같은 세대에서 본 것끼리 앞뒤로
+            seen = [p for p in FORMS if p in st['forms_seen']] if info in FORMS else \
+                sorted(n for n in st['seen'] if gen(n) == gen(info))  # 같은 세대(리전폼은 리전폼)에서 본 것끼리 앞뒤로
             info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
         elif lists and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             sel += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
@@ -1535,7 +1540,8 @@ def main(scr):
             focus = move_focus(navbtns, focus, key)
         if key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
             if view == 'dex' and dg > GENS:
-                act = None  # 리전폼 쪽엔 상세 화면이 없다 — 그림은 고른 줄 옆에
+                p = list(FORMS)[min(sel, len(FORMS) - 1)]
+                act = ('info', p) if p in st['forms_seen'] else None
             elif view == 'dex':
                 n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
                 act = ('info', n) if n in st['seen'] else None
