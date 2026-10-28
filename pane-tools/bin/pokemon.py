@@ -328,7 +328,7 @@ def load(root=ROOT):
         return new_state()
     for i, m in enumerate(st['box']):  # 개체값을 넣기 전(2026-10-28)에 잡은 것 — 저장될 때까지 같은 값이 나오게 자리·종으로 고정
         if 'iv' not in m:
-            m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'))
+            m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'), IV_FLOOR if DEX[m['id']][5] else 0)
     return st
 
 
@@ -1088,7 +1088,7 @@ def send_away(st, idxs):
     st['box'] = [m for i, m in enumerate(st['box']) if i not in gone]
     if st['partner'] is not None:
         st['partner'] = where[st['partner']]
-    st['team'] = [where[i] for i in st.get('team', [])]
+    st['team'] = [where[i] for i in st.get('team', []) if i in where]
     st['balls'] += k
     st['sent'] = st.get('sent', 0) + len(gone)
     return len(gone), k
@@ -1831,8 +1831,9 @@ def selftest():
     # 개체값: 0~15, 바닥값, 불러올 때 옛 포켓몬에 고정된 값
     assert all(0 <= v <= 15 for _ in range(200) for v in roll_iv()) and min(min(roll_iv(floor=IV_FLOOR)) for _ in range(200)) >= IV_FLOOR
     lr = tempfile.mkdtemp()
-    save({**new_state(), 'box': [{'id': 25, 'xp': 0}]}, lr)
+    save({**new_state(), 'box': [{'id': 25, 'xp': 0}, {'id': 150, 'xp': 0}]}, lr)
     assert load(lr)['box'][0]['iv'] == load(lr)['box'][0]['iv'] and len(load(lr)['box'][0]['iv']) == 3
+    assert min(load(lr)['box'][1]['iv']) >= IV_FLOOR  # 옛 전설도 바닥값부터
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
