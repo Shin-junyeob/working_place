@@ -847,6 +847,11 @@ def battle_info(st, n):
         BATTLE_DATA.append(d)
     if not d:
         return [L('배틀 정보는 체육관(g)을 한 번 열면 보인다.', 'Open the gyms (g) once to see battle stats.')]
+    if n in FORMS and n not in d['stats']:  # 리전폼 자료를 넣기 전에 받은 파일 — 한 번 다시 받는다
+        try:
+            d = BATTLE_DATA[0] = _battle.ensure()
+        except Exception:  # 네트워크 오류 — 배틀 정보 없이
+            return []
     if n not in d['stats'] or n not in d['types']:
         return []
     bs = d['stats'][n]
@@ -868,7 +873,7 @@ BATTLE_DATA = []  # battle.json 을 한 번만 읽어 둔다
 def draw_info(scr, st, n, h, w, gold):
     """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 이로치 그림).
     그림은 Sixel·Kitty 가 되면 원본 도트로 — 놓을 그림 (방식, y, x, 키, 데이터, 칸, 줄)을 돌려주고, 화면을 그린 뒤 놓는다."""
-    if not INFO:
+    if not INFO or n in FORMS and str(n) not in INFO:  # 리전폼 자료가 없는 옛 파일이면 ensure_detail 이 다시 받는다
         put(scr, 1, 1, L('PokeAPI 에서 도감 상세를 받는 중…', 'Downloading Pokédex details from PokeAPI…'), curses.A_DIM)
         scr.refresh()
         try:
@@ -879,24 +884,24 @@ def draw_info(scr, st, n, h, w, gold):
         except Exception as e:  # 네트워크 오류 등 — 죽지 말고 보여 준다
             put(scr, 2, 1, f'{type(e).__name__}: {e}')
             return
-    form = FORMS.get(n)  # 리전폼 — 폼별 타입·설명 자료는 받지 않아 이름·원래 종·그림만
-    d, caught, sh = None if form else INFO.get(str(n)), n in st['forms' if form else 'caught'], n in st['shiny']
+    form = FORMS.get(n)  # 리전폼 — 타입·키·몸무게·종족값은 그 모습 것, 도감 설명은 없다
+    d, caught, sh = INFO.get(str(n)), n in st['forms' if form else 'caught'], n in st['shiny']
     x = put(scr, 1, 1, f'No.{form[0] if form else n:04d}  ', curses.A_BOLD)
     x = put(scr, 1, x, ('✨' if sh else '') + name(n), gold if sh else curses.A_BOLD)
     put(scr, 1, x + 2, (L('리전폼', 'Regional form') if form else L(f'{gen(n)}세대', f'Gen {gen(n)}'))
         + (L(' · 잡음', ' · caught') if caught else L(' · 봄', ' · seen')), curses.A_DIM)
     y = 3
-    if form:
+    if form and not d:
         put(scr, 2, 1, L(f'{name(form[0])}의 {REGION[form[1].split("-")[0]][0]} 모습', f'{REGION[form[1].split("-")[0]][1]} form of {name(form[0])}'), curses.A_DIM)
     if d:
-        put(scr, 2, 1, L(f'{d[0]} · {"/".join(d[2])} 타입', f'{d[1]} · {"/".join(d[3])} type'))
+        put(scr, 2, 1, L(f'{d[0]} · ' if d[0] else '', f'{d[1]} · ' if d[1] else '') + L(f'{"/".join(d[2])} 타입', f'{"/".join(d[3])} type'))
         if caught:
             put(scr, 3, 1, L(f'키 {d[4] / 10:g}m · 몸무게 {d[5] / 10:g}kg', f'Height {d[4] / 10:g} m · Weight {d[5] / 10:g} kg'))
             fy = 5
             for i, line in enumerate(battle_info(st, n)):  # 종족값 · 약점 · 반감/무효 — 팀을 꾸릴 때 보라고
                 put(scr, 4 + i, 1, line, curses.A_DIM if i else 0)
                 fy = 6 + i
-            text = L(d[6], d[7])
+            text = L(d[6], d[7]) or (L(f'{name(form[0])}의 {REGION[form[1].split("-")[0]][0]} 모습.', f'{REGION[form[1].split("-")[0]][1]} form of {name(form[0])}.') if form else '')
             for i, (_, a, b) in enumerate(memo.wrap([text], w - 3)[:max(1, h - 9 - fy)]):
                 put(scr, fy + i, 1, text[a:b].strip())
                 y = fy + 1 + i
@@ -1852,7 +1857,7 @@ def selftest():
     assert reward(rw, jd) == 1 and rw['super'] == 2 and not rw['eggs']  # 22일 — 연속 2일, 알은 아직
     rw2 = new_state()
     assert reward(rw2, jd, today='2026-10-22') == 1 and rw2['reward_since'] == '2026-10-22'  # 켠 날(22일) 전 보상은 없다
-    # 도감 상세: 한국어가 없으면 영어, 설명은 최근 판, 줄바꿈은 빈칸, 기본 모습(is_default)만, 타입은 slot 순
+    # 도감 상세: 한국어가 없으면 영어, 설명은 최근 판, 줄바꿈은 빈칸, 다른 모습은 그 번호로, 타입은 slot 순
     det = _pokedata.build_detail(
         [{'pokemon_species_id': '1', 'local_language_id': '3', 'name': '이상해씨', 'genus': '씨앗포켓몬'},
          {'pokemon_species_id': '1', 'local_language_id': '9', 'name': 'Bulbasaur', 'genus': 'Seed Pokémon'}],
@@ -1864,7 +1869,8 @@ def selftest():
         [{'pokemon_id': '1', 'type_id': '4', 'slot': '2'}, {'pokemon_id': '1', 'type_id': '12', 'slot': '1'}],
         [{'type_id': '12', 'local_language_id': '3', 'name': '풀'}, {'type_id': '12', 'local_language_id': '9', 'name': 'Grass'},
          {'type_id': '4', 'local_language_id': '9', 'name': 'Poison'}])
-    assert det == {1: ['씨앗포켓몬', 'Seed Pokémon', ['풀', 'Poison'], ['Grass', 'Poison'], 7, 69, '새 설명', 'A seed']}, det
+    assert det == {1: ['씨앗포켓몬', 'Seed Pokémon', ['풀', 'Poison'], ['Grass', 'Poison'], 7, 69, '새 설명', 'A seed'],
+                   10001: ['', '', [], [], 9, 1, '', '']}, det  # 다른 모습: 제 키·몸무게, 분류·설명 없음
     # 동료 반응: needs 방치 > needs > 진화 가능 > 슈퍼볼 소식 > 최근 completed > 풀숲, 잠든 세션의 needs 는 무시
     sd = tempfile.mkdtemp()
     now = 2_000_000_000.0

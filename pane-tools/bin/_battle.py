@@ -41,8 +41,9 @@ XP_PER_LEVEL, XP_LEVEL_CAP = 50, 40  # 50 마다 1레벨 — 100 이면 져서�
 
 def build(stats, mons, ptypes, eff, tnames):
     """CSV 다섯 개(행 목록) → {'stats': {종: [hp, 공, 방, 특공, 특방, 스피드]}, 'types': {종: [타입…]},
-    'eff': {'공격타입,방어타입': 배율(1 이 아닌 것만)}, 'tnames': {타입: [한, 영]}}. 기본 모습(is_default)만."""
-    sid = {int(r['id']): int(r['species_id']) for r in mons if r['is_default'] == '1'}
+    'eff': {'공격타입,방어타입': 배율(1 이 아닌 것만)}, 'tnames': {타입: [한, 영]}}. 기본 모습은 종 번호, 아닌 것(리전폼 등)은
+    그 모습 번호(10000 넘음) — 상세 화면의 리전폼 종족값·약점용, 체육관은 종 번호만 쓴다."""
+    sid = {int(r['id']): int(r['species_id']) if r['is_default'] == '1' else int(r['id']) for r in mons}
     out = {'stats': {}, 'types': {}, 'eff': {}, 'tnames': {}}
     for r in stats:
         n = sid.get(int(r['pokemon_id']))
@@ -64,7 +65,7 @@ def build(stats, mons, ptypes, eff, tnames):
 
 def ensure(force=False):
     """battle.json 이 없으면 받아 만든다(처음 체육관을 열 때). 네트워크 오류는 그대로 올린다."""
-    if not os.path.exists(DATA) or force:
+    if not os.path.exists(DATA) or force or not _pokedata.has_forms(DATA, 'stats'):
         d = build(_pokedata._csv('pokemon_stats'), _pokedata._csv('pokemon'), _pokedata._csv('pokemon_types'),
                   _pokedata._csv('type_efficacy'), _pokedata._csv('type_names'))
         os.makedirs(_pokedata.ROOT, exist_ok=True)
@@ -262,6 +263,9 @@ def selftest():
     d = {'stats': {int(k): v for k, v in d['stats'].items()}, 'types': {int(k): v for k, v in d['types'].items()},
          'eff': d['eff'], 'tnames': {int(k): v for k, v in d['tnames'].items()}}
     assert d['types'][1] == [11] and d['stats'][2] == [50] * 6 and d['tnames'][11] == ['물', 'Water']
+    f = build([{'pokemon_id': '10091', 'stat_id': '1', 'base_stat': '40'}], [{'id': '10091', 'species_id': '19', 'is_default': '0'}],
+              [{'pokemon_id': '10091', 'type_id': '17', 'slot': '1'}], [], [])
+    assert f['stats'] == {10091: [40, 0, 0, 0, 0, 0]} and f['types'] == {10091: [17]}  # 리전폼은 그 모습 번호로
     assert factor(d, 11, [10]) == 2.0 and factor(d, 10, [11]) == 0.5 and matchup(d, 1, 2) == 4.0
     assert level(0, 0) == 15 and level(2, 999) == 15 + 24 + 999 // XP_PER_LEVEL and level(1, 10**6) == 27 + XP_LEVEL_CAP
     # 같은 레벨이면 상성이 이긴다 · 시드가 같으면 결과도 같다
