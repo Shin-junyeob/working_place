@@ -45,7 +45,7 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
 Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
-A species already in your bag shows up rarely and turns into Poké Balls. Trade 100 Poké Balls for an Ultra Ball with the bag's **trade** button.
+A species already in your bag shows up rarely, but you can catch it again: every Pokémon rolls its own **IVs** — Attack, Defense and HP, 0–15 each, shown in the bag as `A13 D15 H14 (93%)` (★ at 15/15/15); eggs, legendaries and mythicals roll at least 10. **Send** gives a Pokémon to the Professor for 1–5 Poké Balls (rarer is more), **tidy** sends every duplicate except the best-IV, most-trained ones; both ask for a second press, and the partner, team members and shinies are never sent. Trade 100 Poké Balls for an Ultra Ball with the bag's **trade** button.
 
 **Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
 
@@ -53,7 +53,7 @@ A species already in your bag shows up rarely and turns into Poké Balls. Trade 
 
 **Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls, 3 Great Balls and a **Rare Candy**, which evolves your partner on the spot when it has a form to evolve into (one candy a week).
 
-**Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. It never evolves into a form already in your bag.
+**Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. With several possible forms it picks one you don't have yet.
 
 **Shinies** — 1/256 per encounter, counted apart from the normal form, shown in gold. Completing a generation gives that generation's **Shiny Charm** (I–IX), doubling the shiny rate for its species. One explore in five draws from all earlier generations instead (caught species and legendaries included), so a finished generation can still be shiny-hunted.
 
@@ -69,13 +69,13 @@ A species already in your bag shows up rarely and turns into Poké Balls. Trade 
 
 ### Gyms, Elite Four and Champion
 
-Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six with the bag's **team** button or let the gym screen suggest one (**pick**, then **apply**) — it picks the combination from your Pokémon that raises the win rate most.
+Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six with the bag's **team** button or let the gym screen suggest one (**pick**, then **apply**) — it picks the combination from your Pokémon that raises the win rate most. **Only that generation's Pokémon can enter** a generation's gyms and Elite Four (others on the team sit out), so each region needs a team of its own.
 
 ![Gym list with real gym badges](docs/images/gyms.png)
 
 ![Gym detail with win rate and a suggested team](docs/images/gym.png)
 
-A challenge costs two explores and plays a fully automatic battle line by line: base stats, level (15 + 12 per evolution stage + one per 50 battle XP, up to +40; a loss gives the team +30 XP, a win +60 + 10 × gym number — the bag shows each Pokémon's progress like `Lv16 (10/50)`), each Pokémon's own type attack, type matchups and speed. The first win gives that gym's **badge** (the real badge art); every battle gives the team experience. After a win `q` goes straight back to the hub, after a loss back to the prep screen.
+A challenge costs two explores and plays a fully automatic battle line by line: base stats, level (15 + 12 per evolution stage + one per 50 battle XP, up to +40; a loss gives the team +30 XP, a win +60 + 10 × gym number — the bag shows each Pokémon's progress like `Lv16 (10/50)`), IVs (Attack → Atk/Sp. Atk, Defense → Def/Sp. Def, HP → HP), each Pokémon's own type attack, type matchups and speed. Gym and league trainers are 7 levels above the original curve and have IVs of their own (gym 1 at 7 up to gym 8 at 14, Elite Four 14, Champion 15): at matched levels an average-IV team usually loses the league and a top-IV team usually wins. The first win gives that gym's **badge** (the real badge art); every battle gives the team experience. After a win `q` goes straight back to the hub, after a loss back to the prep screen.
 
 ![A gym battle](docs/images/battle.png)
 
