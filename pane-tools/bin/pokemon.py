@@ -24,9 +24,11 @@
   잡으면 가방에 폼 번호(FORMS 의 키, 10000 위)로 들어가 진화·레벨·배틀을 한다 — 종족값·타입은 그 모습 것(battle.json),
   세대·진화 단계는 원래 종으로(sp). 같은 지방 모습으로 진화하고(evo_next), 지방 전용 진화형(REGIONAL_EVO)도 있다.
   도감 숫자에는 안 들어가고 st['forms'] 에 따로 모인다(도감 마지막 쪽에 목록).
+- 합체(FUSIONS): 가방에서 큐레무·네크로즈마·버드렉스를 골라 [합체] — 가방의 레시라무·제크로무 / 솔가레오·루나아라 /
+  블리자포스·레이스포스 하나가 그 안('fused')에 들어가고, 합체 모습의 타입·종족값으로 싸운다. [분리]로 되돌린다.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
-  도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장).
+  도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장) · F 합체·분리.
   화면은 패널 폭에 맞춘다 — 긴 줄은 para/fold 로 접고, 80칸 미만이면 버튼 여백을 줄인다. 마우스 클릭도 된다.
 상태는 ~/.claude/pane-tools/pokemon.json. 허브는 summary() 로 동료를 보여 준다.
 `python3 pokemon.py --selftest` 로 규칙을 점검한다(데이터가 없으면 먼저 받는다).
@@ -109,9 +111,16 @@ REGIONAL_EVO = {10161: [863], 10166: [865], 10175: [862], 10173: [864], 10168: [
                 10234: [904], 10253: [980]}
 
 
+# 합체 모습(원작) — 그림 번호(PokeAPI 모습 번호) → (본체 종, 상대 종, 한국어, 영어). 가방에서 본체를 골라 [합체]
+FUSIONS = {10022: (646, 644, '블랙큐레무', 'Black Kyurem'), 10023: (646, 643, '화이트큐레무', 'White Kyurem'),
+           10155: (800, 791, '네크로즈마(황혼의 갈기)', 'Dusk Mane Necrozma'),
+           10156: (800, 792, '네크로즈마(새벽의 날개)', 'Dawn Wings Necrozma'),
+           10193: (898, 896, '버드렉스(백마 탄 모습)', 'Ice Rider Calyrex'), 10194: (898, 897, '버드렉스(흑마 탄 모습)', 'Shadow Rider Calyrex')}
+
+
 def sp(n):
-    """리전폼 번호면 원래 종 번호, 아니면 그대로 — 세대·진화 단계·포획률처럼 종이 정하는 것을 읽을 때."""
-    return FORMS[n][0] if n in FORMS else n
+    """리전폼·합체 모습 번호면 원래(본체) 종 번호, 아니면 그대로 — 세대·진화 단계·포획률처럼 종이 정하는 것을 읽을 때."""
+    return FORMS[n][0] if n in FORMS else FUSIONS[n][0] if n in FUSIONS else n
 
 
 def evo_next(n):
@@ -249,7 +258,8 @@ BADGES = [('catch1', '첫 포획', 'First catch', lambda st: len(st['caught']) >
     [(f'champ{g}', f'{g}세대 챔피언', f'Gen {g} champion', (lambda g: lambda st: str(g) in st.get('league', {}))(g))
      for g in range(1, 10)] + [
     ('form1', '첫 리전폼', 'First regional form', lambda st: len(st.get('forms', [])) >= 1),
-    ('form_all', '리전폼 완성', 'All regional forms', lambda st: bool(FORMS) and len(st.get('forms', [])) >= len(FORMS))]
+    ('form_all', '리전폼 완성', 'All regional forms', lambda st: bool(FORMS) and len(st.get('forms', [])) >= len(FORMS)),
+    ('fuse1', '첫 합체', 'First fusion', lambda st: st.get('fusions', 0) >= 1)]
 
 
 def badge_name(bid):
@@ -316,6 +326,8 @@ def iv_text(m):
 
 def name(n):
     """종 이름 — 리전폼 번호면 '알로라 라타타'처럼(한국어 폼 이름은 PokeAPI 에 일부만 있어 지방 이름을 붙여 만든다)."""
+    if n in FUSIONS:
+        return L(FUSIONS[n][2], FUSIONS[n][3])
     if n in FORMS:
         sp, ident = FORMS[n]
         part = ident.split('-')
@@ -889,9 +901,9 @@ def partner_id_of(st):
 
 
 def art_of(m):
-    """가방 항목(또는 번호) → 그림 번호: 이로치면 이로치 그림, 리전폼이면 'form:번호'(번호가 이로치 자리와 겹쳐서)."""
+    """가방 항목(또는 번호) → 그림 번호: 이로치면 이로치 그림, 리전폼·합체 모습이면 'form:번호'(번호가 이로치 자리와 겹쳐서)."""
     n, shiny = (m['id'], m.get('shiny')) if isinstance(m, dict) else (m, False)
-    return f'form:{n}' if n in FORMS else n + (_pokedata.SHINY if shiny else 0)
+    return f'form:{n}' if n in FORMS or n in FUSIONS else n + (_pokedata.SHINY if shiny else 0)
 
 
 # ── 화면 ──
@@ -1012,7 +1024,7 @@ MEDAL_ART = {'catch1': 'poke-ball', 'catch10': 'great-ball', 'catch50': 'ultra-b
              'conquer8': 'rusted-sword', 'conquer9': 'scarlet-book', 'champ1': 'relic-copper', 'champ2': 'relic-silver',
              'champ3': 'relic-gold', 'champ4': 'relic-vase', 'champ5': 'relic-band', 'champ6': 'relic-statue',
              'champ7': 'pearl-string', 'champ8': 'big-pearl', 'champ9': 'relic-crown',
-             'form1': 'galarica-twig', 'form_all': 'galarica-wreath'}
+             'form1': 'galarica-twig', 'form_all': 'galarica-wreath', 'fuse1': 'dna-splicers'}
 
 
 def art_id(key):
@@ -1125,14 +1137,8 @@ def fighters(st, team):
     return [(n, lv, iv_of(st['box'][k])) for k, n, lv in team]
 
 
-def send_away(st, idxs):
-    """가방의 idxs 번째들을 박사에게 — 동료·팀·이로치는 빼고. 하나마다 dupe_balls 만큼 몬스터볼.
-    가방 번호가 당겨지니 동료·팀 번호도 맞춰 옮긴다. (보낸 마릿수, 받은 볼)."""
-    keep = {st['partner']} | set(st.get('team', []))
-    gone = {i for i in idxs if 0 <= i < len(st['box']) and i not in keep and not st['box'][i].get('shiny')}
-    if not gone:
-        return 0, 0
-    k = sum(dupe_balls(st['box'][i]['id']) for i in gone)
+def _drop(st, gone):
+    """가방에서 gone(번호 집합)을 빼고 동료·팀 번호를 당겨 맞춘다. 옛 번호 → 새 번호 표."""
     where = {}
     for i in range(len(st['box'])):
         if i not in gone:
@@ -1141,6 +1147,60 @@ def send_away(st, idxs):
     if st['partner'] is not None:
         st['partner'] = where[st['partner']]
     st['team'] = [where[i] for i in st.get('team', []) if i in where]
+    return where
+
+
+def fuse_options(st, i):
+    """가방 i 번째(큐레무·네크로즈마·버드렉스, 합체 전)와 합칠 수 있는 것 [(합체 모습, 상대 가방 번호)] — 상대 종마다
+    개체값이 가장 좋은 하나, 동료·합체한 것은 빼고. 아직 가방에 없는 합체 모습이 앞."""
+    m = st['box'][i]
+    out = []
+    for f, (base, part, _, _) in FUSIONS.items():
+        if m['id'] != base or m.get('fused'):
+            continue
+        cands = [j for j, o in enumerate(st['box']) if o['id'] == part and j not in (i, st['partner']) and not o.get('fused')]
+        if cands:
+            out.append((f, max(cands, key=lambda j: sum(iv_of(st['box'][j])))))
+    have = {o['id'] for o in st['box']}
+    return sorted(out, key=lambda o: o[0] in have)
+
+
+def fuse(st, i):
+    """가방 i 번째를 합체 — 상대는 가방에서 빠져 합체한 포켓몬 안('fused')에 들어간다. 레벨·경험치·개체값은 본체 것.
+    합체 모습 번호 · 못 하면 None."""
+    opts = fuse_options(st, i)
+    if not opts:
+        return None
+    f, j = opts[0]
+    piece = st['box'][j]
+    where = _drop(st, {j})
+    m = st['box'][where[i]]
+    m['id'], m['fused'] = f, piece
+    st['fusions'] = st.get('fusions', 0) + 1
+    return f
+
+
+def unfuse(st, i):
+    """합체를 푼다 — 본체는 원래 종으로, 상대는 가방 끝에 그대로 돌아온다. 돌아온 상대 번호 · 합체가 아니면 None."""
+    m = st['box'][i]
+    if not m.get('fused'):
+        return None
+    piece = m.pop('fused')
+    m['id'] = FUSIONS[m['id']][0]
+    st['box'].append(piece)
+    return piece['id']
+
+
+def send_away(st, idxs):
+    """가방의 idxs 번째들을 박사에게 — 동료·팀·이로치는 빼고. 하나마다 dupe_balls 만큼 몬스터볼.
+    가방 번호가 당겨지니 동료·팀 번호도 맞춰 옮긴다. (보낸 마릿수, 받은 볼)."""
+    keep = {st['partner']} | set(st.get('team', []))
+    gone = {i for i in idxs if 0 <= i < len(st['box']) and i not in keep and not st['box'][i].get('shiny')
+            and not st['box'][i].get('fused')}  # 합체한 포켓몬은 안에 든 상대까지 사라지니 보내지 않는다
+    if not gone:
+        return 0, 0
+    k = sum(dupe_balls(st['box'][i]['id']) for i in gone)
+    _drop(st, gone)
     st['balls'] += k
     st['sent'] = st.get('sent', 0) + len(gone)
     return len(gone), k
@@ -1353,8 +1413,8 @@ def main(scr):
             msg = L('알이 부화했다! ', 'Eggs hatched! ') + ', '.join(('✨' if sh else '') + name(n) for n, sh in born)
         if got:
             msg = L(f'오늘 여러 세션이 일을 내보냈다! 슈퍼볼 {got}개를 받았다.', f'Sessions shipped work! Got {got} Great Ball(s).')
-        if badges:
-            msg = L('훈장을 받았다: ', 'New medal: ') + ', '.join(badge_name(b) for b in badges)
+        if badges:  # 방금 한 일의 문구(합체 등)는 남기고 뒤에 붙인다
+            msg = (msg + ' · ' if msg else '') + L('훈장을 받았다: ', 'New medal: ') + ', '.join(badge_name(b) for b in badges)
         h, w = scr.getmaxyx()
         tight = w < 80  # 버튼 여백을 줄일 폭
         art = None
@@ -1648,8 +1708,9 @@ def main(scr):
                 put(scr, 1, 1, msg or L(f'◀ {page} {len(order)}마리 ▶ 정렬 {SORTS[bag_sort][0]} — Enter 동료 · Space 팀 · Tab 정렬',
                                         f'◀ {page} {len(order)} ▶ sort {SORTS[bag_sort][1]} — Enter partner · Space team · Tab sort'), curses.A_DIM)
             body = h - 4
-            if to_partner:  # 가방을 열면 지금 동료 줄에서 시작
-                sel, to_partner = order.index(st['partner']) if st['partner'] in order else 0, False
+            if to_partner is not False:  # 가방을 열면 지금 동료 줄에서 시작 · 숫자면 그 가방 번호 줄로(합체·분리 뒤)
+                go = st['partner'] if to_partner is True else to_partner
+                sel, to_partner = order.index(go) if go in order else 0, False
             if rows:
                 sel = max(0, min(sel, len(rows) - 1))
                 top = min(max(top, sel - body + 1), sel)  # 커서가 화면 안에 있게
@@ -1673,6 +1734,9 @@ def main(scr):
             if view == 'box':
                 x = button(h - 1, 1, L('동료로', 'partner'), 'partner_sel')
                 x = button(h - 1, x, L('팀', 'team'), 'team')
+                pk = order[sel] if order else None  # 고른 줄이 합체할 수 있거나 합체한 것이면 [합체]/[분리]
+                if pk is not None and (st['box'][pk].get('fused') or fuse_options(st, pk)):
+                    x = button(h - 1, x, L('분리 F', 'unfuse F') if st['box'][pk].get('fused') else L('합체 F', 'fuse F'), 'fuse')
                 x = button(h - 1, x, L(f'정렬: {SORTS[bag_sort][0]}', f'sort: {SORTS[bag_sort][1]}'), 'sort')
                 button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
             elif view == 'trade':
@@ -1737,6 +1801,8 @@ def main(scr):
                 act = focus
         if view == 'box' and key == ord(' '):
             act = 'team'  # Space 는 팀 넣기/빼기
+        if view == 'box' and key in (ord('f'), ord('F')):
+            act = 'fuse'  # F 는 합체/분리 — 가방에선 방향키가 줄·세대라 아래 버튼까지 못 간다
         picked = order[max(0, min(sel, len(order) - 1))] if order and view in ('box', 'trade') else None
         # 고른 줄에 하는 버튼 → 그 줄의 일로
         if act == 'swap_sel':
@@ -1771,8 +1837,9 @@ def main(scr):
             idxs = [i] if act == 'send' else tidy_targets(st)
             what = (act, tuple(idxs))
             m = st['box'][i]
-            if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny')):
-                msg, confirm = L('동료·팀·이로치는 박사에게 보내지 않는다.', "Partner, team and shiny Pokémon can't be sent."), None
+            if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny') or m.get('fused')):
+                msg, confirm = L('동료·팀·이로치·합체한 포켓몬은 박사에게 보내지 않는다(합체는 가방에서 [분리]).',
+                                 "Partner, team, shiny and fused Pokémon can't be sent (split a fusion in the bag)."), None
             elif not idxs:
                 msg, confirm = L('정리할 것이 없다 — 같은 종이 둘 이상일 때 가장 좋은 것만 남긴다.', 'Nothing to tidy — only duplicates are sent.'), None
             elif confirm != what:  # 되돌릴 수 없으니 한 번 더 눌러야 보낸다
@@ -1810,6 +1877,18 @@ def main(scr):
                 view, top, sel, msg = 'gyms', 0, 0, ''
         if act == 'team' and view == 'box' and picked is not None:
             msg = toggle_team(st, picked)
+            save(st)
+        if act == 'fuse' and view == 'box' and picked is not None:
+            mon = st['box'][picked]
+            before = name(mon['id'])
+            if mon.get('fused'):
+                back = unfuse(st, picked)
+                msg = L(f'{before}의 합체를 풀었다 — {name(back)}(이)가 가방으로 돌아왔다.', f'{before} split — {name(back)} is back in the bag.')
+            else:
+                piece = name(FUSIONS[fuse_options(st, picked)[0][0]][1]) if fuse_options(st, picked) else ''
+                f = fuse(st, picked)
+                msg = L(f'{before}(와)과 {piece}(이)가 합체했다! → {name(f)}', f'{before} fused with {piece}! → {name(f)}') if f else ''
+            to_partner = next(k for k, m in enumerate(st['box']) if m is mon)  # 정렬이 바뀌어도 커서는 그 포켓몬에
             save(st)
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
@@ -2368,6 +2447,19 @@ def selftest():
     finally:
         FORMS.clear()
         FORMS.update(real_forms)
+    # 합체: 큐레무(가방 1) + 제크로무·레시라무 — 동료인 상대는 못 쓰고, 개체값 좋은 상대를, 아직 없는 모습을 먼저
+    fu = new_state()
+    fu['box'] = [{'id': 25, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 646, 'xp': 5, 'bxp': 120, 'iv': [9, 9, 9]},
+                 {'id': 644, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 644, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 643, 'xp': 0, 'iv': [2, 2, 2]}]
+    fu['partner'], fu['team'] = 4, [1, 3]
+    assert fuse_options(fu, 0) == [] and fuse_options(fu, 1) == [(10022, 3)]  # 레시라무(4)는 동료라 못 쓴다
+    assert fuse(fu, 1) == 10022
+    assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and fu['box'][1]['fused']['iv'] == [15, 15, 15]
+    assert fu['partner'] == 3 and fu['team'] == [1] and fu['box'][1]['bxp'] == 120  # 번호 당김 · 팀에 있던 상대는 빠짐 · 본체 경험치 유지
+    assert name(10022) == L('블랙큐레무', 'Black Kyurem') and gen(10022) == 5 and evo_next(10022) == [] and art_of(fu['box'][1]) == 'form:10022'
+    assert 'fuse1' in check_badges(fu) and send_away(fu, [1]) == (0, 0)  # 합체한 것은 박사에게 안 간다
+    assert unfuse(fu, 1) == 644 and [m['id'] for m in fu['box']] == [25, 646, 644, 643, 644] and 'fused' not in fu['box'][1]
+    assert unfuse(fu, 1) is None and fuse_options(fu, 2) == []
     # 줄 접기: 폭 안에서 빈칸·쉼표 뒤에서 접고, '·' 는 앞 낱말에 붙인다(한글은 2칸)
     assert fold('가나다 · 라마 · 바사', 12) == ['가나다 ·', '라마 · 바사'] and fold('a, b, c', 3) == ['a,', 'b,', 'c'] and fold('a, b, c', 4) == ['a,', 'b, c']
     assert all(sum(map(memo.cw, x)) <= 20 for x in fold('내 팀 메가니움 Lv39, 블레이범 Lv39, 장크로다일 Lv39, 토게틱 Lv27', 20))
