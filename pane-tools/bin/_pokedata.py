@@ -334,6 +334,11 @@ def _src(n):
     return f'badges/{n - BADGE}' if n > BADGE else f'shiny/{n - SHINY}' if n > SHINY else str(n)
 
 
+def img_id(n):
+    """그림 번호 → Kitty 이미지 번호(정수). 'form:<번호>' 같은 글자 번호는 300000 위로 — 포켓몬·이로치·배지 번호와 안 겹치게."""
+    return n if isinstance(n, int) else 300000 + zlib.crc32(n.encode()) % 100000
+
+
 def _url(n):
     """그림 번호 → PokeAPI/sprites 주소. 포켓몬·이로치는 sprites/pokemon/ 아래, 배지·도구는 sprites/ 바로 아래."""
     src = _src(n)
