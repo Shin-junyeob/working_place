@@ -94,7 +94,8 @@ def ensure_forms(force=False):
 
 def build_detail(names, flavor, mons, ptypes, tnames):
     """CSV 다섯 개(행 목록) → {번호: [분류 한, 분류 영, [타입 한], [타입 영], 키 dm, 몸무게 hg, 설명 한, 설명 영]}.
-    설명은 가장 최근 게임판의 것, 줄바꿈은 빈칸으로. 한국어가 없으면 영어로 채운다."""
+    설명은 가장 최근 게임판의 것, 줄바꿈은 빈칸으로. 한국어가 없으면 영어로 채운다.
+    기본 모습이 아닌 것(리전폼 등)은 그 모습 번호(10000 넘음)로 — 타입·키·몸무게는 그 모습 것, 분류·설명은 종마다 하나뿐이라(가라르 썬더 분류가 다르다) 비운다."""
     genus, text, ver = {}, {}, {}
     for r in names:
         if r['local_language_id'] in (KO, EN):
@@ -109,19 +110,27 @@ def build_detail(names, flavor, mons, ptypes, tnames):
         types.setdefault(int(r['pokemon_id']), []).append(int(r['type_id']))
     out = {}
     for r in mons:
-        if r['is_default'] != '1':
-            continue
-        n, pid = int(r['species_id']), int(r['id'])
-        ts = types.get(pid, [])
-        en_g, en_t = genus.get((n, EN), ''), text.get((n, EN), '')
-        out[n] = [genus.get((n, KO)) or en_g, en_g, [tname.get((t, KO)) or tname.get((t, EN), '') for t in ts],
-                  [tname.get((t, EN), '') for t in ts], int(r['height']), int(r['weight']), text.get((n, KO)) or en_t, en_t]
+        sp, pid = int(r['species_id']), int(r['id'])
+        n, ts = sp if r['is_default'] == '1' else pid, types.get(pid, [])
+        en_g, en_t = (genus.get((sp, EN), ''), text.get((sp, EN), '')) if n == sp else ('', '')
+        out[n] = [(genus.get((sp, KO)) if n == sp else '') or en_g, en_g, [tname.get((t, KO)) or tname.get((t, EN), '') for t in ts],
+                  [tname.get((t, EN), '') for t in ts], int(r['height']), int(r['weight']), (text.get((sp, KO)) if n == sp else '') or en_t, en_t]
     return out
+
+
+def has_forms(path, part=None):
+    """받아 둔 파일에 기본 모습이 아닌 번호(10000 넘음)가 있나 — 없으면 리전폼 자료를 넣기 전(2026-10-28)에 받은 것."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            d = json.load(f)
+        return any(int(k) > SHINY for k in (d[part] if part else d))
+    except (OSError, ValueError, KeyError):
+        return False
 
 
 def ensure_detail(force=False):
     """도감 상세 파일이 없으면 받아 만든다(CSV 5개, 처음 한 번). 네트워크 오류는 그대로 올린다."""
-    if os.path.exists(DETAIL) and not force:
+    if os.path.exists(DETAIL) and not force and has_forms(DETAIL):
         return DETAIL
     d = build_detail(_csv('pokemon_species_names'), _csv('pokemon_species_flavor_text'), _csv('pokemon'),
                      _csv('pokemon_types'), _csv('type_names'))
