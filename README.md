@@ -45,7 +45,7 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
 Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
-A species already in your bag shows up rarely (1/10 of a new one) but can be caught again.
+A species already in your bag shows up rarely (1/10 of a new one) but can be caught again. A species that evolves from an earlier generation's Pokémon (Espeon and Umbreon from Eevee, Crobat from Golbat …) is mainly reached by evolution and shows up in the grass at 1/10 too — at full odds only once nothing else is left in its generation, so it never blocks the Pokédex.
 
 **Bag and IVs** — every Pokémon rolls its own **IVs**: Attack, Defense and HP, 0–15 each, shown as `A13 D15 H14 (93%)` (★ at 15/15/15). Eggs, legendaries and mythicals roll at least 10. IVs add to battle stats, so two of the same species are worth comparing. The bag pages through all / each generation and sorts by Pokédex number, level, IVs or name.
 
