@@ -220,7 +220,7 @@ def main(scr):
                 y += 1
                 list_top = y
             n = pokemon.partner_id() if lines and w >= 44 else None
-            gray = _lang.get('sprite') == 'gray'
+            gray = False  # 그림은 늘 컬러(2026-10-28 흑백 설정을 없앴다)
             # 동료 그림: Kitty 그래픽이 되면 원본 도트를 3줄에, 아니면 ▀▄ 반높이 칸으로
             png = _pokedata.sprite_png(n, gray) if n and KITTY else None
             cw_, ch_ = cell_px()

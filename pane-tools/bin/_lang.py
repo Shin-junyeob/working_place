@@ -1,5 +1,5 @@
 """mods 전체 한/영 전환 — ~/.claude/pane-tools/settings.json 의 "lang" ("ko" | "en").
-같은 파일에 PC마다 다른 설정도 둔다(get/put) — 예: "sprite" ("color" | "gray", 허브의 동료 그림 색).
+같은 파일에 PC마다 다른 설정도 둔다(get/put).
 
 L('메모', 'Memo') 처럼 두 말을 나란히 적고, 허브의 [ 한/EN ] 버튼(toggle)이 바꾼다.
 mod(register.ts)와 long-run-watch 도 같은 파일을 읽는다.

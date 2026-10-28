@@ -45,7 +45,7 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
 Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
-A species already in your bag shows up rarely, but you can catch it again: every Pokémon rolls its own **IVs** — Attack, Defense and HP, 0–15 each, shown in the bag as `A13 D15 H14 (93%)` (★ at 15/15/15); eggs, legendaries and mythicals roll at least 10. **Send** gives a Pokémon to the Professor for 1–5 Poké Balls (rarer is more), **tidy** sends every duplicate except the best-IV, most-trained ones; both ask for a second press, and the partner, team members and shinies are never sent. Trade 100 Poké Balls for an Ultra Ball with the bag's **trade** button.
+A species already in your bag shows up rarely, but you can catch it again: every Pokémon rolls its own **IVs** — Attack, Defense and HP, 0–15 each, shown in the bag as `A13 D15 H14 (93%)` (★ at 15/15/15); eggs, legendaries and mythicals roll at least 10. In the **trade** screen (between bag and medals), **send** gives a Pokémon to the Professor for 1–5 Poké Balls (rarer is more), **tidy** sends every duplicate except the best-IV, most-trained ones; both ask for a second press, and the partner, team members and shinies are never sent. Its **balls** page swaps balls up a tier: 10 Poké → 1 Great, 10 Great → 1 Ultra, 5 Ultra → 1 Master.
 
 **Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
 
@@ -132,7 +132,7 @@ Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's ch
 ## Data on disk
 
 Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
-`settings.json` (language, partner art color, hub setup), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+`settings.json` (language, hub setup), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
 
 ## Pokémon — unofficial fan project
 
