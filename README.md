@@ -49,7 +49,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Bag and IVs** — every Pokémon rolls its own **IVs**: Attack, Defense and HP, 0–15 each, shown as `A13 D15 H14 (93%)` (★ at 15/15/15). Eggs, legendaries and mythicals roll at least 10. IVs add to battle stats, so two of the same species are worth comparing. The bag pages through all / each generation and sorts by Pokédex number, level, IVs or name.
 
-**Trade** (between bag and medals) — **send** gives the highlighted Pokémon to the Professor for 1–5 Poké Balls (rarer is more); **tidy** sends every duplicate except the best-IV, most-trained ones. Both ask for a second press, and the partner, team members and shinies are never sent. The **balls** page swaps balls up a tier: 10 Poké → 1 Great, 10 Great → 1 Ultra, 5 Ultra → 1 Master.
+**Trade** (between bag and medals) — **send** gives the highlighted Pokémon to the Professor for 1–5 Poké Balls (rarer is more); **tidy** sends every duplicate except the best-IV, most-trained ones. Both ask for a second press, and the partner, team members and shinies are never sent. The **balls** page swaps balls up a tier: 5 Poké → 1 Great, 20 Great → 1 Ultra, 5 Ultra → 1 Master (500 Poké Balls to a Master Ball).
 
 **Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
 

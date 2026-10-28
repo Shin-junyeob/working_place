@@ -15,8 +15,8 @@
   +OPP_LV_BONUS 와 개체값(체육관 7~14 · 사천왕 14 · 챔피언 15)을 가진다(_battle.py).
 - 볼 네 가지: 몬스터볼 · 슈퍼볼(1.5배) · 하이퍼볼(2배) · 마스터볼(반드시 잡힘). 전설·환상은 하이퍼볼·마스터볼로만
   잡힌다(다른 볼은 쓰지 않고 알려만 준다). 마스터볼은 세대마다 두 개 — 8관 지방 정복과 사천왕·챔피언 첫 승리.
-  체육관은 처음 이길 때마다 하이퍼볼 1개. [교환] → [몬스터볼]에서 볼을 위 단계로 바꾼다(TRADES — 몬스터볼 10 → 슈퍼볼,
-  슈퍼볼 10 → 하이퍼볼, 하이퍼볼 5 → 마스터볼). 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
+  체육관은 처음 이길 때마다 하이퍼볼 1개. [교환] → [몬스터볼]에서 볼을 위 단계로 바꾼다(TRADES — 몬스터볼 5 → 슈퍼볼,
+  슈퍼볼 20 → 하이퍼볼, 하이퍼볼 5 → 마스터볼). 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
   하나라도 있으면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline). 그런 날이 STREAK_DAYS 일 연속이면 하이퍼볼.
 - 알: 야생 포켓몬을 잡을 때 EGG_CATCH 확률로 하나(최대 EGG_MAX), 지방 정복 때 하나.
 - 주간 과제: 주마다(월요일) WEEKLY 에서 하나 — 이루면 WEEKLY_PRIZE.
@@ -57,7 +57,8 @@ BALLS = 3
 WINDOW = 4  # 순서상 앞쪽 몇 마리 중에서 나오나
 BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다(wild_odds)
 SHINY_RATE = 1 / 256
-TRADES = [('balls', 'super', 10), ('super', 'hyper', 10), ('hyper', 'master', 5)]  # [교환] → [몬스터볼]: (낼 볼, 받을 볼, 개수)
+# [교환] → [몬스터볼]: (낼 볼, 받을 볼, 개수) — 마스터볼까지 몬스터볼 500개(5×20×5). 전설은 하이퍼볼부터라 슈퍼볼→하이퍼볼이 비싸다(2026-10-28)
+TRADES = [('balls', 'super', 5), ('super', 'hyper', 20), ('hyper', 'master', 5)]
 BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}  # 마스터볼은 배율 없이 반드시 잡힌다(throw)
 SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이면 슈퍼볼 1개 — 세션 하나만 쓰는 PC도 받게(2026-10-21 3→1)
 SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
@@ -2031,10 +2032,11 @@ def selftest():
     lg['wild'], lg['balls'], lg['super'] = {'id': 19, 'balls': 3}, 0, 1
     assert abs(catch_rate(19) - 0.7) < 1e-9 and throw(lg, 0, r95) == 'missed' and throw(lg, 0, r95, 'super') == 'caught'
     assert abs(catch_rate(143) - (0.35 + 0.35 * 25 / 255)) < 1e-9  # 잠만보 약 38%
-    # 교환: 몬스터볼 10 → 슈퍼볼 · 슈퍼볼 10 → 하이퍼볼(훈장이 센다) · 하이퍼볼 5 → 마스터볼, 모자라면 그대로
+    # 교환: 몬스터볼 5 → 슈퍼볼 · 슈퍼볼 20 → 하이퍼볼(훈장이 센다) · 하이퍼볼 5 → 마스터볼, 모자라면 그대로 — 마스터볼까지 몬스터볼 500개
+    assert math.prod(c for _, _, c in TRADES) == 500
     ex = new_state()
-    ex['balls'], ex['super'], ex['hyper'] = 25, 9, 4
-    assert exchange(ex, 0) and (ex['balls'], ex['super']) == (15, 10) and exchange(ex, 1) and (ex['super'], ex['hyper']) == (0, 5)
+    ex['balls'], ex['super'], ex['hyper'] = 12, 19, 4
+    assert exchange(ex, 0) and (ex['balls'], ex['super']) == (7, 20) and exchange(ex, 1) and (ex['super'], ex['hyper']) == (0, 5)
     assert ex['exchanged'] == 1 and exchange(ex, 2) and (ex['hyper'], ex['master']) == (0, 1) and not exchange(ex, 2) and not exchange(ex, 1)
     # 슈퍼볼 보상: 내보낸 일(push·PR·배포)이 있는 날마다 1개(하루 1개), 켠 날 전은 주지 않는다
     jd = tempfile.mkdtemp()
