@@ -81,7 +81,7 @@ A challenge costs two explores and plays a fully automatic battle line by line: 
 
 Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation.
 
-Controls — arrow keys, Enter and `q` only (2026-10-21; there were too many letter shortcuts). Arrows move between buttons and Enter presses the highlighted one; in lists (bag, medals, gyms, Pokédex) ↑↓ picks the row and ←→ the button below it, which acts on that row. In the Pokédex ←→ switches generation, in the detail view the previous/next species. `q` goes back or closes. The mouse works too.
+Controls — arrow keys, Enter and `q` only (2026-10-21; there were too many letter shortcuts). Arrows move between buttons and Enter presses the highlighted one; in lists (bag, medals, gyms, Pokédex) ↑↓ picks the row and ←→ the button below it, which acts on that row. In the Pokédex ←→ switches generation, in the detail view the previous/next species. In the bag Enter makes the highlighted Pokémon your partner, Space adds it to or removes it from the team, ←→ pages through all / each generation in the bag, and Tab cycles the sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English); the trade screen follows the same sort. `q` goes back or closes. The mouse works too.
 
 ## Install
 

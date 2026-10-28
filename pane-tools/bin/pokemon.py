@@ -1070,6 +1070,17 @@ def team_of(st, g=None):
             if i < len(st['box']) and (g is None or gen(st['box'][i]['id']) == g)]
 
 
+SORTS = [('도감번호', 'No.'), ('레벨', 'level'), ('개체값', 'IV'), ('이름', 'name')]  # 가방 정렬(Tab) — 0 이 기본
+
+
+def bag_order(st, g=None, sort=0):
+    """가방 번호들을 보이는 순서로 — g 세대만(None 이면 전체), SORTS[sort] 기준(레벨·개체값은 높은 것부터,
+    이름은 지금 언어로 — 한글은 유니코드 순서가 곧 ㄱㄴㄷ 순). 같으면 도감번호, 그다음 잡은 순서."""
+    box = st['box']
+    by = [lambda m: 0, lambda m: -box_level(m), lambda m: -sum(iv_of(m)), lambda m: name(m['id']).lower()][sort]
+    return sorted((i for i, m in enumerate(box) if g is None or gen(m['id']) == g), key=lambda i: (by(box[i]), box[i]['id'], i))
+
+
 def fighters(st, team):
     """team_of 결과 → 배틀에 넣을 [(종, 레벨, 개체값)]."""
     return [(n, lv, iv_of(st['box'][k])) for k, n, lv in team]
@@ -1246,7 +1257,8 @@ def main(scr):
     gold = curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD  # 이로치 이름 — 256색 220(#ffd700)
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
-    gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
+    gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None
+    order, bag_g, bag_sort, to_partner = [], None, 0, False  # 가방: 보이는 순서(가방 번호들) · 세대(None 전체) · 정렬 · 동료 줄로  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
     if not DEX or len(DEX[1]) < 9:  # 처음 열었거나 옛 형식(알에 쓸 베이비·부화 걸음 없음) — 도감을 받아 온다
@@ -1548,6 +1560,8 @@ def main(scr):
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ← 세대', '↑↓ move · Enter details · ← generation'), curses.A_DIM)
         else:
             open_gen = opened_gen(st)
+            if view in ('box', 'trade'):  # 보이는 순서(가방 번호들) — 키·버튼이 고른 줄도 이것으로 가방 번호를 찾는다
+                order = bag_order(st, bag_g if view == 'box' else None, bag_sort)
             rows = ([(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
                       + f'{n:04d} ' + (name(n) if n in st['seen'] else '???')
                       + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in DEX if gen(n) == dg]
@@ -1555,17 +1569,21 @@ def main(scr):
                 if view == 'dex' else \
                 [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '')
                   + f'{name(m["id"])}  (No.{m["id"]:03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}')
-                 for i, m in enumerate(st['box'])]
+                 for i, m in ((i, st['box'][i]) for i in order)]
             if view == 'dex':
                 have = sum(1 for n in st['caught'] if gen(n) == dg)
                 put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶   ● 잡음 ○ 봄',
                                   f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶   ● caught ○ seen'), curses.A_DIM)
             elif view == 'trade':
-                put(scr, 1, 1, msg or L('교환 — ↑↓ 고르기 · [박사에게] 한 마리 · [정리] 중복 한꺼번에 · [몬스터볼] 볼 바꾸기',
-                                        'Trade — ↑↓ pick · [send] one · [tidy] all duplicates · [balls] swap balls'), curses.A_DIM)
+                put(scr, 1, 1, msg or L(f'교환 — [박사에게] 한 마리 · [정리] 중복 한꺼번에 · [몬스터볼] 볼 바꾸기 · Tab 정렬({SORTS[bag_sort][0]})',
+                                        f'Trade — [send] one · [tidy] all duplicates · [balls] swap balls · Tab sort ({SORTS[bag_sort][1]})'), curses.A_DIM)
             else:
-                put(scr, 1, 1, msg or L('가방 — ↑↓ 고르기 · ←→ 버튼 · Enter', 'Bag — ↑↓ pick · ←→ button · Enter'), curses.A_DIM)
+                page = L('전체', 'all') if bag_g is None else L(f'{bag_g}세대', f'Gen {bag_g}')
+                put(scr, 1, 1, msg or L(f'◀ {page} {len(order)}마리 ▶  정렬 {SORTS[bag_sort][0]} — Enter 동료 · Space 팀 · Tab 정렬',
+                                        f'◀ {page} {len(order)} ▶  sort {SORTS[bag_sort][1]} — Enter partner · Space team · Tab sort'), curses.A_DIM)
             body = h - 4
+            if to_partner:  # 가방을 열면 지금 동료 줄에서 시작
+                sel, to_partner = order.index(st['partner']) if st['partner'] in order else 0, False
             if rows:
                 sel = max(0, min(sel, len(rows) - 1))
                 top = min(max(top, sel - body + 1), sel)  # 커서가 화면 안에 있게
@@ -1589,6 +1607,7 @@ def main(scr):
             if view == 'box':
                 x = button(h - 1, 1, L('동료로', 'partner'), 'partner_sel')
                 x = button(h - 1, x, L('팀', 'team'), 'team')
+                x = button(h - 1, x, L(f'정렬: {SORTS[bag_sort][0]}', f'sort: {SORTS[bag_sort][1]}'), 'sort')
                 button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
             elif view == 'trade':
                 x = button(h - 1, 1, L('박사에게', 'send'), 'send')
@@ -1621,7 +1640,13 @@ def main(scr):
             _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
         lists = view in ('box', 'trade', 'balls', 'dex', 'badges', 'gyms')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
-        if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
+        if view in ('box', 'trade') and key == 9:  # Tab — 정렬 바꾸기
+            act = 'sort'
+        if view == 'box' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):  # 세대 넘기기: 전체 → 가방에 있는 세대들
+            pages = [None] + sorted({gen(m['id']) for m in st['box']})
+            bag_g = pages[(pages.index(bag_g) + (1 if key == curses.KEY_RIGHT else -1)) % len(pages)] if bag_g in pages else None
+            top, sel, msg = 0, 0, ''
+        elif view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS + bool(FORMS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 마지막 쪽은 리전폼
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             seen = [p for p in FORMS if p in st['forms_seen']] if info in FORMS else \
@@ -1638,15 +1663,20 @@ def main(scr):
             elif view == 'dex':
                 n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
                 act = ('info', n) if n in st['seen'] else None
+            elif view == 'box':
+                act = 'partner_sel'  # 가방에서 Enter 는 동료로
             elif view == 'fight':
                 act = 'back'  # 기록을 끝까지 → 한 번 더 누르면 나간다
             elif view != 'info':
                 act = focus
+        if view == 'box' and key == ord(' '):
+            act = 'team'  # Space 는 팀 넣기/빼기
+        picked = order[max(0, min(sel, len(order) - 1))] if order and view in ('box', 'trade') else None
         # 고른 줄에 하는 버튼 → 그 줄의 일로
         if act == 'swap_sel':
             act = ('swap', max(0, min(sel, len(TRADES) - 1)))
         if act == 'partner_sel':
-            act = ('partner', max(0, min(sel, len(st['box']) - 1))) if st['box'] else None
+            act = ('partner', picked) if picked is not None else None
         elif act == 'pin_sel':
             act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
         elif act in ('gym_sel', 'pin_gym'):
@@ -1665,10 +1695,12 @@ def main(scr):
                     top += 3
             except curses.error:
                 pass
+        if act == 'sort' and view in ('box', 'trade'):
+            bag_sort, top, sel, msg = (bag_sort + 1) % len(SORTS), 0, 0, ''
         if act == 'close':
             break
-        if act in ('send', 'tidy') and view == 'trade' and st['box']:
-            i = max(0, min(sel, len(st['box']) - 1))
+        if act in ('send', 'tidy') and view == 'trade' and picked is not None:
+            i = picked
             idxs = [i] if act == 'send' else tidy_targets(st)
             what = (act, tuple(idxs))
             m = st['box'][i]
@@ -1709,8 +1741,8 @@ def main(scr):
                     msg, act = L('배틀 데이터를 받지 못했다: ', 'Could not download battle data: ') + f'{type(e).__name__}: {e}', None
             if BATTLE is not None:
                 view, top, sel, msg = 'gyms', 0, 0, ''
-        if act == 'team' and view == 'box' and st['box']:
-            msg = toggle_team(st, max(0, min(sel, len(st['box']) - 1)))
+        if act == 'team' and view == 'box' and picked is not None:
+            msg = toggle_team(st, picked)
             save(st)
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
@@ -1741,8 +1773,8 @@ def main(scr):
                 view, msg = 'fight', ''
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
         if act in ('dex', 'box', 'trade'):
-            view, top, dg, msg = act, 0, opened_gen(st), ''
-            sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
+            view, top, dg, msg, sel = act, 0, opened_gen(st), '', 0
+            bag_g, to_partner = None, act == 'box'  # 가방은 전체·지금 동료 줄에서 시작
         elif act == 'balls' and view == 'trade':
             view, top, sel, msg = 'balls', 0, 0, ''
         elif act == 'back' and view == 'fight' and battle_now['k'] < len(battle_now['ev']):
@@ -1865,6 +1897,14 @@ def selftest():
     assert send_away(ps, [0, 3]) == (2, dupe_balls(10) + dupe_balls(25)) and ps['balls'] == dupe_balls(10) + dupe_balls(25)
     assert [m['id'] for m in ps['box']] == [10, 10, 25, 25, 1] and ps['box'][ps['partner']]['id'] == 1
     assert ps['team'] == [3] and ps['box'][3]['iv'] == [3, 3, 3] and ps['sent'] == 2
+    # 가방 정렬·세대: 도감번호(기본) · 레벨 높은 순 · 개체값 높은 순 · 이름(한글 ㄱㄴㄷ) — 같으면 도감번호
+    bo = new_state()
+    bo['box'] = [{'id': 152, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 25, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 3, 'xp': 0, 'iv': [5, 5, 5], 'bxp': 500},
+                 {'id': 1, 'xp': 0, 'iv': [9, 9, 9]}]
+    ids = lambda srt, g=None: [bo['box'][i]['id'] for i in bag_order(bo, g, srt)]  # noqa: E731
+    assert ids(0) == [1, 3, 25, 152] and ids(1)[0] == 3 and ids(2) == [25, 1, 3, 152] and ids(0, 2) == [152]
+    if L('ko', 'en') == 'ko':
+        assert ids(3) == [3, 1, 152, 25]  # 이상해꽃 · 이상해씨 · 치코리타 · 피카츄
     # 경험치: 15만 넘으면 이상해씨 → 이상해풀, 다음은 40만
     assert not can_evolve(st, t + 149_999) and can_evolve(st, t + 150_000)
     assert evolve(st, t + 150_000, rng) == 2 and 2 in st['caught'] and partner_xp(st, t + 150_000) == 0
