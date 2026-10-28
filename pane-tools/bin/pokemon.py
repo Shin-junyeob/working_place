@@ -6,8 +6,12 @@
   사천왕·챔피언을 이기면 다음 세대가 열리고(opened_gen), 야생에선 열린 세대 중 가장 최근 세대가 나온다. 이상한사탕(주간 상)은 동료를 바로 진화시킨다.
 - 나오는 순서: 스타팅·피카츄·이브이 → 일반(원작 포획률 높은 = 흔한 것부터) → 전설 → 환상. 앞쪽 WINDOW 마리 중 무작위.
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
-- 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나오고(BOXED_WEIGHT), 나오면 잡지 않고 급에 따라 몬스터볼 1~5개로 바꾼다(dupe_balls).
-- 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤, 이미 가방에 있는 모습으로는 진화하지 않는다.
+- 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나온다(BOXED_WEIGHT). 나오면 똑같이 잡을 수 있다 — 같은 종이라도 개체값(공·방·체
+  0~15, roll_iv)이 달라 골라 키운다. 남는 것은 [박사에게] 보내면 급에 따라 몬스터볼 1~5개(dupe_balls) — [정리]는 같은 종 중
+  개체값·경험치가 가장 좋은 것만 남기고 한꺼번에. 동료·팀·이로치는 보내지 않는다(send_away).
+- 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤.
+  갈래가 여럿이면 아직 가방에 없는 모습을 먼저 고른다.
+- 체육관·사천왕은 그 세대 포켓몬만 나간다(팀의 다른 세대는 빠진다) — 세대마다 팀을 새로 키운다.
 - 볼 네 가지: 몬스터볼 · 슈퍼볼(1.5배) · 하이퍼볼(2배) · 마스터볼(반드시 잡힘). 전설·환상은 하이퍼볼·마스터볼로만
   잡힌다(다른 볼은 쓰지 않고 알려만 준다). 마스터볼은 세대마다 두 개 — 8관 지방 정복과 사천왕·챔피언 첫 승리.
   체육관은 처음 이길 때마다 하이퍼볼 1개.
@@ -57,6 +61,7 @@ SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이�
 SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
 STREAK_DAYS = 3  # 보상받은 날이 며칠 연속이면 하이퍼볼(3·6·9일째) — 2026-10-23 알에서 바꿈(알은 포획 때 EGG_CATCH)
+IV_FLOOR = 10  # 알·전설·환상은 개체값이 최소 이만큼(포켓몬고처럼)
 OLD_GEN_RATE = 0.2  # 탐색 5번 중 1번은 이전 세대 전체에서 — 다 채운 세대도 이로치를 노릴 수 있게(현재 8 : 이전 2)
 EGG_CATCH, EGG_MAX, EGG_STEP = 0.1, 3, 5000  # 잡을 때 알을 함께 얻을 확률 · 가질 수 있는 알 · 부화 걸음 하나당 토큰
 # 주간 과제 (종류, 목표, 한국어, 영어) — 주 번호로 하나를 고른다. 이번 주에 쌓인 횟수로 센다
@@ -265,6 +270,22 @@ def wild_odds(st):
     return [(n, BOXED_WEIGHT if n in inbag else 1) for n in front]
 
 
+def roll_iv(rng=random, floor=0):
+    """개체값 [공, 방, 체] 0~15 — 배틀 능력치에 더해진다(_battle.calc)."""
+    return [floor + int(rng.random() * (16 - floor)) for _ in range(3)]
+
+
+def iv_of(m):
+    return tuple(m.get('iv', (0, 0, 0)))
+
+
+def iv_text(m):
+    """'공13 방15 체14 (93%)' — 15/15/15 는 ★."""
+    a, d, h = iv_of(m)
+    pct = round((a + d + h) / 45 * 100)
+    return L(f'공{a} 방{d} 체{h}', f'A{a} D{d} H{h}') + f' ({pct}%)' + (' ★' if pct == 100 else '')
+
+
 def name(n):
     """종 이름 — 리전폼 번호면 '알로라 라타타'처럼(한국어 폼 이름은 PokeAPI 에 일부만 있어 지방 이름을 붙여 만든다)."""
     if n in FORMS:
@@ -302,9 +323,13 @@ def new_state():
 def load(root=ROOT):
     try:
         with open(f'{root}/pokemon.json', encoding='utf-8') as f:
-            return {**new_state(), **json.load(f)}
+            st = {**new_state(), **json.load(f)}
     except (OSError, ValueError):
         return new_state()
+    for i, m in enumerate(st['box']):  # 개체값을 넣기 전(2026-10-28)에 잡은 것 — 저장될 때까지 같은 값이 나오게 자리·종으로 고정
+        if 'iv' not in m:
+            m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'))
+    return st
 
 
 def save(st, root=ROOT):
@@ -326,7 +351,7 @@ def partner_xp(st, t):
 
 
 def dupe_balls(n):
-    """이미 가방에 있는 종이 나왔을 때 바꿔 주는 볼 — 흔할수록 적고 전설·환상은 5개."""
+    """박사에게 보낼 때(리전폼은 이미 모은 폼이 나왔을 때) 받는 볼 — 흔할수록 적고 전설·환상은 5개."""
     if DEX[n][5]:
         return 5
     cap = DEX[n][4]
@@ -340,10 +365,10 @@ def opened_evolutions(st, n):
 
 
 def evolutions(st, n, shiny=False):
-    """진화할 수 있는 다음 모습들 — 열린 세대 안에서, 가방에 아직 없는 것만. 이상해풀이 가방에 있으면 이상해씨는
-    진화하지 않는다: 같은 모습이 두 마리가 되지 않고, 이상해씨는 가방에 남아 야생에서 계속 1/10 로만 나온다."""
-    inbag = boxed(st, shiny)  # 이로치는 이로치끼리 — 기본 이상해풀이 있어도 이로치 이상해씨는 진화한다
-    return [c for c in opened_evolutions(st, n) if c not in inbag]
+    """진화할 수 있는 다음 모습들 — 열린 세대 안에서. 갈래가 여럿이면 가방에 아직 없는 모습만(도감을 채우게), 다 있으면 전부.
+    같은 모습이 여럿이어도 된다(2026-10-28 중복 포획부터)."""
+    opts, inbag = opened_evolutions(st, n), boxed(st, shiny)  # 이로치는 이로치끼리
+    return [c for c in opts if c not in inbag] or opts
 
 
 def need_xp(n):
@@ -385,10 +410,6 @@ def explore(st, t, rng=random):
         return n, 0
     shiny = rng.random() < shiny_rate(st, n)
     _mark(st, 'seen', n)
-    if n in boxed(st, shiny):  # 같은 모습(기본/이로치)이 이미 가방에 있다 → 몬스터볼로
-        k = dupe_balls(n)
-        st['balls'] += k
-        return n, k
     st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {})}
     return n, 0
 
@@ -417,7 +438,8 @@ def throw(st, t, rng=random, kind='ball'):
         if w.get('form'):  # 리전폼은 수집 목록에만 — 가방·도감에는 넣지 않는다
             _mark(st, 'forms', w['form'])
         else:
-            st['box'].append({'id': w['id'], 'xp': 0, **({'shiny': True} if w.get('shiny') else {})})
+            st['box'].append({'id': w['id'], 'xp': 0, 'iv': roll_iv(rng, IV_FLOOR if DEX[w['id']][5] else 0),
+                              **({'shiny': True} if w.get('shiny') else {})})
             _mark(st, 'caught', w['id'])
             if w.get('shiny'):
                 _mark(st, 'shiny', w['id'])
@@ -540,11 +562,11 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
 
 
 def egg_pool(st):
-    """알에서 나올 수 있는 종과 가중치 — 열린 세대의 1단계(진화 전 없음) 중 가방에 없는 것, 전설·환상 빼고.
-    베이비 ×3 · 스타팅 ×2."""
+    """알에서 나올 수 있는 종과 가중치 — 열린 세대의 1단계(진화 전 없음), 전설·환상 빼고.
+    베이비 ×3 · 스타팅 ×2, 가방에 있는 종은 야생처럼 ×BOXED_WEIGHT."""
     top, inbag = opened_gen(st), boxed(st)
-    return [(n, 3 if DEX[n][7:8] == [1] else 2 if n in STARTERS else 1) for n in DEX
-            if gen(n) <= top and not DEX[n][3] and not DEX[n][5] and n not in inbag]
+    return [(n, (3 if DEX[n][7:8] == [1] else 2 if n in STARTERS else 1) * (BOXED_WEIGHT if n in inbag else 1)) for n in DEX
+            if gen(n) <= top and not DEX[n][3] and not DEX[n][5]]
 
 
 def _pick_egg(st, rng):
@@ -563,16 +585,13 @@ def give_egg(st, t=None, rng=random):
 
 
 def hatch(st, t, rng=random):
-    """다 자란 알을 부화한다 — 그새 같은 종이 가방에 들어왔으면 다시 고른다. 이로치는 이때 정한다. [(번호, 이로치)]."""
+    """다 자란 알을 부화한다 — 이로치와 개체값(최소 IV_FLOOR)은 이때 정한다. [(번호, 이로치)]."""
     out = []
     for e in [e for e in st.get('eggs', []) if t - e['base'] >= e['need']]:
         st['eggs'].remove(e)
-        n = e['id'] if e['id'] not in boxed(st) else _pick_egg(st, rng)
-        if n is None:
-            st['balls'] += 5  # 나올 종이 없으면 볼로
-            continue
+        n = e['id']
         shiny = rng.random() < shiny_rate(st, n, EGG_SHINY)
-        st['box'].append({'id': n, 'xp': 0, **({'shiny': True} if shiny else {})})
+        st['box'].append({'id': n, 'xp': 0, 'iv': roll_iv(rng, IV_FLOOR), **({'shiny': True} if shiny else {})})
         for key in ('seen', 'caught') + (('shiny',) if shiny else ()):
             _mark(st, key, n)
         if st['partner'] is None:
@@ -1043,9 +1062,56 @@ def xp_text(m):
     return f'({bxp % _battle.XP_PER_LEVEL}/{_battle.XP_PER_LEVEL})'
 
 
-def team_of(st):
-    """팀 [(가방 번호, 종, 레벨)] — 가방 순서가 아니라 넣은 순서."""
-    return [(i, st['box'][i]['id'], box_level(st['box'][i])) for i in st.get('team', []) if i < len(st['box'])]
+def team_of(st, g=None):
+    """팀 [(가방 번호, 종, 레벨)] — 가방 순서가 아니라 넣은 순서. g 를 주면 그 세대 포켓몬만(체육관·사천왕 출전)."""
+    return [(i, st['box'][i]['id'], box_level(st['box'][i])) for i in st.get('team', [])
+            if i < len(st['box']) and (g is None or gen(st['box'][i]['id']) == g)]
+
+
+def fighters(st, team):
+    """team_of 결과 → 배틀에 넣을 [(종, 레벨, 개체값)]."""
+    return [(n, lv, iv_of(st['box'][k])) for k, n, lv in team]
+
+
+def send_away(st, idxs):
+    """가방의 idxs 번째들을 박사에게 — 동료·팀·이로치는 빼고. 하나마다 dupe_balls 만큼 몬스터볼.
+    가방 번호가 당겨지니 동료·팀 번호도 맞춰 옮긴다. (보낸 마릿수, 받은 볼)."""
+    keep = {st['partner']} | set(st.get('team', []))
+    gone = {i for i in idxs if 0 <= i < len(st['box']) and i not in keep and not st['box'][i].get('shiny')}
+    if not gone:
+        return 0, 0
+    k = sum(dupe_balls(st['box'][i]['id']) for i in gone)
+    where = {}
+    for i in range(len(st['box'])):
+        if i not in gone:
+            where[i] = len(where)
+    st['box'] = [m for i, m in enumerate(st['box']) if i not in gone]
+    if st['partner'] is not None:
+        st['partner'] = where[st['partner']]
+    st['team'] = [where[i] for i in st.get('team', [])]
+    st['balls'] += k
+    st['sent'] = st.get('sent', 0) + len(gone)
+    return len(gone), k
+
+
+def tidy_targets(st):
+    """[정리]로 보낼 가방 번호 — 같은 종(이로치 빼고)이 둘 이상이면 개체값이 가장 좋은 것, 배틀 경험치가 가장 많은 것,
+    진화 경험치가 가장 많은 것만 남긴다(동료·팀은 send_away 가 지킨다)."""
+    groups = {}
+    for i, m in enumerate(st['box']):
+        if not m.get('shiny'):
+            groups.setdefault(m['id'], []).append(i)
+    out = []
+    for ids in groups.values():
+        if len(ids) < 2:
+            continue
+        box = st['box']
+        keep = {max(ids, key=lambda i: (sum(iv_of(box[i])), box[i].get('bxp', 0))),
+                max(ids, key=lambda i: (box[i].get('bxp', 0), sum(iv_of(box[i])))),
+                max(ids, key=lambda i: (box[i].get('xp', 0), sum(iv_of(box[i]))))}
+        out += [i for i in ids if i not in keep]
+    keep = {st['partner']} | set(st.get('team', []))
+    return [i for i in out if i not in keep]
 
 
 def toggle_team(st, i):
@@ -1087,13 +1153,14 @@ def fight(st, t, d, g, i, rng=random, today=None):
     """체육관 도전 — 탐색 GYM_COST 회를 쓰고 자동 배틀. 팀원 모두 배틀 경험치를 받고, 처음 이기면 그 관의 배지
     와 하이퍼볼 1개(마스터볼은 한 세대 8관을 모두 이겼을 때 지방 정복 훈장과 함께 — check_badges).
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
-    team, cost = team_of(st), LEAGUE_COST if i == 'L' else GYM_COST
+    team, cost = team_of(st, g), LEAGUE_COST if i == 'L' else GYM_COST
     if not team:
-        return None, L('팀이 비었다 — 가방에서 [팀]으로 넣거나 [추천] → [적용]을 하자.', 'Empty team — add with [team] in the bag, or [pick] → [apply].'), False
+        return None, L(f'팀에 {g}세대 포켓몬이 없다 — {g}세대 포켓몬만 나갈 수 있다. 가방에서 [팀]으로 넣거나 [추천] → [적용]을 하자.',
+                       f'No Gen {g} Pokémon on the team — only Gen {g} may enter. Add with [team] in the bag, or [pick] → [apply].'), False
     if tickets(st, t) < cost:
         return None, L(f'탐색 기회가 {cost}번 있어야 도전할 수 있다.', f'You need {cost} explores to challenge.'), False
     st['used'] += cost
-    mine = [(n, lv) for _, n, lv in team]
+    mine = fighters(st, team)
     won, ev = (_battle.gauntlet(d, mine, gym_opp(d, g, i), rng) if i == 'L' else _battle.battle(d, mine, gym_opp(d, g, i), rng))
     for k, _, _ in team:
         st['box'][k]['bxp'] = st['box'][k].get('bxp', 0) + (GYM_WIN_XP + 10 * (8 if i == 'L' else i) if won else GYM_LOSE_XP)
@@ -1138,7 +1205,7 @@ def fight_state(ev, k):
         if e[0] == 'trainer':
             now.clear()
         elif e[0] == 'send':
-            now[e[1]] = [e[2], None, None, e[3]]
+            now[e[1]] = [e[2], None, e[4] if len(e) > 4 else None, e[3]]  # 최대 HP(개체값 반영)는 내보낼 때 실려 온다
         elif e[0] == 'hit':
             side = 'foe' if e[1] == 'me' else 'me'
             if side in now:
@@ -1177,7 +1244,7 @@ def main(scr):
     gold = curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD  # 이로치 이름 — 256색 220(#ffd700)
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
-    gsel, rec, battle_now, wr_cache = None, None, None, {}  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
+    gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
     if not DEX or len(DEX[1]) < 9:  # 처음 열었거나 옛 형식(알에 쓸 베이비·부화 걸음 없음) — 도감을 받아 온다
@@ -1359,7 +1426,7 @@ def main(scr):
         elif view == 'gym':
             g, i = gsel
             opp = gym_opp(BATTLE, g, i)
-            team = team_of(st)
+            team = team_of(st, g)
             tn = lambda tp: BATTLE['tnames'].get(tp, ['', ''])  # noqa: E731
             won = st.get('league', {}).get(str(g)) if i == 'L' else st.get('gym', {}).get(f'gym:{g}-{i}')
             put(scr, 1, 1, (L(f'{g}세대 사천왕·챔피언 — 5연전', f'Gen {g} Elite Four — 5 battles') if i == 'L' else
@@ -1368,19 +1435,20 @@ def main(scr):
             if i == 'L':  # 다섯 줄 — 사천왕 4명(타입)과 챔피언
                 for k, tm in enumerate(opp):
                     who = L('챔피언', 'Champ ') if k == _battle.ELITE_COUNT else L(f'사천왕{k + 1} {tn(_battle.LEAGUE[g][k])[0]}', f'E4 #{k + 1} {tn(_battle.LEAGUE[g][k])[1]}')
-                    put(scr, 2 + k, 1, f'{who}: ' + ', '.join(name(n) for n, _ in tm) + f' Lv{tm[0][1]}', curses.A_DIM)
+                    put(scr, 2 + k, 1, f'{who}: ' + ', '.join(name(x[0]) for x in tm) + f' Lv{tm[0][1]}', curses.A_DIM)
                 base = 7
             else:
-                put(scr, 3, 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)} Lv{lv}' for n, lv in opp), curses.A_DIM)
+                put(scr, 3, 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)} Lv{lv}' for n, lv, *_ in opp), curses.A_DIM)
                 base = 4
             put(scr, base, 1, L('내 팀 ', 'Team  ') + (', '.join(f'{name(n)} Lv{lv}' for _, n, lv in team) or
                                                       L('(비었다 — 가방에서 [팀], 또는 [추천] → [적용])', '(empty — [team] in the bag, or [pick] → [apply])')))
-            wkey = (tuple((n, lv) for _, n, lv in team), g, i)
+            put(scr, base + 1, 1, L(f'{g}세대 포켓몬만 나간다 — 팀의 다른 세대는 빠진다', f'Only Gen {g} Pokémon enter — others on the team sit out'), curses.A_DIM)
+            wkey = (tuple(fighters(st, team)), g, i)
             if wkey not in wr_cache:
                 if i == 'L' and team:
                     put(scr, base + 2, 1, L('승률 계산 중…', 'Working out the odds…'), curses.A_DIM)
                     scr.refresh()
-                wr_cache[wkey] = gym_rate(BATTLE, [(n, lv) for _, n, lv in team], g, i)
+                wr_cache[wkey] = gym_rate(BATTLE, fighters(st, team), g, i)
             put(scr, base + 2, 1, L(f'승률 {wr_cache[wkey]:.0%}', f'Win rate {wr_cache[wkey]:.0%}'), curses.A_BOLD)
             if rec and rec[0] == (g, i):
                 rteam = [(st['box'][k]['id'], box_level(st['box'][k])) for k in rec[1]]
@@ -1471,7 +1539,7 @@ def main(scr):
                     if dg <= open_gen else []) \
                 if view == 'dex' else \
                 [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '')
-                  + f'{name(m["id"])}  (No.{m["id"]:03d} · Lv{box_level(m)} {xp_text(m)})')
+                  + f'{name(m["id"])}  (No.{m["id"]:03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}')
                  for i, m in enumerate(st['box'])]
             if view == 'dex':
                 have = sum(1 for n in st['caught'] if gen(n) == dg)
@@ -1504,6 +1572,8 @@ def main(scr):
                 gray = _lang.get('sprite') == 'gray'
                 x = button(h - 1, 1, L('동료로', 'partner'), 'partner_sel')
                 x = button(h - 1, x, L('팀', 'team'), 'team')
+                x = button(h - 1, x, L('박사에게', 'send'), 'send')
+                x = button(h - 1, x, L('정리', 'tidy'), 'tidy')
                 x = button(h - 1, x, L('교환', 'trade'), 'exchange')
                 x = button(h - 1, x, L('그림 회색', 'art gray') if gray else L('그림 컬러', 'art color'), 'sprite')
                 button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
@@ -1581,6 +1651,27 @@ def main(scr):
             gray = _lang.put('sprite', 'color' if _lang.get('sprite') == 'gray' else 'gray') == 'gray'
             msg = L('허브의 동료 그림을 회색으로 보여 줍니다.', 'Partner art in the hub is now grayscale.') if gray else \
                 L('허브의 동료 그림을 컬러로 보여 줍니다.', 'Partner art in the hub is now in color.')
+        if act in ('send', 'tidy') and view == 'box' and st['box']:
+            i = max(0, min(sel, len(st['box']) - 1))
+            idxs = [i] if act == 'send' else tidy_targets(st)
+            what = (act, tuple(idxs))
+            m = st['box'][i]
+            if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny')):
+                msg, confirm = L('동료·팀·이로치는 박사에게 보내지 않는다.', "Partner, team and shiny Pokémon can't be sent."), None
+            elif not idxs:
+                msg, confirm = L('정리할 것이 없다 — 같은 종이 둘 이상일 때 가장 좋은 것만 남긴다.', 'Nothing to tidy — only duplicates are sent.'), None
+            elif confirm != what:  # 되돌릴 수 없으니 한 번 더 눌러야 보낸다
+                confirm = what
+                msg = L(f'{name(m["id"])} {iv_text(m)} — 한 번 더 누르면 박사에게 보낸다', f'{name(m["id"])} {iv_text(m)} — press again to send') \
+                    if act == 'send' else L(f'같은 종 중 가장 좋은 것만 남기고 {len(idxs)}마리를 보낸다 — 한 번 더 누르면 보낸다',
+                                            f'Keeps the best of each species and sends {len(idxs)} — press again to send')
+            else:
+                k, balls = send_away(st, idxs)
+                save(st)
+                rec, confirm = None, None
+                msg = L(f'박사에게 {k}마리를 보냈다! 몬스터볼 +{balls}', f'Sent {k} to the Professor! Poké Balls +{balls}')
+        elif act is not None:
+            confirm = None
         if act == 'exchange' and view == 'box':
             ok = exchange(st)
             if ok:
@@ -1607,14 +1698,13 @@ def main(scr):
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
-            cands = [(k, m['id'], box_level(m)) for k, m in enumerate(st['box'])]
+            cands = [(k, m['id'], box_level(m), iv_of(m)) for k, m in enumerate(st['box']) if gen(m['id']) == gsel[0]]
             opp = gym_opp(BATTLE, *gsel)
             if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률로(가볍게 40번씩)
                 pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
             else:
                 pick = _battle.recommend(BATTLE, cands, opp)
-            lv = {k: l for k, _, l in cands}
-            rec = (gsel, pick, gym_rate(BATTLE, [(st['box'][k]['id'], lv[k]) for k in pick], *gsel))
+            rec = (gsel, pick, gym_rate(BATTLE, [c[1:] for c in cands if c[0] in pick], *gsel))
             msg = ''
         if act == 'apply' and view == 'gym' and rec and rec[0] == gsel:
             st['team'] = list(rec[1])
@@ -1735,23 +1825,39 @@ def selftest():
     assert dict(wild_odds(dup)).get(25) == 1  # 진화시켜 가방에서 빠지면 다시 보통 확률
     dup['box'] = [{'id': 25, 'xp': 0}]
     pick = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.5})()
-    assert explore(dup, ENCOUNTER_EVERY, pick) == (25, dupe_balls(25)) and dup['wild'] is None
-    assert dup['balls'] == dupe_balls(25) and dup['used'] == 1
+    assert explore(dup, ENCOUNTER_EVERY, pick) == (25, 0) and dup['wild']['id'] == 25  # 같은 종도 만나서 잡는다
+    assert throw(dup, ENCOUNTER_EVERY, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and [m['id'] for m in dup['box']] == [25, 25]
+    assert dup['box'][1]['iv'] == [0, 0, 0] and len(dup['box'][0].get('iv', [])) == 0  # 개체값은 잡을 때(가짜 난수 0 → 0)
+    # 개체값: 0~15, 바닥값, 불러올 때 옛 포켓몬에 고정된 값
+    assert all(0 <= v <= 15 for _ in range(200) for v in roll_iv()) and min(min(roll_iv(floor=IV_FLOOR)) for _ in range(200)) >= IV_FLOOR
+    lr = tempfile.mkdtemp()
+    save({**new_state(), 'box': [{'id': 25, 'xp': 0}]}, lr)
+    assert load(lr)['box'][0]['iv'] == load(lr)['box'][0]['iv'] and len(load(lr)['box'][0]['iv']) == 3
+    assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
+    # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
+    ps = new_state()
+    ps['box'] = [{'id': 10, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 10, 'xp': 0, 'iv': [9, 9, 9]}, {'id': 10, 'xp': 0, 'iv': [5, 5, 5], 'shiny': True},
+                 {'id': 25, 'xp': 0, 'iv': [2, 2, 2], 'bxp': 900}, {'id': 25, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 25, 'xp': 0, 'iv': [3, 3, 3]},
+                 {'id': 1, 'xp': 0, 'iv': [0, 0, 0]}]
+    ps['partner'], ps['team'] = 6, [5]
+    assert sorted(tidy_targets(ps)) == [0]  # 캐터피 하나 · 피카츄: 최고 개체·경험치는 남고 남은 하나는 팀
+    assert send_away(ps, [6, 5, 2]) == (0, 0)  # 동료·팀·이로치는 못 보낸다
+    assert send_away(ps, [0, 3]) == (2, dupe_balls(10) + dupe_balls(25)) and ps['balls'] == dupe_balls(10) + dupe_balls(25)
+    assert [m['id'] for m in ps['box']] == [10, 10, 25, 25, 1] and ps['box'][ps['partner']]['id'] == 1
+    assert ps['team'] == [3] and ps['box'][3]['iv'] == [3, 3, 3] and ps['sent'] == 2
     # 경험치: 15만 넘으면 이상해씨 → 이상해풀, 다음은 40만
     assert not can_evolve(st, t + 149_999) and can_evolve(st, t + 150_000)
     assert evolve(st, t + 150_000, rng) == 2 and 2 in st['caught'] and partner_xp(st, t + 150_000) == 0
-    # 바리케이드: 이상해풀이 가방에 있으면 새로 잡은 이상해씨는 경험치가 차도 진화 못 함 → 빠지면 다시 가능
+    # 이상해풀이 가방에 있어도 이상해씨는 진화한다(같은 모습 둘 — 중복 포획부터)
     bar_st = new_state()
     bar_st['box'], bar_st['caught'], bar_st['partner'] = [{'id': 1, 'xp': 10**9}, {'id': 2, 'xp': 0}], [1, 2], 0
-    assert evo_status(bar_st, 0) == ('blocked', [2]) and not can_evolve(bar_st, 0) and evolve(bar_st, 0) is None
-    bar_st['box'][1]['id'] = 3  # 이상해풀 → 이상해꽃
     assert can_evolve(bar_st, 0) and evolve(bar_st, 0) == 2
     # 이브이: 샤미드가 가방에 있으면 남은 둘 중에서만
     bar_st['box'] = [{'id': 133, 'xp': 10**9}, {'id': 134, 'xp': 0}]
     bar_st['partner'] = 0
     assert sorted(evolutions(bar_st, 133)) == [135, 136]
     bar_st['box'] += [{'id': 135, 'xp': 0}, {'id': 136, 'xp': 0}]
-    assert evo_status(bar_st, 0) == ('blocked', [134, 135, 136])
+    assert sorted(evolutions(bar_st, 133)) == [134, 135, 136]  # 다 있으면 아무 모습으로나
     assert need_xp(2) == 400_000 and need_xp(3) is None and need_xp(83) is not None  # 파오리 → 대파무사(8세대)
     # 나중 세대 베이비는 단계에 안 친다: 피카츄 1단계(15만), 라이츄 2단계, 에레키블(4세대)은 에레키드부터 3단계
     assert (depth(25), depth(26), depth(172), depth(466)) == (0, 1, 0, 2) and need_xp(25) == 150_000
@@ -1805,13 +1911,14 @@ def selftest():
     cut = _pokedata.crop(px)
     assert len(cut) == 2 and len(cut[0]) == 3 and _pokedata.decode_png(_pokedata.encode_png(cut)) == cut
     assert _pokedata.crop(px, gray=True)[0][1] == (76, 76, 76, 255)  # 빨강의 밝기 0.299 × 255
-    # 이로치: 기본 피카츄가 가방에 있어도 이로치 피카츄는 잡을 수 있고(볼로 안 바뀜), 이로치가 있으면 그때 볼로
+    # 이로치: 기본 피카츄가 가방에 있어도 이로치 피카츄를 잡고, 이로치가 있어도 또 만난다
     sh = new_state()
     sh['box'], sh['caught'] = [{'id': 25, 'xp': 0}], [25]
     lucky = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.0})()
     assert explore(sh, ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild'] == {'id': 25, 'balls': BALLS, 'shiny': True}
-    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'shiny': True} and sh['shiny'] == [25]
-    assert explore(sh, 2 * ENCOUNTER_EVERY, lucky) == (25, dupe_balls(25))
+    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'iv': [0, 0, 0], 'shiny': True} and sh['shiny'] == [25]
+    assert explore(sh, 2 * ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild']
+    sh['wild'] = None
     # 이로치 동료는 기본 라이츄가 가방에 있어도 진화하고, 진화해도 이로치
     sh['box'].append({'id': 26, 'xp': 0})
     set_partner(sh, 0, 1)
@@ -1909,25 +2016,26 @@ def selftest():
     assert any(n['kind'] == 'charm' and n['arg'] == '1' for n in bd['news'])
     bd['super_earned'], bd['exchanged'] = 1, 1
     assert set(check_badges(bd)) == {'super1', 'hyper1'}
-    # 알: 풀에는 열린 세대의 1단계·가방에 없는 것만(전설·환상 빼고), 베이비 ×3 · 최대 3개 · 다 자라야 부화
+    # 알: 풀에는 열린 세대의 1단계(전설·환상 빼고), 베이비 ×3 · 가방에 있는 종 ×BOXED_WEIGHT · 최대 3개 · 다 자라야 부화
     eg = new_state()
     eg['caught'] = [n for n in DEX if gen(n) == 1]  # 1세대 완성 → 2세대까지 열림
     eg['box'] = [{'id': 1, 'xp': 0}]
     pool = dict(egg_pool(eg))
-    assert 1 not in pool and 2 not in pool and 144 not in pool and 4 in pool and pool[172] == 3 and pool[4] == 2 and pool[10] == 1
+    assert pool[1] == 2 * BOXED_WEIGHT and 2 not in pool and 144 not in pool and 4 in pool and pool[172] == 3 and pool[4] == 2 and pool[10] == 1
     assert all(gen(n) <= 2 for n in pool)
     first = type('R', (), {'choices': lambda s, xs, weights: [172], 'random': lambda s: 0.5})()
     assert give_egg(eg, 1000, first) and eg['eggs'][0] == {'id': 172, 'base': 1000, 'need': 10 * EGG_STEP}
     assert give_egg(eg, 1000, first) and give_egg(eg, 1000, first) and not give_egg(eg, 1000, first) and len(eg['eggs']) == EGG_MAX
     assert hatch(eg, 1000 + 10 * EGG_STEP - 1, first) == []  # 덜 자랐다
     eg['eggs'] = eg['eggs'][:1]
-    eg['box'].append({'id': 172, 'xp': 0})  # 그새 피츄가 가방에 → 다시 고른다
-    # 종은 175, 덤은 표의 4번째(슈퍼볼 1개)를 고르는 난수
+    eg['box'].append({'id': 172, 'xp': 0})  # 그새 피츄가 가방에 들어와도 정해 둔 피츄 그대로
+    # 덤은 표의 4번째(슈퍼볼 1개)를 고르는 난수 · 개체값은 바닥값부터(난수 0 → 10)
     other = type('R', (), {'choices': lambda s, xs, weights: [xs[3] if isinstance(xs[0], tuple) else 175],
                            'random': lambda s: 0.0})()
-    assert hatch(eg, 1000 + 10 * EGG_STEP, other) == [(175, True)] and eg['box'][-1] == {'id': 175, 'xp': 0, 'shiny': True}
-    assert 175 in eg['caught'] and 175 in eg['shiny'] and not eg['eggs'] and eg['news'][-1]['kind'] == 'hatch'
-    assert eg['super'] == 1 and eg['news'][-1]['arg'] == '175*|super:1'  # 포켓몬과 함께 덤 볼 하나
+    assert hatch(eg, 1000 + 10 * EGG_STEP, other) == [(172, True)]
+    assert eg['box'][-1] == {'id': 172, 'xp': 0, 'iv': [IV_FLOOR] * 3, 'shiny': True}
+    assert 172 in eg['caught'] and 172 in eg['shiny'] and not eg['eggs'] and eg['news'][-1]['kind'] == 'hatch'
+    assert eg['super'] == 1 and eg['news'][-1]['arg'] == '172*|super:1'  # 포켓몬과 함께 덤 볼 하나
     assert sum(w for _, _, w in EGG_BONUS) == 100 and ball_name('balls', '2') == ('몬스터볼 2개', '2 Poké Balls')
     # 하이퍼볼: 보상받은 날이 3일 연속이면(3·6·9일째) — 하루 빠지면 처음부터. 알은 이제 여기서 주지 않는다
     sd = tempfile.mkdtemp()
@@ -2029,6 +2137,8 @@ def selftest():
     assert gs['team'] == [0, 1, 2, 4, 5]
     gs['team'] = [0]
     assert fight(gs, ENCOUNTER_EVERY, gd, 1, 0)[0] is None and gs['used'] == 0  # 탐색 기회 1번뿐
+    assert fight(gs, 4 * ENCOUNTER_EVERY, gd, 2, 0)[0] is None and gs['used'] == 0  # 꼬부기(1세대)만 있는 팀은 2세대 체육관에 못 나간다
+    assert team_of(gs, 2) == [] and team_of(gs, 1)[0][1] == 7 and fighters(gs, team_of(gs, 1))[0][2] == (0, 0, 0)
     won, ev, first = fight(gs, 4 * ENCOUNTER_EVERY, gd, 1, 0, random.Random(1), today='2026-10-21')
     assert won and first and gs['gym'] == {'gym:1-0': '2026-10-21'} and gs['hyper'] == 1 and gs['used'] == GYM_COST
     assert gs['box'][0]['bxp'] == 3000 + GYM_WIN_XP and ev[0][0] == 'send' and fight_line(ev[-1])
