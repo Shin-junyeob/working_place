@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 // /mods 하나로 들어가는 모드 허브 — bin/hub.py 가 세션의 컨텍스트·비용 게이지와 bin/ 의 도구 버튼(memo, tetris, pokemon …)을 띄운다.
 // 어디에 띄울지는 사용자가 /config 에서 고른다(userConfig): tmux 패널 · 새 터미널 창 · 사용자 명령(cmux·wezterm·zellij …).
@@ -177,6 +177,18 @@ async function writeUsage($: EngineInterface) {
   await $.fs.write(`${await home($)}/.claude/pane-tools/usage/${sid}.json`, text)
 }
 
+// 휴대폰(Remote Control 앱)에서 입력한 /mods 인가 — 출처가 bridge(휴대폰·웹)이고 붙은 화면에 mobile 이 있을 때.
+// 그때는 tmux/cmux 대신 엔진 패널을 연다: 휴대폰엔 터미널 패널이 보이지 않는다(2026-10-28, 0단계 — 그려지는지 확인용).
+export function fromPhone(origin: string, surfaces: readonly string[]): boolean {
+  return origin === 'bridge' && surfaces.includes('mobile')
+}
+
+async function openPhone($: EngineInterface) {
+  const r = await $.ui.open({ id: 'hub', title: 'mods' })
+  return r.isPlaced ? L($, '휴대폰에 모드 허브 패널을 열었습니다(0단계 시험).', 'Opened the mods hub pane on the phone (step-0 test).')
+    : L($, `패널을 열지 못했습니다: ${r.reason}`, `Could not open the pane: ${r.reason}`)
+}
+
 export const register: Register = (on, options) => {
   const o: Opts = {
     launcher: String(options.launcher ?? 'auto'),
@@ -195,5 +207,16 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'mods' }, async $ => ({ text: await openHub($, { ...o, ...(await prefs($)) }) }))
+  on('command.run', { command: 'mods' }, async ($, e) => ({
+    // 화면 목록은 bridge 일 때만 묻는다 — 맥에서 직접 누른 /mods 는 지금처럼 바로 tmux/cmux 로
+    text: e.origin?.kind === 'bridge' && fromPhone('bridge', await $.session.surfaces()) ? await openPhone($) : await openHub($, { ...o, ...(await prefs($)) }),
+  }))
+  // 0단계: 어느 화면에 그려지는지 한 줄로 — 맥 터미널에도 놓이면 그곳엔 흐린 안내만
+  on('ui.render', { component: 'Pane', requestId: 'hub' }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const where = `${e.surface} · ${e.viewport?.columns ?? '?'}x${e.viewport?.rows ?? '?'}`
+    return h(Box, { flexDirection: 'column' },
+      h(Text, null, e.surface === 'terminal' ? await L($, `휴대폰에서 연 모드 허브 (${where})`, `Mods hub opened from the phone (${where})`)
+        : await L($, `모드 허브 0단계 시험 — 여기가 보이면 성공 (${where})`, `Mods hub step-0 test — you can see this (${where})`))) as RenderElement
+  })
 }

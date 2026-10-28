@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
-import { canReplace, grow, pending, plan, shq } from './register'
+import { canReplace, fromPhone, grow, pending, plan, shq } from './register'
 
 const INBOX = '/h/.claude/pane-tools/inbox/S1'
 
@@ -181,4 +181,10 @@ test('/mods 는 피드 패널이 빈 셸이면 피드도 띄우고, 이미 피�
   feedPane = "bash -c python3 '/p/bin/feed.py'; exec bash\npython3 /p/bin/feed.py"
   expect(JSON.stringify(await $.command.run({ command: 'mods', args: '' } as never))).not.toContain('피드도')
   expect(runs.some(a => a.includes('respawn-pane') && a.includes('dev:0.2'))).toBe(false)
+})
+
+test('휴대폰(bridge + mobile)에서 입력한 /mods 만 엔진 패널로 — 웹·터미널은 그대로', async () => {
+  expect(fromPhone('bridge', ['terminal', 'mobile'])).toBe(true)
+  expect(fromPhone('bridge', ['terminal'])).toBe(false) // 웹(claude.ai/code)
+  expect(fromPhone('composer', ['terminal', 'mobile'])).toBe(false) // 맥에서 직접
 })
