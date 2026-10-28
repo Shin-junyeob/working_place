@@ -15,7 +15,7 @@
 - 볼 네 가지: 몬스터볼 · 슈퍼볼(1.5배) · 하이퍼볼(2배) · 마스터볼(반드시 잡힘). 전설·환상은 하이퍼볼·마스터볼로만
   잡힌다(다른 볼은 쓰지 않고 알려만 준다). 마스터볼은 세대마다 두 개 — 8관 지방 정복과 사천왕·챔피언 첫 승리.
   체육관은 처음 이길 때마다 하이퍼볼 1개.
-  하이퍼볼은 가방에서 몬스터볼 HYPER_COST 개로 바꾼다. 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
+  [교환] → [몬스터볼]에서 볼을 위 단계로 바꾼다(TRADES — 몬스터볼 10 → 슈퍼볼, 슈퍼볼 10 → 하이퍼볼, 하이퍼볼 5 → 마스터볼). 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
   하나라도 있으면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline). 그런 날이 STREAK_DAYS 일 연속이면 하이퍼볼.
 - 알: 야생 포켓몬을 잡을 때 EGG_CATCH 확률로 하나(최대 EGG_MAX), 지방 정복 때 하나.
 - 주간 과제: 주마다(월요일) WEEKLY 에서 하나 — 이루면 WEEKLY_PRIZE.
@@ -55,7 +55,7 @@ BALLS = 3
 WINDOW = 4  # 순서상 앞쪽 몇 마리 중에서 나오나
 BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다(wild_odds)
 SHINY_RATE = 1 / 256
-HYPER_COST = 100  # 몬스터볼 몇 개로 하이퍼볼 하나
+TRADES = [('balls', 'super', 10), ('super', 'hyper', 10), ('hyper', 'master', 5)]  # [교환] → [몬스터볼]: (낼 볼, 받을 볼, 개수)
 BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}  # 마스터볼은 배율 없이 반드시 잡힌다(throw)
 SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이면 슈퍼볼 1개 — 세션 하나만 쓰는 PC도 받게(2026-10-21 3→1)
 SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
@@ -457,13 +457,15 @@ def throw(st, t, rng=random, kind='ball'):
     return 'missed'
 
 
-def exchange(st):
-    """몬스터볼 HYPER_COST 개 → 하이퍼볼 1개. 바꿨으면 True."""
-    if st['balls'] < HYPER_COST:
+def exchange(st, k):
+    """TRADES[k] 한 번 — 낼 볼 cost 개 → 받을 볼 1개. 바꿨으면 True. 하이퍼볼로 바꾸면 'hyper1' 훈장이 센다."""
+    src, dst, cost = TRADES[k]
+    if st[src] < cost:
         return False
-    st['balls'] -= HYPER_COST
-    st['hyper'] += 1
-    st['exchanged'] = st.get('exchanged', 0) + 1
+    st[src] -= cost
+    st[dst] += 1
+    if dst == 'hyper':
+        st['exchanged'] = st.get('exchanged', 0) + 1
     return True
 
 
@@ -926,7 +928,7 @@ def draw_info(scr, st, n, h, w, gold):
                 y = fy + 1 + i
         else:
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
-    room, sid, gray = h - 2 - (y + 1), f'form:{n}' if form else n + (_pokedata.SHINY if sh else 0), _lang.get('sprite') == 'gray'
+    room, sid, gray = h - 2 - (y + 1), f'form:{n}' if form else n + (_pokedata.SHINY if sh else 0), False
     loading = lambda: put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM) and None  # noqa: E731
     if room < 4:
         return None
@@ -1375,6 +1377,7 @@ def main(scr):
             put(scr, y0 + 7, 1, msg)
             x = button(h - 1, 1, L('도감', 'dex'), 'dex')
             x = button(h - 1, x, L('가방', 'bag'), 'box')
+            x = button(h - 1, x, L('교환', 'trade'), 'trade')
             x = button(h - 1, x, L('훈장', 'medals'), 'badges')
             x = button(h - 1, x, L('체육관', 'gyms'), 'gyms')
             button(h - 1, x, L('닫기 q', 'close q'), 'close')  # 동료 그림 컬러/회색은 가방 화면의 버튼으로
@@ -1508,6 +1511,18 @@ def main(scr):
             art = draw_info(scr, st, info, h, w, gold)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('←→ 앞뒤 포켓몬', '←→ prev/next'), curses.A_DIM)
+        elif view == 'balls':  # [교환] → [몬스터볼] — 한 단계 위 볼로
+            put(scr, 1, 1, msg or L('볼 바꾸기 — ↑↓ 고르기 · Enter 바꾸기', 'Swap balls — ↑↓ pick · Enter swap'), curses.A_DIM)
+            sel = max(0, min(sel, len(TRADES) - 1))
+            for k, (src, dst, cost) in enumerate(TRADES):
+                text = L(f'{ball_name(src, cost)[0]} → {ball_name(dst, 1)[0]}   (가진 {ball_name(src, 1)[0][:-3]} {st[src]}개)',
+                         f'{ball_name(src, cost)[1]} → {ball_name(dst, 1)[1]}   (have {st[src]})')
+                btns.append((3 + k, 1, w - 1, ('swap', k)))
+                put(scr, 3 + k, 1, text.ljust(w - 2) if k == sel else text, curses.A_REVERSE if k == sel else 0)
+            put(scr, 4 + len(TRADES), 1, L(f'지금: 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]} · 마스터볼 {st["master"]}',
+                                           f'Now: Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]} · Master {st["master"]}'), curses.A_DIM)
+            x = button(h - 1, 1, L('바꾸기', 'swap'), 'swap_sel')
+            button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'dex' and dg > GENS:  # 도감 마지막 쪽 — 리전폼 수집
             top_g = opened_gen(st) if wild_pool(st) else GENS + 1
             rows = [(p, ('● ' if p in st['forms'] else '○ ' if p in st['forms_seen'] else '  ')
@@ -1545,9 +1560,11 @@ def main(scr):
                 have = sum(1 for n in st['caught'] if gen(n) == dg)
                 put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶   ● 잡음 ○ 봄',
                                   f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶   ● caught ○ seen'), curses.A_DIM)
+            elif view == 'trade':
+                put(scr, 1, 1, msg or L('교환 — ↑↓ 고르기 · [박사에게] 한 마리 · [정리] 중복 한꺼번에 · [몬스터볼] 볼 바꾸기',
+                                        'Trade — ↑↓ pick · [send] one · [tidy] all duplicates · [balls] swap balls'), curses.A_DIM)
             else:
-                put(scr, 1, 1, msg or L(f'가방 — ↑↓ 고르기 · ←→ 버튼 · Enter (교환: 몬스터볼 {HYPER_COST} → 하이퍼볼)',
-                                        f'Bag — ↑↓ pick · ←→ button · Enter (trade: {HYPER_COST} Poké → Ultra)'), curses.A_DIM)
+                put(scr, 1, 1, msg or L('가방 — ↑↓ 고르기 · ←→ 버튼 · Enter', 'Bag — ↑↓ pick · ←→ button · Enter'), curses.A_DIM)
             body = h - 4
             if rows:
                 sel = max(0, min(sel, len(rows) - 1))
@@ -1555,8 +1572,9 @@ def main(scr):
             top = max(0, min(top, len(rows) - body))
             for k, (key, text) in enumerate(rows[top:top + body]):
                 attr = 0
-                if view == 'box':
-                    btns.append((2 + k, 1, w - 1, ('partner', key)))
+                if view in ('box', 'trade'):
+                    if view == 'box':
+                        btns.append((2 + k, 1, w - 1, ('partner', key)))
                     attr = (curses.A_BOLD if key == st['partner'] else 0) | (gold if st['box'][key].get('shiny') else 0)
                 else:
                     if key in st['seen']:
@@ -1569,13 +1587,13 @@ def main(scr):
                                  f'Locked — complete the Gen {dg - 1} Pokédex to open it.') if view == 'dex'
                     else L('아직 잡은 포켓몬이 없습니다.', 'No Pokémon caught yet.'))
             if view == 'box':
-                gray = _lang.get('sprite') == 'gray'
                 x = button(h - 1, 1, L('동료로', 'partner'), 'partner_sel')
                 x = button(h - 1, x, L('팀', 'team'), 'team')
-                x = button(h - 1, x, L('박사에게', 'send'), 'send')
+                button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+            elif view == 'trade':
+                x = button(h - 1, 1, L('박사에게', 'send'), 'send')
                 x = button(h - 1, x, L('정리', 'tidy'), 'tidy')
-                x = button(h - 1, x, L('교환', 'trade'), 'exchange')
-                x = button(h - 1, x, L('그림 회색', 'art gray') if gray else L('그림 컬러', 'art color'), 'sprite')
+                x = button(h - 1, x, L('몬스터볼', 'balls'), 'balls')
                 button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
             else:
                 if rows:
@@ -1602,7 +1620,7 @@ def main(scr):
         if key != -1:
             _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
-        lists = view in ('box', 'dex', 'badges', 'gyms')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
+        lists = view in ('box', 'trade', 'balls', 'dex', 'badges', 'gyms')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS + bool(FORMS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 마지막 쪽은 리전폼
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
@@ -1625,6 +1643,8 @@ def main(scr):
             elif view != 'info':
                 act = focus
         # 고른 줄에 하는 버튼 → 그 줄의 일로
+        if act == 'swap_sel':
+            act = ('swap', max(0, min(sel, len(TRADES) - 1)))
         if act == 'partner_sel':
             act = ('partner', max(0, min(sel, len(st['box']) - 1))) if st['box'] else None
         elif act == 'pin_sel':
@@ -1647,11 +1667,7 @@ def main(scr):
                 pass
         if act == 'close':
             break
-        if act == 'sprite':
-            gray = _lang.put('sprite', 'color' if _lang.get('sprite') == 'gray' else 'gray') == 'gray'
-            msg = L('허브의 동료 그림을 회색으로 보여 줍니다.', 'Partner art in the hub is now grayscale.') if gray else \
-                L('허브의 동료 그림을 컬러로 보여 줍니다.', 'Partner art in the hub is now in color.')
-        if act in ('send', 'tidy') and view == 'box' and st['box']:
+        if act in ('send', 'tidy') and view == 'trade' and st['box']:
             i = max(0, min(sel, len(st['box']) - 1))
             idxs = [i] if act == 'send' else tidy_targets(st)
             what = (act, tuple(idxs))
@@ -1672,14 +1688,15 @@ def main(scr):
                 msg = L(f'박사에게 {k}마리를 보냈다! 몬스터볼 +{balls}', f'Sent {k} to the Professor! Poké Balls +{balls}')
         elif act is not None:
             confirm = None
-        if act == 'exchange' and view == 'box':
-            ok = exchange(st)
+        if isinstance(act, tuple) and act[0] == 'swap':
+            src, dst, cost = TRADES[act[1]]
+            ok = exchange(st, act[1])
             if ok:
                 save(st)
-            msg = L(f'몬스터볼 {HYPER_COST}개를 하이퍼볼 1개로 바꿨다! (하이퍼볼 {st["hyper"]})',
-                    f'Traded {HYPER_COST} Poké Balls for an Ultra Ball! (Ultra {st["hyper"]})') if ok else \
-                L(f'몬스터볼이 {HYPER_COST}개 있어야 바꿀 수 있다 (지금 {st["balls"]})',
-                  f'You need {HYPER_COST} Poké Balls (have {st["balls"]})')
+            msg = L(f'{ball_name(src, cost)[0]}를 {ball_name(dst, 1)[0]}로 바꿨다! (지금 {st[dst]}개)',
+                    f'Swapped {ball_name(src, cost)[1]} for {ball_name(dst, 1)[1]}! (now {st[dst]})') if ok else \
+                L(f'{ball_name(src, cost)[0]}가 있어야 바꿀 수 있다 (지금 {st[src]}개)', f'You need {ball_name(src, cost)[1]} (have {st[src]})')
+            act = None
         if act == 'badges' and view == 'main':
             view, top, sel, msg = 'badges', 0, 0, ''
         if act == 'gyms' and view == 'main':
@@ -1723,9 +1740,11 @@ def main(scr):
                               'key': f'champ{gsel[0]}' if gsel[1] == 'L' else f'gym:{gsel[0]}-{gsel[1]}'}
                 view, msg = 'fight', ''
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
-        if act in ('dex', 'box'):
+        if act in ('dex', 'box', 'trade'):
             view, top, dg, msg = act, 0, opened_gen(st), ''
             sel = st['partner'] or 0  # 가방은 지금 동료에서 시작
+        elif act == 'balls' and view == 'trade':
+            view, top, sel, msg = 'balls', 0, 0, ''
         elif act == 'back' and view == 'fight' and battle_now['k'] < len(battle_now['ev']):
             battle_now['k'] = len(battle_now['ev'])  # 먼저 끝까지 보여 주고, 한 번 더 누르면 나간다
         elif act == 'back' and view == 'fight' and battle_now['won']:
@@ -1733,7 +1752,7 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym'}.get(view, 'main')  # 한 단계 위로
+            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'balls': 'trade'}.get(view, 'main')  # 한 단계 위로
         elif isinstance(act, tuple) and act[0] == 'gym':
             view, gsel, msg = 'gym', act[1], ''
         elif isinstance(act, tuple) and act[0] == 'pin':
@@ -1764,8 +1783,8 @@ def main(scr):
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
                        'fled': L(f'{name(n)}(은)는 도망쳐 버렸다…', f'{name(n)} ran away…'),
-                       'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! 가방의 [교환]으로 몬스터볼 {HYPER_COST}개를 바꿔 오자.',
-                                      f'Only an Ultra or Master Ball works on {name(n)}! Trade {HYPER_COST} Poké Balls with [trade] in the bag.'),
+                       'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! [교환] → [몬스터볼]에서 바꿔 오자.',
+                                      f'Only an Ultra or Master Ball works on {name(n)}! Swap balls in [trade] → [balls].'),
                        None: L('그 볼이 없다.', "You don't have that ball.")}[r]
                 if r == 'caught' and len(st.get('eggs', [])) > eggs0:
                     msg += L(' 풀숲에서 알도 하나 주웠다!', ' Found an egg in the grass too!')
@@ -1942,10 +1961,11 @@ def selftest():
     lg['wild'], lg['balls'], lg['super'] = {'id': 19, 'balls': 3}, 0, 1
     assert abs(catch_rate(19) - 0.7) < 1e-9 and throw(lg, 0, r95) == 'missed' and throw(lg, 0, r95, 'super') == 'caught'
     assert abs(catch_rate(143) - (0.35 + 0.35 * 25 / 255)) < 1e-9  # 잠만보 약 38%
-    # 교환: 몬스터볼 100 → 하이퍼볼 1, 모자라면 그대로
+    # 교환: 몬스터볼 10 → 슈퍼볼 · 슈퍼볼 10 → 하이퍼볼(훈장이 센다) · 하이퍼볼 5 → 마스터볼, 모자라면 그대로
     ex = new_state()
-    ex['balls'] = 130
-    assert exchange(ex) and (ex['balls'], ex['hyper']) == (30, 1) and not exchange(ex) and ex['balls'] == 30
+    ex['balls'], ex['super'], ex['hyper'] = 25, 9, 4
+    assert exchange(ex, 0) and (ex['balls'], ex['super']) == (15, 10) and exchange(ex, 1) and (ex['super'], ex['hyper']) == (0, 5)
+    assert ex['exchanged'] == 1 and exchange(ex, 2) and (ex['hyper'], ex['master']) == (0, 1) and not exchange(ex, 2) and not exchange(ex, 1)
     # 슈퍼볼 보상: 내보낸 일(push·PR·배포)이 있는 날마다 1개(하루 1개), 켠 날 전은 주지 않는다
     jd = tempfile.mkdtemp()
     def job(j, rows):
