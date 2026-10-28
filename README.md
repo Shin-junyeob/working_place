@@ -45,7 +45,11 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
 Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
-A species already in your bag shows up rarely, but you can catch it again: every Pokémon rolls its own **IVs** — Attack, Defense and HP, 0–15 each, shown in the bag as `A13 D15 H14 (93%)` (★ at 15/15/15); eggs, legendaries and mythicals roll at least 10. In the **trade** screen (between bag and medals), **send** gives a Pokémon to the Professor for 1–5 Poké Balls (rarer is more), **tidy** sends every duplicate except the best-IV, most-trained ones; both ask for a second press, and the partner, team members and shinies are never sent. Its **balls** page swaps balls up a tier: 10 Poké → 1 Great, 10 Great → 1 Ultra, 5 Ultra → 1 Master.
+A species already in your bag shows up rarely (1/10 of a new one) but can be caught again.
+
+**Bag and IVs** — every Pokémon rolls its own **IVs**: Attack, Defense and HP, 0–15 each, shown as `A13 D15 H14 (93%)` (★ at 15/15/15). Eggs, legendaries and mythicals roll at least 10. IVs add to battle stats, so two of the same species are worth comparing. The bag pages through all / each generation and sorts by Pokédex number, level, IVs or name.
+
+**Trade** (between bag and medals) — **send** gives the highlighted Pokémon to the Professor for 1–5 Poké Balls (rarer is more); **tidy** sends every duplicate except the best-IV, most-trained ones. Both ask for a second press, and the partner, team members and shinies are never sent. The **balls** page swaps balls up a tier: 10 Poké → 1 Great, 10 Great → 1 Ultra, 5 Ultra → 1 Master.
 
 **Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
 
@@ -69,7 +73,7 @@ A species already in your bag shows up rarely, but you can catch it again: every
 
 ### Gyms, Elite Four and Champion
 
-Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six with the bag's **team** button or let the gym screen suggest one (**pick**, then **apply**) — it picks the combination from your Pokémon that raises the win rate most. **Only that generation's Pokémon can enter** a generation's gyms and Elite Four (others on the team sit out), so each region needs a team of its own.
+Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six with Space in the bag or let the gym screen suggest one (**pick**, then **apply**) — it picks the combination from your Pokémon that raises the win rate most. **Only that generation's Pokémon can enter** a generation's gyms and Elite Four (others on the team sit out), so each region needs a team of its own.
 
 ![Gym list with real gym badges](docs/images/gyms.png)
 
@@ -81,7 +85,16 @@ A challenge costs two explores and plays a fully automatic battle line by line: 
 
 Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation.
 
-Controls — arrow keys, Enter and `q` only (2026-10-21; there were too many letter shortcuts). Arrows move between buttons and Enter presses the highlighted one; in lists (bag, medals, gyms, Pokédex) ↑↓ picks the row and ←→ the button below it, which acts on that row. In the Pokédex ←→ switches generation, in the detail view the previous/next species. In the bag Enter makes the highlighted Pokémon your partner, Space adds it to or removes it from the team, ←→ pages through all / each generation in the bag, and Tab cycles the sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English); the sort is remembered per PC and the trade screen follows it. Every screen fits the pane: long lines wrap, buttons tighten below 80 columns, and the narrowest panes drop the ` q` hints and shorten bag rows. `q` goes back or closes. The mouse works too.
+**Controls** — arrow keys, Enter and `q`, plus Space and Tab in the bag. The mouse works too.
+
+| Screen | Keys |
+|---|---|
+| Most screens | arrows move between buttons, Enter presses one, `q` goes back or closes |
+| Lists (medals, gyms, trade) | ↑↓ picks the row, ←→ the button below it, which acts on that row |
+| Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it |
+| Pokédex | ←→ generation (the last page is regional forms) · Enter details, where ←→ steps through species |
+
+Every screen fits the pane: long lines wrap at spaces, buttons lose their padding below 80 columns, and below 50 the ` q` hints go and bag rows shorten.
 
 ## Install
 
@@ -132,7 +145,7 @@ Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's ch
 ## Data on disk
 
 Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
-`settings.json` (language, hub setup), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
 
 ## Pokémon — unofficial fan project
 
