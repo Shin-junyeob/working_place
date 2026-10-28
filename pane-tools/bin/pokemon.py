@@ -1194,17 +1194,21 @@ def fight(st, t, d, g, i, rng=random, today=None):
     return won, ev, first
 
 
-def para(scr, y, text, w, attr=0, x=1):
-    """text 를 패널 폭에 맞춰 접어 y 줄부터 쓴다 — 다음 빈 줄 번호를 돌려준다(좁은 패널에서 잘리지 않게)."""
-    width, line = max(10, w - x - 1), ''
-    for word in text.replace(' · ', '\xa0· ').split(' '):  # 빈칸에서 접는다('·' 는 앞 낱말에 붙여) — 폭보다 긴 낱말은 잘린다
-        if line and sum(map(memo.cw, line + " " + word)) > width:
-            put(scr, y, x, line.replace('\xa0', ' '), attr)
-            y, line = y + 1, word
+def fold(text, width):
+    """text 를 width 칸에 맞춰 빈칸에서 접은 줄들('·' 는 앞 낱말에 붙여) — 폭보다 긴 낱말은 그 줄에서 잘린다."""
+    out, line = [], ''
+    for word in text.replace(' · ', '\xa0· ').split(' '):
+        if line and sum(map(memo.cw, line + ' ' + word)) > width:
+            out, line = out + [line], word
         else:
             line = f'{line} {word}' if line else word
-    if line:
-        put(scr, y, x, line.replace('\xa0', ' '), attr)
+    return [x.replace('\xa0', ' ') for x in out + ([line] if line else [])]
+
+
+def para(scr, y, text, w, attr=0, x=1):
+    """text 를 패널 폭에 맞춰 접어 y 줄부터 쓴다 — 다음 빈 줄 번호를 돌려준다(좁은 패널에서 잘리지 않게)."""
+    for line in fold(text, max(10, w - x - 1)):
+        put(scr, y, x, line, attr)
         y += 1
     return y
 
@@ -1467,35 +1471,34 @@ def main(scr):
             team = team_of(st, g)
             tn = lambda tp: BATTLE['tnames'].get(tp, ['', ''])  # noqa: E731
             won = st.get('league', {}).get(str(g)) if i == 'L' else st.get('gym', {}).get(f'gym:{g}-{i}')
-            put(scr, 1, 1, (L(f'{g}세대 사천왕·챔피언 — 5연전', f'Gen {g} Elite Four — 5 battles') if i == 'L' else
-                            L(f'{g}세대 {i + 1}관 — {tn(_battle.GYMS[g][i][0])[0]} 타입', f'Gen {g} gym {i + 1} — {tn(_battle.GYMS[g][i][0])[1]} type'))
-                + (L(f'  ✔ {won} 승리', f'  ✔ won {won}') if won else ''), curses.A_BOLD)
-            if i == 'L':  # 다섯 줄 — 사천왕 4명(타입)과 챔피언
+            y = para(scr, 1, (L(f'{g}세대 사천왕·챔피언 — 5연전', f'Gen {g} Elite Four — 5 battles') if i == 'L' else
+                              L(f'{g}세대 {i + 1}관 — {tn(_battle.GYMS[g][i][0])[0]} 타입', f'Gen {g} gym {i + 1} — {tn(_battle.GYMS[g][i][0])[1]} type'))
+                     + (L(f'  ✔ {won}\xa0승리', f'  ✔ won\xa0{won}') if won else ''), w, curses.A_BOLD)
+            if i == 'L':  # 사천왕 4명(타입)과 챔피언 — 한 명씩, 길면 접는다
                 for k, tm in enumerate(opp):
                     who = L('챔피언', 'Champ ') if k == _battle.ELITE_COUNT else L(f'사천왕{k + 1} {tn(_battle.LEAGUE[g][k])[0]}', f'E4 #{k + 1} {tn(_battle.LEAGUE[g][k])[1]}')
-                    put(scr, 2 + k, 1, f'{who}: ' + ', '.join(name(x[0]) for x in tm) + f' Lv{tm[0][1]}', curses.A_DIM)
-                base = 7
-            else:
-                put(scr, 3, 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)} Lv{lv}' for n, lv, *_ in opp), curses.A_DIM)
-                base = 4
-            put(scr, base, 1, L('내 팀 ', 'Team  ') + (', '.join(f'{name(n)} Lv{lv}' for _, n, lv in team) or
-                                                      L('(비었다 — [추천] → [적용])', '(empty — [pick] → [apply])')))
-            put(scr, base + 1, 1, L(f'{g}세대 포켓몬만 출전', f'Gen {g} Pokémon only'), curses.A_DIM)
+                    y = para(scr, y, f'{who}: ' + ', '.join(name(x[0]) for x in tm) + f'\xa0Lv{tm[0][1]}', w, curses.A_DIM)
+            else:  # 이름과 레벨은 붙여 접는다(\xa0)
+                y = para(scr, y + 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)}\xa0Lv{lv}' for n, lv, *_ in opp), w, curses.A_DIM)
+            y = para(scr, y, L('내 팀 ', 'Team  ') + (', '.join(f'{name(n)}\xa0Lv{lv}' for _, n, lv in team) or
+                                                    L('(비었다 — [추천] → [적용])', '(empty — [pick] → [apply])')), w)
+            put(scr, y, 1, L(f'{g}세대 포켓몬만 출전', f'Gen {g} Pokémon only'), curses.A_DIM)
             wkey = (tuple(fighters(st, team)), g, i)
             if wkey not in wr_cache:
                 if i == 'L' and team:
-                    put(scr, base + 2, 1, L('승률 계산 중…', 'Working out the odds…'), curses.A_DIM)
+                    put(scr, y + 1, 1, L('승률 계산 중…', 'Working out the odds…'), curses.A_DIM)
                     scr.refresh()
                 wr_cache[wkey] = gym_rate(BATTLE, fighters(st, team), g, i)
-            put(scr, base + 2, 1, L(f'승률 {wr_cache[wkey]:.0%}', f'Win rate {wr_cache[wkey]:.0%}'), curses.A_BOLD)
+            put(scr, y + 1, 1, L(f'승률 {wr_cache[wkey]:.0%}', f'Win rate {wr_cache[wkey]:.0%}'), curses.A_BOLD)
+            y += 2
             if rec and rec[0] == (g, i):
                 rteam = [(st['box'][k]['id'], box_level(st['box'][k])) for k in rec[1]]
-                put(scr, base + 3, 1, L('추천  ', 'Pick  ') + ', '.join(name(n) for n, _ in rteam) +
-                    L(f'  (승률 {rec[2]:.0%}) — [적용]', f'  ({rec[2]:.0%}) — [apply]'))
+                y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(name(n) for n, _ in rteam) +
+                         L(f'  (승률\xa0{rec[2]:.0%})\xa0—\xa0[적용]', f'  ({rec[2]:.0%})\xa0—\xa0[apply]'), w)
             cost = LEAGUE_COST if i == 'L' else GYM_COST
-            put(scr, base + 5, 1, msg)
-            put(scr, base + 6, 1, L(f'탐색 기회 {tickets(st, t)}회 · 도전 1번에 {cost}회', f'{tickets(st, t)} explores · {cost} per challenge'),
-                curses.A_DIM)
+            y = para(scr, y + 1, msg, w)
+            para(scr, y, L(f'탐색 기회 {tickets(st, t)}회 · 도전 1번에 {cost}회', f'{tickets(st, t)} explores · {cost} per challenge'),
+                 w, curses.A_DIM)
             x = button(h - 1, 1, L('도전', 'fight'), 'fight')
             x = button(h - 1, x, L('추천', 'pick'), 'rec')
             x = button(h - 1, x, L('적용', 'apply'), 'apply')
@@ -1526,9 +1529,9 @@ def main(scr):
                         art = ('six', y + 1, 2, ('fight', tuple(ids), rows_), img[0], cols, rows_) if SIXEL else \
                             ('kitty', y + 1, 2, 200000 + ids[0] * 2000 + ids[1], img[0], cols, rows_)
                     y += rows_ * 2 + 1
-            lines = [fight_line(e) for e in ev[:k]][-(h - y - 3):]
-            for j, line in enumerate(lines):
-                put(scr, y + 1 + j, 1, line, curses.A_BOLD if j == len(lines) - 1 else 0)
+            lines = [(part, j == k - 1) for j, e in enumerate(ev[:k]) for part in fold(fight_line(e), max(10, w - 2))][-(h - y - 3):]
+            for j, (line, last) in enumerate(lines):  # 긴 줄은 접는다 — 마지막 기록(접힌 줄 모두)은 굵게
+                put(scr, y + 1 + j, 1, line, curses.A_BOLD if last else 0)
             if k >= len(ev):
                 ups = battle_now.get('ups', [])  # 받은 경험치와 레벨업을 결과 줄에 — 쌓이는 게 보이게
                 gain = L(f' 경험치 +{battle_now.get("xp", 0)}', f' XP +{battle_now.get("xp", 0)}') + (
@@ -2301,6 +2304,9 @@ def selftest():
     finally:
         FORMS.clear()
         FORMS.update(real_forms)
+    # 줄 접기: 폭 안에서 빈칸·쉼표 뒤에서 접고, '·' 는 앞 낱말에 붙인다(한글은 2칸)
+    assert fold('가나다 · 라마 · 바사', 12) == ['가나다 ·', '라마 · 바사'] and fold('a, b, c', 3) == ['a,', 'b,', 'c'] and fold('a, b, c', 4) == ['a,', 'b, c']
+    assert all(sum(map(memo.cw, x)) <= 20 for x in fold('내 팀 메가니움 Lv39, 블레이범 Lv39, 장크로다일 Lv39, 토게틱 Lv27', 20))
     print('pokemon selftest ok')
 
 
