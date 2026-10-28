@@ -21,7 +21,9 @@
 - 알: 야생 포켓몬을 잡을 때 EGG_CATCH 확률로 하나(최대 EGG_MAX), 지방 정복 때 하나.
 - 주간 과제: 주마다(월요일) WEEKLY 에서 하나 — 이루면 WEEKLY_PRIZE.
 - 리전폼(알로라·가라르·히스이·팔데아 모습, FORMS): 이전 세대 탐색(OLD_GEN_RATE)에 그 종의 세대가 지난 폼이 함께 나온다.
-  잡으면 st['forms'] 에 모일 뿐 가방·도감·진화·배틀과는 따로다(도감 마지막 쪽에 목록).
+  잡으면 가방에 폼 번호(FORMS 의 키, 10000 위)로 들어가 진화·레벨·배틀을 한다 — 종족값·타입은 그 모습 것(battle.json),
+  세대·진화 단계는 원래 종으로(sp). 같은 지방 모습으로 진화하고(evo_next), 지방 전용 진화형(REGIONAL_EVO)도 있다.
+  도감 숫자에는 안 들어가고 st['forms'] 에 따로 모인다(도감 마지막 쪽에 목록).
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
   도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장).
@@ -100,6 +102,27 @@ def load_dex():
 FORMS = {}  # 리전폼 그림 번호 → (종 번호, 'alola' · 'paldea-aqua-breed' …) — load_forms() 가 채운다
 REGION = {'alola': ('알로라', 'Alolan'), 'galar': ('가라르', 'Galarian'), 'hisui': ('히스이', 'Hisuian'), 'paldea': ('팔데아', 'Paldean')}
 BREED = {'combat': ('컴뱃종', 'Combat Breed'), 'blaze': ('블레이즈종', 'Blaze Breed'), 'aqua': ('워터종', 'Aqua Breed')}
+# 지방 모습만 가는 진화형(원작) — 폼 번호 → 종 번호. 가라르 나옹 → 나이킹, 가라르 파오리 → 창파나이트, 가라르 지그제구리(진화형)
+# → 가로막구리, 가라르 코산호 → 산호르곤, 가라르 마임맨 → 마임꽁꽁, 가라르 데스마스 → 데스판, 히스이 포푸니 → 포푸니크,
+# 히스이 침바루 → 장침바루, 팔데아 우파 → 토오. 종 번호는 PokeAPI 도감 번호(코드엔 번호만 둔다)
+REGIONAL_EVO = {10161: [863], 10166: [865], 10175: [862], 10173: [864], 10168: [866], 10179: [867], 10235: [903],
+                10234: [904], 10253: [980]}
+
+
+def sp(n):
+    """리전폼 번호면 원래 종 번호, 아니면 그대로 — 세대·진화 단계·포획률처럼 종이 정하는 것을 읽을 때."""
+    return FORMS[n][0] if n in FORMS else n
+
+
+def evo_next(n):
+    """다음 모습들(세대가 열렸는지·가방과 무관). 리전폼은 같은 지방의 진화형 폼과 REGIONAL_EVO 로만 —
+    알로라 꼬렛은 알로라 레트라로(보통 레트라로는 안 간다)."""
+    if n not in FORMS:
+        return CHILDREN.get(n, [])
+    s, region = FORMS[n][0], FORMS[n][1].split('-')[0]
+    kids = CHILDREN.get(s, [])
+    return [p for p, (c, ident) in FORMS.items() if c in kids and ident.split('-')[0] == region] + \
+        [c for c in REGIONAL_EVO.get(n, []) if c in DEX]
 
 
 def load_forms():
@@ -119,11 +142,13 @@ STARTERS = {1, 4, 7, 152, 155, 158, 252, 255, 258, 387, 390, 393, 495, 498, 501,
 
 
 def gen(n):
-    return DEX[n][2]
+    return DEX[sp(n)][2]  # 리전폼은 원래 종의 세대
 
 
 def depth(n):
-    """진화 단계(0부터). 그 포켓몬보다 나중 세대에 추가된 진화 전(피츄 같은 베이비)은 세지 않는다 — 1세대 피카츄는 1단계."""
+    """진화 단계(0부터). 그 포켓몬보다 나중 세대에 추가된 진화 전(피츄 같은 베이비)은 세지 않는다 — 1세대 피카츄는 1단계.
+    리전폼은 원래 종의 단계(알로라 레트라는 2단계)."""
+    n = sp(n)
     d, g = 0, gen(n)
     while DEX[n][3] and gen(DEX[n][3]) <= g:
         n, d = DEX[n][3], d + 1
@@ -203,7 +228,7 @@ def gen_done(st, g):
 
 def _final_evolved(st):
     """가방에서 진화를 거쳐 최종 모습이 된 포켓몬 수."""
-    return sum(1 for m in st['box'] if m['id'] not in CHILDREN and depth(m['id']) > 0)
+    return sum(1 for m in st['box'] if not evo_next(m['id']) and depth(m['id']) > 0)
 
 
 # 훈장 (번호, 한국어, 영어, 조건) — 업적. 체육관에서 이겨 받는 것은 '배지'(st['gym'])로 따로다
@@ -320,7 +345,7 @@ def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
             'super': 0, 'hyper': 0, 'master': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
             'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': [], 'showcase': [],
-            'gym': {}, 'team': [], 'league': {}, 'weekly': None, 'candy': 0, 'forms': [], 'forms_seen': []}
+            'gym': {}, 'team': [], 'league': {}, 'weekly': None, 'candy': 0, 'forms': [], 'forms_seen': []}  # forms_boxed 는 load 가 처음 옮길 때 적는다
 
 
 def load(root=ROOT):
@@ -329,9 +354,13 @@ def load(root=ROOT):
             st = {**new_state(), **json.load(f)}
     except (OSError, ValueError):
         return new_state()
+    if not st.get('forms_boxed'):  # 리전폼이 가방에 들어가기 전(2026-10-28)에 잡은 것 — 한 번만 가방에 넣는다(개체값은 아래에서)
+        inbag = {m['id'] for m in st['box']}
+        st['box'] += [{'id': p, 'xp': 0} for p in st.get('forms', []) if p in FORMS and p not in inbag]
+        st['forms_boxed'] = True
     for i, m in enumerate(st['box']):  # 개체값을 넣기 전(2026-10-28)에 잡은 것 — 저장될 때까지 같은 값이 나오게 자리·종으로 고정
         if 'iv' not in m:
-            m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'), IV_FLOOR if DEX[m['id']][5] else 0)
+            m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'), IV_FLOOR if DEX[sp(m['id'])][5] else 0)
     return st
 
 
@@ -354,7 +383,8 @@ def partner_xp(st, t):
 
 
 def dupe_balls(n):
-    """박사에게 보낼 때(리전폼은 이미 모은 폼이 나왔을 때) 받는 볼 — 흔할수록 적고 전설·환상은 5개."""
+    """박사에게 보낼 때 받는 볼 — 흔할수록 적고 전설·환상은 5개. 리전폼은 원래 종 기준."""
+    n = sp(n)
     if DEX[n][5]:
         return 5
     cap = DEX[n][4]
@@ -364,7 +394,7 @@ def dupe_balls(n):
 def opened_evolutions(st, n):
     """지금 열린 세대 안의 다음 모습들(가방 상태와 무관)."""
     g = opened_gen(st)
-    return [c for c in CHILDREN.get(n, []) if gen(c) <= g]
+    return [c for c in evo_next(n) if gen(c) <= g]
 
 
 def evolutions(st, n, shiny=False):
@@ -376,7 +406,7 @@ def evolutions(st, n, shiny=False):
 
 def need_xp(n):
     """진화에 필요한 경험치. 진화형이 없으면 None."""
-    return STAGE_XP[min(depth(n), 1)] if n in CHILDREN else None
+    return STAGE_XP[min(depth(n), 1)] if evo_next(n) else None
 
 
 def can_evolve(st, t):
@@ -403,12 +433,8 @@ def explore(st, t, rng=random):
         n = rng.choice(old)
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
-    if n in FORMS:  # 리전폼 — 이로치 없음, 이미 모은 폼이면 그 종처럼 몬스터볼로
+    if n in FORMS:  # 리전폼 — 이로치 없음, 다른 종처럼 이미 있어도 만나서 잡는다(개체값·박사)
         _mark(st, 'forms_seen', n)
-        if n in st['forms']:
-            k = dupe_balls(FORMS[n][0])
-            st['balls'] += k
-            return n, k
         st['wild'] = {'id': FORMS[n][0], 'form': n, 'balls': BALLS}
         return n, 0
     shiny = rng.random() < shiny_rate(st, n)
@@ -438,16 +464,17 @@ def throw(st, t, rng=random, kind='ball'):
     else:
         st['balls'] -= 1
     if kind == 'master' or rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS[kind]):
-        if w.get('form'):  # 리전폼은 수집 목록에만 — 가방·도감에는 넣지 않는다
+        # 리전폼은 폼 번호로 가방에 — 도감 숫자(caught) 대신 리전폼 목록(forms)에 적는다
+        st['box'].append({'id': w.get('form') or w['id'], 'xp': 0, 'iv': roll_iv(rng, IV_FLOOR if DEX[w['id']][5] else 0),
+                          **({'shiny': True} if w.get('shiny') else {})})
+        if w.get('form'):
             _mark(st, 'forms', w['form'])
         else:
-            st['box'].append({'id': w['id'], 'xp': 0, 'iv': roll_iv(rng, IV_FLOOR if DEX[w['id']][5] else 0),
-                              **({'shiny': True} if w.get('shiny') else {})})
             _mark(st, 'caught', w['id'])
             if w.get('shiny'):
                 _mark(st, 'shiny', w['id'])
-            if st['partner'] is None:
-                set_partner(st, t, len(st['box']) - 1)
+        if st['partner'] is None:
+            set_partner(st, t, len(st['box']) - 1)
         st['wild'] = None
         st['balls'] += 1  # 포획 보상 — 중복이 안 나오니 볼은 여기서 쌓인다
         if rng.random() < EGG_CATCH:
@@ -749,6 +776,10 @@ def _evolve(st, t, rng):
     st['base'] = t
     st['evolved'] = st.get('evolved', 0) + 1
     bump(st, 'evolve')
+    if mon['id'] in FORMS:  # 리전폼으로 진화 — 리전폼 목록에
+        _mark(st, 'forms_seen', mon['id'])
+        _mark(st, 'forms', mon['id'])
+        return mon['id']
     _mark(st, 'seen', mon['id'])
     _mark(st, 'caught', mon['id'])
     if mon.get('shiny'):
@@ -773,7 +804,7 @@ def evo_status(st, t):
     """동료의 진화 상태: ('final',) · ('locked',) · ('blocked', 진화형들) · ('ready',) · ('progress', 경험치, 필요치)."""
     m = st['box'][st['partner']]
     n = m['id']
-    if n not in CHILDREN:
+    if not evo_next(n):
         return ('final',)
     opened = opened_evolutions(st, n)
     if not opened:
@@ -854,8 +885,13 @@ def partner_id(root=ROOT):
 def partner_id_of(st):
     if st['partner'] is None:
         return None
-    m = st['box'][st['partner']]
-    return m['id'] + (_pokedata.SHINY if m.get('shiny') else 0)  # 이로치면 이로치 그림 번호
+    return art_of(st['box'][st['partner']])
+
+
+def art_of(m):
+    """가방 항목(또는 번호) → 그림 번호: 이로치면 이로치 그림, 리전폼이면 'form:번호'(번호가 이로치 자리와 겹쳐서)."""
+    n, shiny = (m['id'], m.get('shiny')) if isinstance(m, dict) else (m, False)
+    return f'form:{n}' if n in FORMS else n + (_pokedata.SHINY if shiny else 0)
 
 
 # ── 화면 ──
@@ -1351,8 +1387,8 @@ def main(scr):
                 x = put(scr, y, 1, L('동료  ', 'Partner  '), curses.A_BOLD)
                 x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n),
                         gold if m.get('shiny') else curses.A_BOLD)
-                put(scr, y, x, L(f'  (No.{n:04d}, {gen(n)}세대 · {depth(n) + 1}단계)',
-                                 f'  (No.{n:04d}, Gen {gen(n)} · stage {depth(n) + 1})'), curses.A_BOLD)
+                put(scr, y, x, L(f'  (No.{sp(n):04d}, {gen(n)}세대 · {depth(n) + 1}단계)',
+                                 f'  (No.{sp(n):04d}, Gen {gen(n)} · stage {depth(n) + 1})'), curses.A_BOLD)
                 ev = evo_status(st, t)
                 if ev[0] == 'final':
                     put(scr, y + 1, 1, L('더 진화하지 않는 포켓몬입니다.', 'This Pokémon does not evolve any further.'), curses.A_DIM)
@@ -1525,12 +1561,12 @@ def main(scr):
                 rows_ = 2 if (below is None or below >= 6) and h >= 16 else 0
                 if rows_:
                     cw_, ch_ = _gfx.cell_px()
-                    ids = [now['me'][0], now['foe'][0]]
+                    ids = [art_of(now['me'][0]), art_of(now['foe'][0])]  # 리전폼은 'form:번호' 그림
                     img = _pokedata.strip_image(ids, int(rows_ * ch_), 'six' if SIXEL else 'png')
                     if img:
                         cols = math.ceil(img[1] / cw_)
                         art = ('six', y + 1, 2, ('fight', tuple(ids), rows_), img[0], cols, rows_) if SIXEL else \
-                            ('kitty', y + 1, 2, 200000 + ids[0] * 2000 + ids[1], img[0], cols, rows_)
+                            ('kitty', y + 1, 2, 200000 + zlib.crc32(repr(ids).encode()) % 100000, img[0], cols, rows_)
                     y += rows_ * 2 + 1
             lines = [(part, j == k - 1) for j, e in enumerate(ev[:k]) for part in fold(fight_line(e), max(10, w - 2))][-(h - y - 3):]
             for j, (line, last) in enumerate(lines):  # 긴 줄은 접는다 — 마지막 기록(접힌 줄 모두)은 굵게
@@ -1597,7 +1633,7 @@ def main(scr):
                     if dg <= open_gen else []) \
                 if view == 'dex' else \
                 [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '')
-                  + (f'{name(m["id"])}  (No.{m["id"]:03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}' if w >= 62 else
+                  + (f'{name(m["id"])}  (No.{sp(m["id"]):03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}' if w >= 62 else
                      f'{name(m["id"])} Lv{box_level(m)} · {iv_text(m)}'))  # 좁으면 번호·경험치는 빼고 개체값까지 보이게
                  for i, m in ((i, st['box'][i]) for i in order)]
             if view == 'dex':
@@ -2082,23 +2118,23 @@ def selftest():
         with open(f'{sd}/{j}/timeline.jsonl', 'w') as f:
             f.write(''.join(json.dumps({'at': iso(sec), 'state': stt, 'detail': d, 'text': '…'}) + '\n' for sec, stt, d in rows))
         feed._cache.clear()
-    sp = new_state()
-    sp['box'], sp['partner'], sp['base'] = [{'id': 25, 'xp': 0}], 0, 0
+    spk = new_state()
+    spk['box'], spk['partner'], spk['base'] = [{'id': 25, 'xp': 0}], 0, 0
     sjob('A', [(300, 'blocked', '물어봄')], 'blocked')
-    said = speech(sp, 0, now, sd)
+    said = speech(spk, 0, now, sd)
     assert said[1] is False and 'A' in said[0], said
     sjob('A', [(700, 'blocked', '물어봄')], 'blocked')
-    assert speech(sp, 0, now, sd)[1] is True  # 10분 넘게 방치 → 경고
-    assert speech(sp, 0, now, sd, awake=set()) is None  # 잠든 세션의 needs 는 무시
+    assert speech(spk, 0, now, sd)[1] is True  # 10분 넘게 방치 → 경고
+    assert speech(spk, 0, now, sd, awake=set()) is None  # 잠든 세션의 needs 는 무시
     sjob('A', [(30, 'done', 'PR #9 병합')])
-    assert 'A' in speech(sp, 0, now, sd)[0] and speech(sp, 0, now, sd)[0] == L('피카츄(이)가 박수를 친다! (A 내보냄)', 'Pikachu claps! (A shipped)')
-    tell(sp, 'super', now=now - 10)
-    assert L('슈퍼볼', 'Great Ball') in speech(sp, 0, now, sd)[0]  # 보상 소식이 완료 반응보다 먼저
-    sp['box'][0]['xp'] = 10**9
-    assert L('빛나', 'glow') in speech(sp, 0, now, sd)[0]  # 진화 가능이 그보다 먼저
-    sp['box'][0]['xp'], sp['news'] = 0, []
+    assert 'A' in speech(spk, 0, now, sd)[0] and speech(spk, 0, now, sd)[0] == L('피카츄(이)가 박수를 친다! (A 내보냄)', 'Pikachu claps! (A shipped)')
+    tell(spk, 'super', now=now - 10)
+    assert L('슈퍼볼', 'Great Ball') in speech(spk, 0, now, sd)[0]  # 보상 소식이 완료 반응보다 먼저
+    spk['box'][0]['xp'] = 10**9
+    assert L('빛나', 'glow') in speech(spk, 0, now, sd)[0]  # 진화 가능이 그보다 먼저
+    spk['box'][0]['xp'], spk['news'] = 0, []
     sjob('A', [(500, 'done', '끝')])
-    assert speech(sp, 0, now, sd) is None and speech(sp, ENCOUNTER_EVERY, now, sd)[0] == L('풀숲이 흔들린다…', 'The tall grass rustles…')
+    assert speech(spk, 0, now, sd) is None and speech(spk, ENCOUNTER_EVERY, now, sd)[0] == L('풀숲이 흔들린다…', 'The tall grass rustles…')
     # 배지: 이룬 것을 날짜와 함께, 두 번 주지 않는다 · 세대를 완성하면 그 세대 부적 → 그 세대만 이로치 2배
     bd = new_state()
     bd['caught'], bd['shiny'] = [n for n in DEX if gen(n) == 1], [1]
@@ -2267,13 +2303,13 @@ def selftest():
     # 이전 세대 섞기: 1세대만 열렸으면 없음, 2세대가 열리면 탐색의 약 20%가 1세대(잡은 종·전설 포함)
     real_forms = dict(FORMS)  # 리전폼은 받아 둔 파일과 상관없이 정해 둔 셋으로 시험
     FORMS.clear()
-    FORMS.update({10091: (19, 'alola'), 10169: (144, 'galar'), 10252: (128, 'paldea-aqua-breed'), 10233: (157, 'hisui')})
+    FORMS.update({10091: (19, 'alola'), 10092: (20, 'alola'), 10107: (52, 'alola'), 10108: (53, 'alola'), 10161: (52, 'galar'),
+                  10169: (144, 'galar'), 10252: (128, 'paldea-aqua-breed'), 10233: (157, 'hisui')})
     try:
         assert old_pool(new_state()) == []
         o2 = new_state(); o2['league'] = {'1': True}
         op = old_pool(o2)
-        sp = lambda n: FORMS[n][0] if n in FORMS else n  # noqa: E731
-        assert op and all(gen(sp(n)) == 1 for n in op) and 1 in op and 150 in op
+        assert op and all(gen(n) == 1 for n in op) and 1 in op and 150 in op
         assert {10091, 10169, 10252} <= set(op) and 10233 not in op  # 2세대 종(블레이범)의 폼은 2세대가 지나야
         r, hits = random.Random(3), 0
         for _ in range(2000):
@@ -2291,20 +2327,44 @@ def selftest():
         assert _pokedata.build_forms(rows, mons) == [[10091, 19, 'alola'], [10177, 555, 'galar-standard'],
                                                      [10252, 128, 'paldea-aqua-breed']]
         assert _pokedata._src('form:10091') == '10091' and _pokedata._url('form:10091').endswith('/pokemon/10091.png')
-        # 만나기 → 잡기(가방·도감은 그대로) → 다시 나오면 볼로
-        class Pick:  # 이전 세대 쪽을 고르고, 그 안에서 정한 폼을
+        # 만나기 → 잡기(폼 번호로 가방에, 도감 숫자는 그대로) → 다시 나와도 만나서 잡는다
+        class Pick:  # 이전 세대 쪽을 고르고, 그 안에서 정한 폼을 · 잡기·진화 갈래는 첫 번째
             def __init__(self, n): self.n = n
             def random(self): return 0.0
-            def choice(self, seq): return self.n
+            def choice(self, seq): return self.n if self.n in seq else seq[0]
         fm = new_state(); fm['league'] = {'1': True}; fm['balls'] = 0
         assert explore(fm, ENCOUNTER_EVERY, Pick(10091)) == (10091, 0)
         assert fm['wild'] == {'id': 19, 'form': 10091, 'balls': BALLS} and fm['forms_seen'] == [10091]
         assert throw(fm, ENCOUNTER_EVERY, Pick(10091)) == 'caught'
-        assert fm['forms'] == [10091] and fm['box'] == [] and fm['caught'] == [] and fm['partner'] is None and fm['balls'] == 1
+        assert [m['id'] for m in fm['box']] == [10091] and fm['forms'] == [10091] and fm['caught'] == [] and fm['partner'] == 0
         assert 'form1' in check_badges(fm) and 'form_all' not in fm['badges']
-        assert explore(fm, 2 * ENCOUNTER_EVERY, Pick(10091)) == (10091, dupe_balls(19)) and fm['wild'] is None
+        assert explore(fm, 2 * ENCOUNTER_EVERY, Pick(10091)) == (10091, 0) and fm['wild']['form'] == 10091
+        fm['wild'] = None
         assert explore(fm, 3 * ENCOUNTER_EVERY, Pick(10169)) == (10169, 0)  # 가라르 프리져 — 전설이라 하이퍼볼부터
         assert throw(fm, 3 * ENCOUNTER_EVERY, Pick(10169)) == 'needhyper'
+        # 종이 정하는 값은 원래 종으로 · 진화는 같은 지방 모습으로(보통 모습과 섞이지 않게) · 지방 전용 진화형
+        assert gen(10091) == 1 and depth(10091) == 0 and depth(10092) == 1 and dupe_balls(10091) == dupe_balls(19)
+        assert evo_next(10091) == [10092] and evo_next(10092) == [] and 10092 not in evo_next(19)
+        assert evo_next(10107) == [10108] and 863 in evo_next(10161) and not {53, 10108} & set(evo_next(10161))
+        assert need_xp(10091) == STAGE_XP[0] and need_xp(10092) is None
+        fm['wild'] = None
+        assert evolve(fm, 10**9) == 10092 and fm['box'][0]['id'] == 10092 and 10092 in fm['forms'] and fm['caught'] == []
+        assert evo_status(fm, 10**9) == ('final',) and box_level(fm['box'][0]) == _battle.level(1, 0)
+        fm['team'] = [0]
+        assert team_of(fm, 1) == [(0, 10092, box_level(fm['box'][0]))]  # 배틀엔 폼 번호 — 종족값·타입은 그 모습 것
+        # 그림 번호: 리전폼은 'form:번호', Kitty 이미지 번호는 정수
+        assert art_of(fm['box'][0]) == 'form:10092' and art_of({'id': 25, 'shiny': True}) == 25 + _pokedata.SHINY
+        assert partner_id_of(fm) == 'form:10092' and _pokedata.img_id('form:10092') >= 300000 and _pokedata.img_id(25) == 25
+        # 가방에 들어가기 전에 잡은 폼은 한 번만 가방으로(박사에게 보낸 뒤 되살아나지 않게)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            old = new_state(); old['forms'] = [10091]
+            save(old, tmp)
+            mig = load(tmp)
+            assert [m['id'] for m in mig['box']] == [10091] and 'iv' in mig['box'][0] and mig['forms_boxed']
+            mig['box'] = []
+            save(mig, tmp)
+            assert load(tmp)['box'] == []
     finally:
         FORMS.clear()
         FORMS.update(real_forms)

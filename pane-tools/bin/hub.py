@@ -230,7 +230,7 @@ def main(scr):
                 top = y
                 if png:
                     cols, used = kitty_cols(png[1], png[2], 3), 3
-                    art = (y, 1, n * 2 + gray, png[0], cols, used)
+                    art = (y, 1, _pokedata.img_id(n) * 2 + gray, png[0], cols, used)  # 리전폼은 'form:번호' 라 정수로
                 elif six:
                     cols, used = math.ceil(six[1] / cw_), 2
                     art_six = (y, 1, (n, gray, six[2], y), six[0], cols, used)
