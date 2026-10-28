@@ -45,7 +45,7 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
 Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
-A species already in your bag shows up rarely (1/10 of a new one) but can be caught again.
+A species already in your bag shows up rarely (1/10 of a new one) but can be caught again. A species that evolves from an earlier generation's Pokémon (Espeon and Umbreon from Eevee, Crobat from Golbat …) is mainly reached by evolution and shows up in the grass at 1/10 too — at full odds only once nothing else is left in its generation, so it never blocks the Pokédex.
 
 **Bag and IVs** — every Pokémon rolls its own **IVs**: Attack, Defense and HP, 0–15 each, shown as `A13 D15 H14 (93%)` (★ at 15/15/15). Eggs, legendaries and mythicals roll at least 10. IVs add to battle stats, so two of the same species are worth comparing. The bag pages through all / each generation and sorts by Pokédex number, level, IVs or name.
 
@@ -63,7 +63,9 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Regional forms** — a side collection of 57 Alolan, Galarian, Hisuian and Paldean forms. Once a species' generation is behind you (Elite Four beaten or Pokédex complete), its regional forms join the earlier-generation explores (one in five) — evolved forms too, caught directly. A caught form goes into the bag like any other Pokémon — partner, evolution, levels, IVs, the Professor and battles all work, with the form's own types and base stats (generation and evolution stage come from the species). A form evolves into the same region's form (Alolan Rattata → Alolan Raticate, Galarian Slowpoke → Galarian Slowbro or Slowking) or into its region-only evolution (Galarian Meowth → Perrserker, Galarian Linoone → Obstagoon, Hisuian Sneasel → Sneasler, Paldean Wooper → Clodsire …); those evolutions follow the opened generations like any other. Forms stay out of the Pokédex count; the last page of the Pokédex (→ past the newest generation) lists them by species number like the other pages, and Enter opens a detail screen with the form's own types, height, weight, base stats, weaknesses and sprite (←→ steps through the forms you have seen; PokeAPI has no per-form category or entry, so those stay blank). No shiny forms; Galarian Articuno, Zapdos and Moltres need an Ultra or Master Ball.
 
-**Medals** — 43 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
+**Fusion** — pick Kyurem, Necrozma or Calyrex in the bag and press **F** (the **fuse** button): it takes Zekrom or Reshiram (Black/White Kyurem), Solgaleo or Lunala (Dusk Mane/Dawn Wings Necrozma), Glastrier or Spectrier (Ice/Shadow Rider Calyrex) from the bag — the one with the best IVs, never your partner, a fusion you don't have yet first. The fused Pokémon battles with that form's own types and base stats and keeps the level, XP and IVs of Kyurem/Necrozma/Calyrex; **F** again splits it and the other one comes back to the bag. A fused Pokémon can't be sent to the Professor.
+
+**Medals** — 44 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
 ![Medals](docs/images/medals.png)
 
@@ -85,13 +87,13 @@ A challenge costs two explores and plays a fully automatic battle line by line: 
 
 Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation.
 
-**Controls** — arrow keys, Enter and `q`, plus Space and Tab in the bag. The mouse works too.
+**Controls** — arrow keys, Enter and `q`, plus Space, Tab and F in the bag. The mouse works too.
 
 | Screen | Keys |
 |---|---|
 | Most screens | arrows move between buttons, Enter presses one, `q` goes back or closes |
 | Lists (medals, gyms, trade) | ↑↓ picks the row, ←→ the button below it, which acts on that row |
-| Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it |
+| Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it · F fuses / splits Kyurem, Necrozma, Calyrex |
 | Pokédex | ←→ generation (the last page is regional forms) · Enter details, where ←→ steps through species |
 
 Every screen fits the pane: long lines wrap at spaces, buttons lose their padding below 80 columns, and below 50 the ` q` hints go and bag rows shorten.
