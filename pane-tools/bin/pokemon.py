@@ -60,6 +60,7 @@ STAGE_XP = [150_000, 400_000]  # 1→2단계, 2→3단계
 BALLS = 3
 WINDOW = 4  # 순서상 앞쪽 몇 마리 중에서 나오나
 BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다(wild_odds)
+EVO_WILD_WEIGHT = 0.1  # 이전 세대 종에서 진화하는 종(에브이·블래키 등)도 1/10 — 주로 진화로 얻게(evo_wild)
 SHINY_RATE = 1 / 256
 # [교환] → [몬스터볼]: (낼 볼, 받을 볼, 개수) — 마스터볼까지 몬스터볼 500개(5×20×5). 전설은 하이퍼볼부터라 슈퍼볼→하이퍼볼이 비싸다(2026-10-28)
 TRADES = [('balls', 'super', 5), ('super', 'hyper', 20), ('hyper', 'master', 5)]
@@ -301,11 +302,18 @@ def wild_odds(st):
     BOXED_WEIGHT. 가방 속 종은 진화형을 동료 진화로만 얻으니 나와 봐야 볼로 바뀔 뿐인데, 그대로 두면 맨 앞 칸을
     막아 같은 포켓몬만 나왔다(진화 전 스타팅 3종이 4칸 중 3칸). 아예 빼지는 않고 드물게만 나오게 한다."""
     pool, inbag = wild_pool(st), boxed(st)
-    fresh = [n for n in pool if n not in inbag][:WINDOW]
-    if not fresh:  # 남은 게 전부 가방 속 종이면 그것들끼리
+    fresh = [n for n in pool if n not in inbag and not evo_wild(n)][:WINDOW]
+    if not fresh:  # 남은 게 전부 가방 속 종·이전 세대 진화형이면 그것들끼리 — 진화로만 묶여 막히지 않게
         return [(n, 1) for n in pool[:WINDOW]]
     front = pool[:pool.index(fresh[-1]) + 1]
-    return [(n, BOXED_WEIGHT if n in inbag else 1) for n in front]
+    return [(n, BOXED_WEIGHT if n in inbag else EVO_WILD_WEIGHT if evo_wild(n) else 1) for n in front]
+
+
+def evo_wild(n):
+    """이전 세대 종에서 진화하는 종(이브이 → 에브이·블래키, 골뱃 → 크로뱃) — 원작은 진화로만 얻지만, 진화로만 묶으면
+    세대마다 십수 마리를 동료로 하나씩 키워야 해서 풀숲에도 EVO_WILD_WEIGHT 로 드물게 나온다(2026-10-28 정함)."""
+    pre = DEX[n][3]
+    return bool(pre) and gen(pre) < gen(n)
 
 
 def roll_iv(rng=random, floor=0):
@@ -748,6 +756,10 @@ def dex_hint(st, n):
         pre = DEX[n][3]
         pn = name(pre) if pre in st['seen'] else '???'
         return L(f'진화 — {pn}에서', f'evolve from {pn}')
+    if evo_wild(n):
+        pre = DEX[n][3]
+        pn = name(pre) if pre in st['seen'] else '???'
+        return L(f'진화 — {pn}에서 · 야생은 드묾', f'evolve from {pn} · rare in the wild')
     return L('야생', 'wild')
 
 
@@ -2016,6 +2028,19 @@ def selftest():
     dup = new_state()
     dup['box'], dup['caught'] = [{'id': 25, 'xp': 0}], [25]
     # 가방 속 피카츄는 앞쪽에 남되 1/10 — 새 종 WINDOW 마리는 그대로 1
+    # 이전 세대 진화형(에브이 196 · 블래키 197)은 1/10 — 다른 것이 다 잡히고 그것만 남으면 보통 확률로(막히지 않게)
+    ev = new_state(); ev['league'] = {'1': True}
+    g2 = [n for n in DEX if gen(n) == 2]
+    ev['caught'] = [n for n in DEX if gen(n) == 1]
+    order = [n for n in sorted((n for n in g2 if wild_ok(n)), key=order_key)]
+    later = [n for n in order[order.index(197) + 1:] if not evo_wild(n) and not DEX[n][5]][:2]  # 순서상 둘 뒤에 오는 일반 종
+    ev['caught'] += [n for n in g2 if n not in (196, 197, *later)]
+    o = dict(wild_odds(ev))
+    assert evo_wild(196) and evo_wild(169) and not evo_wild(152) and not evo_wild(153), o
+    assert later and o.get(196) == EVO_WILD_WEIGHT and o.get(197) == EVO_WILD_WEIGHT and all(o.get(n) == 1 for n in later), o
+    ev['caught'] += later
+    assert dict(wild_odds(ev)) == {196: 1, 197: 1}
+    assert dex_hint(ev, 196) == L('진화 — ???에서 · 야생은 드묾', 'evolve from ??? · rare in the wild')
     odds = dict(wild_odds(dup))
     assert odds[25] == BOXED_WEIGHT and sorted(odds.values()).count(1) == WINDOW, odds
     dup['box'] = []
