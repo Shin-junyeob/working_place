@@ -110,8 +110,9 @@ def load_dex():
     GENS = max(r[2] for r in DEX.values())
     GEN_SIZE = {g: sum(1 for r in DEX.values() if r[2] == g) for g in range(1, GENS + 1)}
     CHILDREN = {}
+    regional_only = {c for cs in REGIONAL_EVO.values() for c in cs}  # 나이킹 등 — PokeAPI 는 보통 나옹에서 나온다고 적지만 지방 모습에서만(evo_next)
     for r in DEX.values():
-        if r[3]:
+        if r[3] and r[0] not in regional_only:
             CHILDREN.setdefault(r[3], []).append(r[0])
     return True
 
@@ -2433,7 +2434,7 @@ def selftest():
     assert sorted(evolutions(bar_st, 133)) == [135, 136]
     bar_st['box'] += [{'id': 135, 'xp': 0}, {'id': 136, 'xp': 0}]
     assert sorted(evolutions(bar_st, 133)) == [134, 135, 136]  # 다 있으면 아무 모습으로나
-    assert need_xp(2) == 400_000 and need_xp(3) is None and need_xp(83) is not None  # 파오리 → 대파무사(8세대)
+    assert need_xp(2) == 400_000 and need_xp(3) is None and need_xp(108) is not None and need_xp(83) is None  # 내루미 → 내룸벨트(4세대) · 파오리는 가라르 모습만 대파무사로
     # 나중 세대 베이비는 단계에 안 친다: 피카츄 1단계(15만), 라이츄 2단계, 에레키블(4세대)은 에레키드부터 3단계
     assert (depth(25), depth(26), depth(172), depth(466)) == (0, 1, 0, 2) and need_xp(25) == 150_000
     # 동료를 바꿔도 쌓인 경험치는 그 포켓몬에게 남고, 이브이는 1세대에선 1세대 진화형만
@@ -2811,6 +2812,7 @@ def selftest():
         assert gen(10091) == 1 and depth(10091) == 0 and depth(10092) == 1 and dupe_balls(10091) == dupe_balls(19)
         assert evo_next(10091) == [10092] and evo_next(10092) == [] and 10092 not in evo_next(19)
         assert evo_next(10107) == [10108] and 863 in evo_next(10161) and not {53, 10108} & set(evo_next(10161))
+        assert evo_next(83) == [] and evo_next(52) == [53] and evo_next(194) == [195] and research_goals(83)['e'] == 0  # 보통 모습은 지방 전용 진화형으로 안 간다
         assert need_xp(10091) == STAGE_XP[0] and need_xp(10092) is None
         fm['wild'] = None
         assert evolve(fm, 10**9) == 10092 and fm['box'][0]['id'] == 10092 and 10092 in fm['forms'] and fm['caught'] == []
