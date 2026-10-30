@@ -55,7 +55,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Eggs** — each wild catch has a 10% chance to come with an **egg** (up to three; the region conquest gives one too): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
 
-**Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls, 3 Great Balls and a **Rare Candy**, which evolves your partner on the spot when it has a form to evolve into (one candy a week).
+**Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league/raid battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls, 3 Great Balls and a **Rare Candy**, which evolves your partner on the spot when it has a form to evolve into (one candy a week).
 
 **Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. With several possible forms it picks one you don't have yet.
 
@@ -69,7 +69,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Alphas** — about one explore in a hundred meets a red-eyed alpha (◆ in the bag): half the catch rate and only three throws before it flees, but its IVs start at 12.
 
-**Raids** — each week one legendary from an opened generation sits at the top of the gym list. Beat it (any generation may enter — the place for the teams you maxed out earlier; 48× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over.
+**Raids** — each week (from Monday) one legendary from an opened generation sits at the top of the gym list. Beat it (any generation may enter — the place for the teams you maxed out earlier; 48× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over. **pick** draws from the whole bag here, and a win gives the team battle XP and research credit like a gym win.
 
 **Medals** — 49 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
@@ -81,7 +81,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 ### Gyms, Elite Four and Champion
 
-Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six with Space in the bag or let the gym screen suggest one (**pick**, then **apply**) — it picks the combination from your Pokémon that raises the win rate most. **Only that generation's Pokémon can enter** a generation's gyms and Elite Four (others on the team sit out), so each region needs a team of its own.
+Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six with Space in the bag or let the gym screen suggest one (**pick**, then **apply**): it shortlists twelve by type matchup × actual stats (so level and IVs count), then adds one at a time whichever raises the simulated win rate most. That is near-best rather than every combination tried; when nothing wins at all, the shortlist order decides. **Only that generation's Pokémon can enter** a generation's gyms and Elite Four (others on the team sit out), so each region needs a team of its own.
 
 ![Gym list with real gym badges](docs/images/gyms.png)
 
