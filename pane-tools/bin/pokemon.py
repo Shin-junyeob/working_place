@@ -49,6 +49,7 @@ import math
 import os
 import random
 import re
+import shutil
 import sys
 import zlib
 from datetime import datetime, timedelta
@@ -422,8 +423,12 @@ def load(root=ROOT):
     try:
         with open(f'{root}/pokemon.json', encoding='utf-8') as f:
             st = {**new_state(), **json.load(f)}
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return new_state()
+    except (OSError, ValueError) as e:  # 깨졌거나 잠깐 못 읽음 — 빈 상태로 덮어쓰면 진행이 다 사라진다(2026-10-30)
+        if isinstance(e, ValueError) and not os.path.exists(f'{root}/pokemon.json.bad'):
+            shutil.copy(f'{root}/pokemon.json', f'{root}/pokemon.json.bad')
+        return {**new_state(), '_broken': True}  # save() 가 이 상태는 쓰지 않는다 — 파일이 다시 읽히면 그대로 이어진다
     if not st.get('forms_boxed'):  # 리전폼이 가방에 들어가기 전(2026-10-28)에 잡은 것 — 한 번만 가방에 넣는다(개체값은 아래에서)
         inbag = {m['id'] for m in st['box']}
         st['box'] += [{'id': p, 'xp': 0} for p in st.get('forms', []) if p in FORMS and p not in inbag]
@@ -440,6 +445,8 @@ def load(root=ROOT):
 
 
 def save(st, root=ROOT):
+    if st.get('_broken'):
+        return
     os.makedirs(root, exist_ok=True)
     p = f'{root}/pokemon.json'
     with open(p + '.tmp', 'w', encoding='utf-8') as f:
@@ -776,7 +783,7 @@ def reward(st, folder=feed.JOBS, today=None):
     got = 0
     for day, names in sorted(shipped(folder).items()):
         if day >= st['reward_since'] and day not in st['rewarded'] and len(names) >= SUPER_SESSIONS:
-            st['rewarded'] = (st['rewarded'] + [day])[-60:]
+            st['rewarded'].append(day)  # 자르지 않는다 — 잘린 날을 '안 받은 날'로 보고 다시 줬다(2026-10-30)
             st['super'] += 1
             st['super_earned'] = (st.get('super_earned') or 0) + 1
             got += 1
@@ -1068,6 +1075,9 @@ def summary(root=ROOT, awake=None):
         return [(L('포켓몬 데이터 없음 — [ pokemon ] 을 열면 받아 옵니다',
                    'No Pokédex yet — open [ pokemon ] to download it'), False, None)]
     st, t = load(root), total_tokens(root)
+    if st.get('_broken'):
+        return [(L('저장 파일을 읽지 못함 — pokemon.json 을 확인하세요(덮어쓰지 않음)',
+                   "Can't read pokemon.json — check it (not overwritten)"), 'warn', None)]
     fresh = not st.get('reward_since') or st.get('super_earned') is None
     if reward(st) + len(hatch(st, t)) + len(check_badges(st)) or fresh:  # 허브가 켜져 있으면 포켓몬 화면을 안 열어도 보상이 들어온다 · 켠 날은 처음에 적어 둔다
         save(st, root)
@@ -1655,6 +1665,15 @@ def main(scr):
             pass
     while True:
         st, t = load(), total_tokens()
+        if st.get('_broken'):  # 빈 게임처럼 보여 주지 않는다 — 파일이 다시 읽히면 2초 안에 이어진다
+            scr.erase()
+            put(scr, 0, 0, L('저장 파일을 읽지 못했습니다 — 덮어쓰지 않고 기다립니다', "Can't read the save — waiting, not overwriting"), curses.A_BOLD)
+            put(scr, 1, 0, f'{ROOT}/pokemon.json' + L(' (깨졌으면 사본: pokemon.json.bad)', ' (if corrupt, a copy: pokemon.json.bad)'))
+            put(scr, 3, 0, L('q 를 누르면 닫습니다', 'Press q to close'), curses.A_DIM)
+            scr.refresh()
+            if getkey(scr, 2000) in (ord('q'), 27):
+                return
+            continue
         fresh = not st.get('reward_since') or st.get('super_earned') is None
         got, born = reward(st), hatch(st, t)
         raid_release(st)
@@ -2247,7 +2266,7 @@ def main(scr):
             else:
                 save(st)
                 ups = [(n, lv, box_level(st['box'][k])) for k, n, lv in team if box_level(st['box'][k]) > lv]
-                gain = GYM_WIN_XP + 10 * (8 if gsel[1] == 'L' else gsel[1]) if won else GYM_LOSE_XP
+                gain = GYM_WIN_XP + 10 * (8 if gsel[1] in ('L', 'R') else gsel[1]) if won else GYM_LOSE_XP
                 battle_now = {'ev': ev, 'k': 0, 'won': won, 'first': first, 'xp': gain, 'ups': ups,
                               'key': f'champ{gsel[0]}' if gsel[1] == 'L' else f'gym:{gsel[0]}-{gsel[1]}'}
                 view, msg = 'fight', ''
@@ -2524,6 +2543,21 @@ def selftest():
     assert reward(rw, jd) == 1 and rw['super'] == 2 and not rw['eggs']  # 22일 — 연속 2일, 알은 아직
     rw2 = new_state()
     assert reward(rw2, jd, today='2026-10-22') == 1 and rw2['reward_since'] == '2026-10-22'  # 켠 날(22일) 전 보상은 없다
+    global shipped
+    real_ship, days70 = shipped, {f'2026-{m:02d}-{d:02d}': ['a'] for m in (7, 8, 9) for d in range(1, 29)}
+    shipped = lambda folder=None: days70  # 기록이 60일을 넘어도 한 번 준 날은 다시 주지 않는다
+    try:
+        rw3 = {**new_state(), 'reward_since': '2026-07-01'}
+        assert reward(rw3) == 84 and reward(rw3) == 0 and rw3['super'] == 84
+    finally:
+        shipped = real_ship
+    bad = tempfile.mkdtemp()  # 깨진 저장 파일은 덮어쓰지 않고 사본을 남긴다
+    open(f'{bad}/pokemon.json', 'w').write('{"box": [{"id": 25')
+    bs = load(bad)
+    save(bs, bad)
+    assert bs['_broken'] and open(f'{bad}/pokemon.json').read() == '{"box": [{"id": 25' and os.path.exists(f'{bad}/pokemon.json.bad')
+    assert summary(bad)[0][1] == 'warn' and open(f'{bad}/pokemon.json').read() == '{"box": [{"id": 25'
+    assert load(tempfile.mkdtemp()).get('_broken') is None  # 파일이 없으면 새 게임
     # 도감 상세: 한국어가 없으면 영어, 설명은 최근 판, 줄바꿈은 빈칸, 다른 모습은 그 번호로, 타입은 slot 순
     det = _pokedata.build_detail(
         [{'pokemon_species_id': '1', 'local_language_id': '3', 'name': '이상해씨', 'genus': '씨앗포켓몬'},
