@@ -1672,6 +1672,7 @@ def main(scr):
         art = None
         if view == 'fight' and battle_now['k'] < len(battle_now['ev']):
             battle_now['k'] += 1
+            _gfx.sixel_touch()  # 기록이 한 줄 늘 때마다 tmux 가 패널을 다시 그려 Sixel 그림을 지운다 — 30초 아끼지 말고 다시 놓는다
         scr.erase()
         title = L(f' 포켓몬 · 누적 {fmt_tok(t)} 토큰 · ', f' Pokémon · {fmt_tok(t)} tokens total · ') + dex_text(st)
         if sum(map(memo.cw, title)) > w:  # 좁으면 앞의 이름·낱말을 떼고 숫자만
