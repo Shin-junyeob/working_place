@@ -75,7 +75,8 @@ SHINY_RATE = 1 / 256
 TRADES = [('balls', 'super', 5), ('super', 'hyper', 20), ('hyper', 'master', 5)]
 BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}  # 마스터볼은 배율 없이 반드시 잡힌다(throw)
 SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이면 슈퍼볼 1개 — 세션 하나만 쓰는 PC도 받게(2026-10-21 3→1)
-SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
+SHIP = re.compile(r'(?<![a-z])PRs?(?![a-z])|병합|배포|(?<![a-z])(merge|deploy|push)|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
+# 영문자만 경계로 — prefix·approval 의 pr 은 빼고(2026-10-30, 실제 기록 37건), 'PR을' 처럼 한글이 붙은 건 잡는다
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
 STREAK_DAYS = 3  # 보상받은 날이 며칠 연속이면 하이퍼볼(3·6·9일째) — 2026-10-23 알에서 바꿈(알은 포획 때 EGG_CATCH)
 ALPHA_RATE, ALPHA_IV, ALPHA_TRIES = 0.01, 12, 3  # 우두머리: 탐색 100번에 1번 · 개체값 최소 12 · 볼 3번 안에 못 잡으면 도망
@@ -2558,6 +2559,8 @@ def selftest():
     day1, day2 = '2026-10-21T03:00:00Z', '2026-10-22T03:00:00Z'
     job('a', [(day1, 'main 에 push 완료'), ('2026-10-21T05:00:00Z', 'PR #2 merged')])  # 같은 날 두 번이어도 하나
     job('c', [(day2, '문서 정리')])  # 내보낸 일이 아니다
+    assert all(SHIP.search(x) for x in ('PR을 올렸다', 'PR #3 merged', 'pushed to main', 'git push 완료', '배포함'))
+    assert not any(SHIP.search(x) for x in ('[Test] prefix', 'e-approval todo', 'keep it private', 'improvement_roadmap'))
     rw = new_state()
     rw['reward_since'] = '2026-10-01'
     assert reward(rw, jd) == 1 and rw['super'] == 1 and reward(rw, jd) == 0  # 21일만, 하루 1개
