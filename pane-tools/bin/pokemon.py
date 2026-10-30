@@ -85,6 +85,7 @@ ALPHA_RATE, ALPHA_IV, ALPHA_TRIES = 0.01, 12, 3  # 우두머리: 탐색 100번�
 RAID_HP, RAID_BALLS, RAID_COST = 48, 3, 2
 RESEARCH_CATCH, RESEARCH_WIN, RESEARCH_PRIZE = 5, 3, ('super', 2)  # 연구: 잡기 5(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 3
 IV_FLOOR = 10  # 알·전설·환상은 개체값이 최소 이만큼(포켓몬고처럼)
+OLD_LEGEND_WEIGHT = 0.1  # 이전 세대 탐색에서 전설·환상은 다른 종의 1/10 — 빼지는 않되 꼬렛만큼 흔하지 않게(2026-10-30)
 OLD_GEN_RATE = 0.2  # 탐색 5번 중 1번은 이전 세대 전체에서 — 다 채운 세대도 이로치를 노릴 수 있게(현재 8 : 이전 2)
 EGG_CATCH, EGG_MAX, EGG_STEP = 0.1, 3, 5000  # 잡을 때 알을 함께 얻을 확률 · 가질 수 있는 알 · 부화 걸음 하나당 토큰
 # 주간 과제 (종류, 목표, 한국어, 영어) — 주 번호로 하나를 고른다. 이번 주에 쌓인 횟수로 센다
@@ -514,7 +515,7 @@ def explore(st, t, rng=random):
     st['used'] += 1
     bump(st, 'explore')
     if old and (not odds or rng.random() < OLD_GEN_RATE):
-        n = rng.choice(old)
+        n = rng.choices(old, weights=[OLD_LEGEND_WEIGHT if n in DEX and DEX[n][5] else 1 for n in old])[0]
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     if n in FORMS:  # 리전폼 — 이로치 없음, 다른 종처럼 이미 있어도 만나서 잡는다(개체값·박사)
@@ -873,8 +874,8 @@ def research_bump(st, n, key):
         st[RESEARCH_PRIZE[0]] += RESEARCH_PRIZE[1]
         tell(st, 'research', str(n))
         give_stones(st, n)  # 첫 메가스톤
-    elif key == 'c' and n in DEX and n in st['researched'] and (r['c'] - research_goals(n)['c']) % research_goals(n)['c'] == 0:
-        give_stones(st, n)  # 연구를 끝낸 뒤엔 잡기 목표만큼 더 잡을 때마다 하나 더 — 같은 메가진화를 또 만들 수 있게
+    elif key == 'c' and n in DEX and n in st['researched'] and (r['c'] - research_goals(n)['c']) % RESEARCH_CATCH == 0:
+        give_stones(st, n)  # 연구를 끝낸 뒤엔 RESEARCH_CATCH 마리 더 잡을 때마다 하나 더 — 전설(목표 1)도 매번이 아니라 5마리마다
 
 
 def research_text(st, n):
@@ -2823,6 +2824,7 @@ def selftest():
             def __init__(self, n): self.n = n
             def random(self): return 0.0
             def choice(self, seq): return self.n if self.n in seq else seq[0]
+            def choices(self, seq, weights=None): return [self.choice(seq)]
         fm = new_state(); fm['league'] = {'1': True}; fm['balls'] = 0
         assert explore(fm, ENCOUNTER_EVERY, Pick(10091)) == (10091, 0)
         assert fm['wild'] == {'id': 19, 'form': 10091, 'balls': BALLS} and fm['forms_seen'] == [10091]
@@ -2891,6 +2893,12 @@ def selftest():
         for _ in range(RESEARCH_CATCH):
             research_bump(mg, 6, 'c')
         assert mg['items'] == {'stone:10034': 2, 'stone:10035': 2}  # 다시 모은다
+        mw = new_state()  # 전설(잡기 목표 1)도 연구 뒤엔 5마리마다 — 매번이 아니라
+        for key in 'c' + 'www' + 'c' * (RESEARCH_CATCH - 1):
+            research_bump(mw, 800, key)
+        assert mw['items'] == {'stone:10157': 1}
+        research_bump(mw, 800, 'c')
+        assert mw['items'] == {'stone:10157': 2}
         assert change(mg, 0, 0) is None  # 6세대가 아직 안 열렸다
         mg['league'] = {str(g): '2026-10-30' for g in range(1, 6)}  # 5세대까지 사천왕 → 6세대 열림
         assert change(mg, 0, 0) == 10034 and mg['box'][0]['id'] == 10034 and mg['items']['stone:10034'] == 1
