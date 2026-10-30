@@ -25,7 +25,9 @@
   세대·진화 단계는 원래 종으로(sp). 같은 지방 모습으로 진화하고(evo_next), 지방 전용 진화형(REGIONAL_EVO)도 있다.
   도감 숫자에는 안 들어가고 st['forms'] 에 따로 모인다(도감 마지막 쪽에 목록).
 - 합체(FUSIONS): 가방에서 큐레무·네크로즈마·버드렉스를 골라 [합체] — 가방의 레시라무·제크로무 / 솔가레오·루나아라 /
-  블리자포스·레이스포스 하나가 그 안('fused')에 들어가고, 합체 모습의 타입·종족값으로 싸운다. [분리]로 되돌린다.
+  블리자포스·레이스포스 하나를 재료로 써서(사라진다) 합체 모습이 되고, 그 모습의 타입·종족값으로 싸운다. 분리는 없다(2026-10-30).
+- 특수 모습(SPECIALS — 메가진화·원시회귀·울트라버스트·거다이맥스): 세대가 열리면(6·7·8·9) 그 포켓몬 + 아이템(메가스톤은 연구 완료,
+  구슬은 레이드 포획, 다이수프는 레이드 승리)으로 영구히 바뀐다(change_options · change). 가방 F → 변신 화면.
 - 연구 레벨: 종마다 잡기 RESEARCH_CATCH(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 RESEARCH_WIN 을 채우면 도감 ★ 와
   RESEARCH_PRIZE(research_bump). 우두머리: 탐색의 ALPHA_RATE 로 붉은 눈의 큰 개체 — 포획률 절반, 볼 ALPHA_TRIES 번 안에 못 잡으면
   도망, 잡으면 개체값 최소 ALPHA_IV. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 모든 세대 팀으로 HP
@@ -128,9 +130,29 @@ FUSIONS = {10022: (646, 644, '블랙큐레무', 'Black Kyurem'), 10023: (646, 64
            10193: (898, 896, '버드렉스(백마 탄 모습)', 'Ice Rider Calyrex'), 10194: (898, 897, '버드렉스(흑마 탄 모습)', 'Shadow Rider Calyrex')}
 
 
+SPECIALS = {}  # 특수 모습 번호 → (종, 'mega'|'gmax'|'primal'|'ultra', 열리는 세대, 'x'|'y'|'z'|'', 덧붙일 말) — load_specials()
+SPECIAL_KIND = {'mega': ('메가', 'Mega'), 'gmax': ('거다이맥스', 'Gigantamax'), 'primal': ('원시', 'Primal'), 'ultra': ('울트라', 'Ultra')}
+SPECIAL_EXTRA = {'male': ('수컷', 'Male'), 'female': ('암컷', 'Female'), 'original': ('500년 전 색', 'Original Color'),
+                 'curly': ('젖힌 모습', 'Curly'), 'droopy': ('늘어진 모습', 'Droopy'), 'stretchy': ('뻗은 모습', 'Stretchy'),
+                 'single-strike': ('일격의 태세', 'Single Strike'), 'rapid-strike': ('연격의 태세', 'Rapid Strike'),
+                 'amped': ('하이한 모습', 'Amped'), 'low-key': ('로우한 모습', 'Low Key')}
+ULTRA_BASE = (10155, 10156)  # 울트라네크로즈마는 합체한 네크로즈마(황혼의 갈기·새벽의 날개)에서
+PRIMAL_ORB = {382: ('쪽빛구슬', 'Blue Orb'), 383: ('주홍구슬', 'Red Orb')}
+
+
+def load_specials():
+    """받아 둔 특수 모습(specials.json)을 읽는다. 없으면 False — 특수 모습 없이 그대로 돈다."""
+    try:
+        with open(_pokedata.SPECIALS, encoding='utf-8') as f:
+            SPECIALS.update({p: (n, kind, g, letter, extra) for p, n, kind, g, letter, extra in json.load(f) if n in DEX})
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def sp(n):
     """리전폼·합체 모습 번호면 원래(본체) 종 번호, 아니면 그대로 — 세대·진화 단계·포획률처럼 종이 정하는 것을 읽을 때."""
-    return FORMS[n][0] if n in FORMS else FUSIONS[n][0] if n in FUSIONS else n
+    return FORMS[n][0] if n in FORMS else FUSIONS[n][0] if n in FUSIONS else SPECIALS[n][0] if n in SPECIALS else n
 
 
 def evo_next(n):
@@ -156,6 +178,7 @@ def load_forms():
 
 load_dex()
 load_forms()
+load_specials()
 STARTERS = {1, 4, 7, 152, 155, 158, 252, 255, 258, 387, 390, 393, 495, 498, 501, 650, 653, 656,
             722, 725, 728, 810, 813, 816, 906, 909, 912, 25, 133, 172}
 
@@ -274,7 +297,9 @@ BADGES = [('catch1', '첫 포획', 'First catch', lambda st: len(st['caught']) >
     ('research10', '연구 10', '10 researched', lambda st: len(st.get('researched', [])) >= 10),
     ('research50', '연구 50', '50 researched', lambda st: len(st.get('researched', [])) >= 50),
     ('alpha1', '첫 우두머리', 'First alpha', lambda st: any(m.get('alpha') for m in st['box'])),
-    ('raid1', '첫 레이드 포획', 'First raid catch', lambda st: st.get('raids', 0) >= 1)]
+    ('raid1', '첫 레이드 포획', 'First raid catch', lambda st: st.get('raids', 0) >= 1),
+    ('mega1', '첫 메가진화', 'First Mega Evolution', lambda st: any(SPECIALS.get(p, (0, ''))[1] == 'mega' for p in st.get('specials', []))),
+    ('gmax1', '첫 거다이맥스', 'First Gigantamax', lambda st: any(SPECIALS.get(p, (0, ''))[1] == 'gmax' for p in st.get('specials', [])))]
 
 
 def badge_name(bid):
@@ -350,6 +375,14 @@ def name(n):
     """종 이름 — 리전폼 번호면 '알로라 라타타'처럼(한국어 폼 이름은 PokeAPI 에 일부만 있어 지방 이름을 붙여 만든다)."""
     if n in FUSIONS:
         return L(FUSIONS[n][2], FUSIONS[n][3])
+    if n in SPECIALS:  # '메가리자몽 X' · '거다이맥스 우라오스(연격의 태세)' · '원시 가이오가' · '울트라네크로즈마'
+        s, kind, _, letter, extra = SPECIALS[n]
+        ex = SPECIAL_EXTRA.get(extra, (extra, extra)) if extra else None
+        if kind == 'ultra':
+            return L('울트라네크로즈마', 'Ultra Necrozma')
+        ko = f'{SPECIAL_KIND[kind][0]}{DEX[s][1]}' if kind == 'mega' else f'{SPECIAL_KIND[kind][0]} {DEX[s][1]}'
+        return L(ko + (f' {letter.upper()}' if letter else '') + (f'({ex[0]})' if ex else ''),
+                 f'{SPECIAL_KIND[kind][1]} {DEX[s][6]}' + (f' {letter.upper()}' if letter else '') + (f' ({ex[1]})' if ex else ''))
     if n in FORMS:
         sp, ident = FORMS[n]
         part = ident.split('-')
@@ -380,7 +413,7 @@ def new_state():
             'super': 0, 'hyper': 0, 'master': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
             'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': [], 'showcase': [],
             'gym': {}, 'team': [], 'league': {}, 'weekly': None, 'candy': 0, 'forms': [], 'forms_seen': [],
-            'research': {}, 'researched': [], 'raid': None}  # forms_boxed 는 load 가 처음 옮길 때 적는다
+            'research': {}, 'researched': [], 'raid': None, 'items': {}, 'specials': []}  # forms_boxed 는 load 가 처음 옮길 때 적는다
 
 
 def load(root=ROOT):
@@ -502,6 +535,10 @@ def throw(st, t, rng=random, kind='ball'):
         w['balls'] -= 1
         if rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS['hyper']):
             st['raid']['done'], st['raids'] = True, st.get('raids', 0) + 1
+            orb = [p for p, (s, kind, *_) in SPECIALS.items() if s == w['id'] and kind == 'primal']
+            for p in orb:  # 그란돈·가이오가 — 원시회귀 구슬
+                give_item(st, f'stone:{p}')
+                tell(st, 'item', f'stone:{p}')
             return _caught(st, t, w, rng)
         if w['balls'] <= 0:
             st['wild'], st['raid']['done'] = None, True
@@ -636,6 +673,9 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
         if n['kind'] == 'research':
             pz = ball_name(*RESEARCH_PRIZE)
             return L(f'{name(int(n["arg"]))} 연구 완료! {pn}(이)가 {pz[0]}를 받아 왔다!', f'{name(int(n["arg"]))} research done! {pn} brought {pz[1]}!'), False
+        if n['kind'] == 'item':
+            names = '·'.join(item_name(k) for k in n['arg'].split(','))
+            return L(f'{pn}(이)가 {names}(을)를 찾아 왔다!', f'{pn} found {names}!'), False
         if n['kind'] == 'raid':
             return L(f'레이드 승리! 레이드볼 {RAID_BALLS}개로 {name(int(n["arg"]))}(을)를 잡자!',
                      f'Raid won! Catch {name(int(n["arg"]))} with {RAID_BALLS} Raid Balls!'), False
@@ -758,6 +798,44 @@ def streak(st, day):
     return n
 
 
+def form_note(n):
+    """'꼬렛의 알로라 모습' · '리자몽의 메가 모습' — 도감 상세에서 분류·설명이 없는 모습에."""
+    if n in FORMS:
+        s, region = FORMS[n][0], REGION[FORMS[n][1].split('-')[0]]
+        return L(f'{name(s)}의 {region[0]} 모습', f'{region[1]} form of {name(s)}')
+    s, kind = SPECIALS[n][0], SPECIALS[n][1]
+    k = {'ultra': ('울트라버스트', 'Ultra Burst'), 'primal': ('원시회귀', 'Primal Reversion')}.get(kind, SPECIAL_KIND[kind])
+    return L(f'{name(s)}의 {k[0]} 모습', f'{k[1]} form of {name(s)}')
+
+
+def item_name(key):
+    """아이템 이름 — 'stone:<모습>'(메가스톤·구슬·울트라네크로Z) · 'soup'(다이수프)."""
+    if key == 'soup':
+        return L('다이수프', 'Max Soup')
+    p = int(key.split(':')[1])
+    s, kind, _, letter, extra = SPECIALS.get(p, (0, '', 0, '', ''))
+    if kind == 'primal':
+        return L(*PRIMAL_ORB[s])
+    if kind == 'ultra':
+        return L('울트라네크로Z', 'Ultranecrozium Z')
+    ex = SPECIAL_EXTRA.get(extra, (extra, extra)) if extra else None
+    return L(f'{DEX[s][1]}나이트' + letter.upper() + (f'({ex[0]})' if ex else ''), f'{DEX[s][6]}ite' + (f' {letter.upper()}' if letter else '') + (f' ({ex[1]})' if ex else '')) \
+        if s in DEX else key
+
+
+def give_item(st, key, k=1):
+    st.setdefault('items', {})[key] = st['items'].get(key, 0) + k
+
+
+def give_stones(st, n):
+    """그 종의 메가스톤들(X·Y 는 따로)과, 네크로즈마면 울트라네크로Z — 쓰는 건 그 세대가 열린 뒤(change_options)."""
+    keys = [f'stone:{p}' for p, (s, kind, *_) in SPECIALS.items() if s == n and kind in ('mega', 'ultra')]
+    for key in keys:
+        give_item(st, key)
+    if keys:
+        tell(st, 'item', ','.join(keys))
+
+
 def research_goals(n):
     """그 종의 연구 과제 {'c': 잡기, 'e': 진화, 'w': 배틀 승리} — 진화형이 없으면 진화 과제는 없다."""
     return {'c': 1 if DEX[n][5] else RESEARCH_CATCH, 'e': 1 if n in CHILDREN else 0, 'w': RESEARCH_WIN}
@@ -778,6 +856,9 @@ def research_bump(st, n, key):
         st['researched'].append(n)
         st[RESEARCH_PRIZE[0]] += RESEARCH_PRIZE[1]
         tell(st, 'research', str(n))
+        give_stones(st, n)  # 첫 메가스톤
+    elif key == 'c' and n in st['researched'] and (r['c'] - research_goals(n)['c']) % research_goals(n)['c'] == 0:
+        give_stones(st, n)  # 연구를 끝낸 뒤엔 잡기 목표만큼 더 잡을 때마다 하나 더 — 같은 메가진화를 또 만들 수 있게
 
 
 def research_text(st, n):
@@ -1028,7 +1109,7 @@ def partner_id_of(st):
 def art_of(m):
     """가방 항목(또는 번호) → 그림 번호: 이로치면 이로치 그림, 리전폼·합체 모습이면 'form:번호'(번호가 이로치 자리와 겹쳐서)."""
     n, shiny = (m['id'], m.get('shiny')) if isinstance(m, dict) else (m, False)
-    return f'form:{n}' if n in FORMS or n in FUSIONS else n + (_pokedata.SHINY if shiny else 0)
+    return f'form:{n}' if n in FORMS or n in FUSIONS or n in SPECIALS else n + (_pokedata.SHINY if shiny else 0)
 
 
 # ── 화면 ──
@@ -1044,7 +1125,7 @@ def battle_info(st, n):
         BATTLE_DATA.append(d)
     if not d:
         return [L('배틀 정보는 체육관(g)을 한 번 열면 보인다.', 'Open the gyms (g) once to see battle stats.')]
-    if n in FORMS and n not in d['stats']:  # 리전폼 자료를 넣기 전에 받은 파일 — 한 번 다시 받는다
+    if (n in FORMS or n in SPECIALS) and n not in d['stats']:  # 리전폼 자료를 넣기 전에 받은 파일 — 한 번 다시 받는다
         try:
             d = BATTLE_DATA[0] = _battle.ensure()
         except Exception:  # 네트워크 오류 — 배틀 정보 없이
@@ -1070,7 +1151,7 @@ BATTLE_DATA = []  # battle.json 을 한 번만 읽어 둔다
 def draw_info(scr, st, n, h, w, gold):
     """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 이로치 그림).
     그림은 Sixel·Kitty 가 되면 원본 도트로 — 놓을 그림 (방식, y, x, 키, 데이터, 칸, 줄)을 돌려주고, 화면을 그린 뒤 놓는다."""
-    if not INFO or n in FORMS and str(n) not in INFO:  # 리전폼 자료가 없는 옛 파일이면 ensure_detail 이 다시 받는다
+    if not INFO or (n in FORMS or n in SPECIALS) and str(n) not in INFO:  # 리전폼 자료가 없는 옛 파일이면 ensure_detail 이 다시 받는다
         put(scr, 1, 1, L('PokeAPI 에서 도감 상세를 받는 중…', 'Downloading Pokédex details from PokeAPI…'), curses.A_DIM)
         scr.refresh()
         try:
@@ -1081,15 +1162,16 @@ def draw_info(scr, st, n, h, w, gold):
         except Exception as e:  # 네트워크 오류 등 — 죽지 말고 보여 준다
             put(scr, 2, 1, f'{type(e).__name__}: {e}')
             return
-    form = FORMS.get(n)  # 리전폼 — 타입·키·몸무게·종족값은 그 모습 것, 도감 설명은 없다
-    d, caught, sh = INFO.get(str(n)), n in st['forms' if form else 'caught'], n in st['shiny']
-    x = put(scr, 1, 1, f'No.{form[0] if form else n:04d}  ', curses.A_BOLD)
+    form, spec = FORMS.get(n), SPECIALS.get(n)  # 리전폼·특수 모습 — 타입·키·몸무게·종족값은 그 모습 것, 도감 설명은 없다
+    d, sh = INFO.get(str(n)), n in st['shiny']
+    caught = n in (st['forms'] if form else st.get('specials', []) if spec else st['caught'])
+    x = put(scr, 1, 1, f'No.{sp(n):04d}  ', curses.A_BOLD)
     x = put(scr, 1, x, ('✨' if sh else '') + name(n), gold if sh else curses.A_BOLD)
-    put(scr, 1, x + 2, (L('리전폼', 'Regional form') if form else L(f'{gen(n)}세대', f'Gen {gen(n)}'))
-        + (L(' · 잡음', ' · caught') if caught else L(' · 봄', ' · seen')), curses.A_DIM)
+    put(scr, 1, x + 2, (L('리전폼', 'Regional form') if form else L('특수 모습', 'Special form') if spec else L(f'{gen(n)}세대', f'Gen {gen(n)}'))
+        + ((L(' · 만듦', ' · made') if spec else L(' · 잡음', ' · caught')) if caught else L(' · 봄', ' · seen')), curses.A_DIM)
     y = 3
-    if form and not d:
-        put(scr, 2, 1, L(f'{name(form[0])}의 {REGION[form[1].split("-")[0]][0]} 모습', f'{REGION[form[1].split("-")[0]][1]} form of {name(form[0])}'), curses.A_DIM)
+    if (form or spec) and not d:
+        put(scr, 2, 1, form_note(n), curses.A_DIM)
     if d:
         put(scr, 2, 1, L(f'{d[0]} · ' if d[0] else '', f'{d[1]} · ' if d[1] else '') + L(f'{"/".join(d[2])} 타입', f'{"/".join(d[3])} type'))
         if caught:
@@ -1098,7 +1180,7 @@ def draw_info(scr, st, n, h, w, gold):
             for i, line in enumerate(battle_info(st, n)):  # 종족값 · 약점 · 반감/무효 — 팀을 꾸릴 때 보라고
                 put(scr, 4 + i, 1, line, curses.A_DIM if i else 0)
                 fy = 6 + i
-            text = L(d[6], d[7]) or (L(f'{name(form[0])}의 {REGION[form[1].split("-")[0]][0]} 모습.', f'{REGION[form[1].split("-")[0]][1]} form of {name(form[0])}.') if form else '')
+            text = L(d[6], d[7]) or (form_note(n) + '.' if form or spec else '')
             for i, (_, a, b) in enumerate(memo.wrap([text], w - 3)[:max(1, h - 9 - fy)]):
                 put(scr, fy + i, 1, text[a:b].strip())
                 y = fy + 1 + i
@@ -1151,7 +1233,7 @@ MEDAL_ART = {'catch1': 'poke-ball', 'catch10': 'great-ball', 'catch50': 'ultra-b
              'champ7': 'pearl-string', 'champ8': 'big-pearl', 'champ9': 'relic-crown',
              'form1': 'galarica-twig', 'form_all': 'galarica-wreath', 'fuse1': 'dna-splicers',
              'research1': 'scope-lens', 'research10': 'poke-radar', 'research50': 'old-amber', 'alpha1': 'kings-rock',
-             'raid1': 'wishing-piece'}
+             'raid1': 'wishing-piece', 'mega1': 'mega-ring', 'gmax1': 'dynamax-band'}
 
 
 def art_id(key):
@@ -1279,6 +1361,38 @@ def _drop(st, gone):
     return where
 
 
+def change_options(st, i):
+    """가방 i 번째가 바뀔 수 있는 모습들 [(모습, 재료, 할 수 있나, 못 하는 까닭)] — 재료는 ('mon', 가방 번호)(합체 상대) 또는
+    ('item', 키). 모두 되돌릴 수 없다: 합체 상대·아이템은 사라지고, 레벨·경험치·개체값은 그대로 이어진다."""
+    m, out = st['box'][i], []
+    for f, j in fuse_options(st, i):
+        out.append((f, ('mon', j), True, ''))
+    for p, (s, kind, g, *_) in SPECIALS.items():
+        if (m['id'] not in ULTRA_BASE) if kind == 'ultra' else m['id'] != s:
+            continue
+        key = 'soup' if kind == 'gmax' else f'stone:{p}'
+        why = L(f'{g}세대가 열리면', f'opens with Gen {g}') if opened_gen(st) < g else \
+            '' if st.get('items', {}).get(key, 0) > 0 else L('재료 없음', 'no material')
+        out.append((p, ('item', key), not why, why))
+    return out
+
+
+def change(st, i, k):
+    """change_options 의 k 번째로 바꾼다 — 바뀐 모습 번호 · 못 하면 None. 가방 번호가 당겨질 수 있다(합체 상대가 빠지면)."""
+    opts = change_options(st, i)
+    if not 0 <= k < len(opts) or not opts[k][2]:
+        return None
+    f, (what, ref), _, _ = opts[k]
+    if what == 'mon':
+        i = _drop(st, {ref})[i]  # 합체 상대는 사라진다(2026-10-30 — 분리 없음, 다른 모습은 재료를 다시 모아서)
+        st['fusions'] = st.get('fusions', 0) + 1
+    else:
+        st['items'][ref] -= 1
+        _mark(st, 'specials', f)
+    st['box'][i]['id'] = f
+    return f
+
+
 def fuse_options(st, i):
     """가방 i 번째(큐레무·네크로즈마·버드렉스, 합체 전)와 합칠 수 있는 것 [(합체 모습, 상대 가방 번호)] — 상대 종마다
     개체값이 가장 좋은 하나, 동료·합체한 것은 빼고. 아직 가방에 없는 합체 모습이 앞."""
@@ -1292,32 +1406,6 @@ def fuse_options(st, i):
             out.append((f, max(cands, key=lambda j: sum(iv_of(st['box'][j])))))
     have = {o['id'] for o in st['box']}
     return sorted(out, key=lambda o: o[0] in have)
-
-
-def fuse(st, i):
-    """가방 i 번째를 합체 — 상대는 가방에서 빠져 합체한 포켓몬 안('fused')에 들어간다. 레벨·경험치·개체값은 본체 것.
-    합체 모습 번호 · 못 하면 None."""
-    opts = fuse_options(st, i)
-    if not opts:
-        return None
-    f, j = opts[0]
-    piece = st['box'][j]
-    where = _drop(st, {j})
-    m = st['box'][where[i]]
-    m['id'], m['fused'] = f, piece
-    st['fusions'] = st.get('fusions', 0) + 1
-    return f
-
-
-def unfuse(st, i):
-    """합체를 푼다 — 본체는 원래 종으로, 상대는 가방 끝에 그대로 돌아온다. 돌아온 상대 번호 · 합체가 아니면 None."""
-    m = st['box'][i]
-    if not m.get('fused'):
-        return None
-    piece = m.pop('fused')
-    m['id'] = FUSIONS[m['id']][0]
-    st['box'].append(piece)
-    return piece['id']
 
 
 def send_away(st, idxs):
@@ -1414,13 +1502,14 @@ def fight(st, t, d, g, i, rng=random, today=None):
     for k, n, _ in team:
         st['box'][k]['bxp'] = st['box'][k].get('bxp', 0) + (GYM_WIN_XP + 10 * (8 if i in ('L', 'R') else i) if won else GYM_LOSE_XP)
         if won:
-            research_bump(st, n, 'w')
+            research_bump(st, sp(n), 'w')
     day, first = today or datetime.now().astimezone().strftime('%Y-%m-%d'), False
     if won:
         bump(st, 'gym')
     if won and i == 'R':  # 레이드 — 레이드볼 RAID_BALLS 개로 잡을 기회(다른 야생과 만나는 중이면 그게 끝난 뒤)
         r = raid_state(st)
         r['won'], r['pending'] = True, True
+        give_item(st, 'soup')  # 거다이맥스 재료 — 쓰는 건 8세대가 열린 뒤
         raid_release(st)
         tell(st, 'raid', str(raid_boss(st)[1]))
     elif won and i == 'L' and str(g) not in st.setdefault('league', {}):
@@ -1520,6 +1609,7 @@ def main(scr):
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
     gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None
+    chg = None  # 변신 화면이 다루는 가방 번호
     order, bag_g, bag_sort, to_partner = [], None, _lang.get('bag_sort', 0) % len(SORTS), False  # 가방: 보이는 순서(가방 번호들) · 세대(None 전체) · 정렬 · 동료 줄로  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
@@ -1544,6 +1634,12 @@ def main(scr):
         try:
             _pokedata.ensure_forms()
             load_forms()
+        except Exception:
+            pass
+    if not SPECIALS:  # 특수 모습 목록 — 같은 방식
+        try:
+            _pokedata.ensure_specials()
+            load_specials()
         except Exception:
             pass
     while True:
@@ -1815,6 +1911,20 @@ def main(scr):
                 put(scr, h - 2, 1, research_text(st, info), curses.A_BOLD if research_done(st, info) else curses.A_DIM)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('←→ 앞뒤 포켓몬', '←→ prev/next'), curses.A_DIM)
+        elif view == 'change':  # 가방 F — 바꿀 모습 고르기(합체·메가진화·거다이맥스·원시회귀·울트라버스트)
+            opts = change_options(st, chg) if chg is not None and chg < len(st['box']) else []
+            y = para(scr, 1, msg or L(f'{name(st["box"][chg]["id"])} — 바꿀 모습 · 재료는 사라지고 되돌릴 수 없다',
+                                      f'{name(st["box"][chg]["id"])} — change into · uses the material, can\'t be undone') if opts else msg, w, curses.A_DIM)
+            sel = max(0, min(sel, len(opts) - 1))
+            for k, (f, (what, ref), ok, why) in enumerate(opts):
+                cost = (f'{name(st["box"][ref]["id"])} Lv{box_level(st["box"][ref])} · {iv_text(st["box"][ref])}' if what == 'mon'
+                        else L(f'{item_name(ref)} {st.get("items", {}).get(ref, 0)}개', f'{item_name(ref)} ×{st.get("items", {}).get(ref, 0)}'))
+                text = f'{name(f)} ← {cost}' + ('' if ok else f'  · {why}')
+                btns.append((y + 1 + k, 1, w - 1, ('chg', k)))
+                put(scr, y + 1 + k, 1, text.ljust(w - 2) if k == sel else text,
+                    (curses.A_REVERSE if k == sel else 0) | (0 if ok else curses.A_DIM))
+            x = button(h - 1, 1, L('바꾸기', 'change'), 'chg_sel')
+            button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'balls':  # [교환] → [몬스터볼] — 한 단계 위 볼로
             put(scr, 1, 1, msg or L('볼 바꾸기 — ↑↓ 고르기 · Enter 바꾸기', 'Swap balls — ↑↓ pick · Enter swap'), curses.A_DIM)
             sel = max(0, min(sel, len(TRADES) - 1))
@@ -1823,11 +1933,35 @@ def main(scr):
                          f'{ball_name(src, cost)[1]} → {ball_name(dst, 1)[1]} · have {st[src]}')
                 btns.append((3 + k, 1, w - 1, ('swap', k)))
                 put(scr, 3 + k, 1, text.ljust(w - 2) if k == sel else text, curses.A_REVERSE if k == sel else 0)
+            own = [(k, c) for k, c in st.get('items', {}).items() if c > 0]
+            if own:
+                para(scr, 7 + len(TRADES), L('아이템: ', 'Items: ') + ' · '.join(f'{item_name(k)} {c}' for k, c in own) + L(' — 가방 F 로 쓴다', ' — use with F in the bag'), w)
             para(scr, 4 + len(TRADES), L(f'지금: 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]} · 마스터볼 {st["master"]}',
                                          f'Now: Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]} · Master {st["master"]}'), w, curses.A_DIM)
             x = button(h - 1, 1, L('바꾸기', 'swap'), 'swap_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
-        elif view == 'dex' and dg > GENS:  # 도감 마지막 쪽 — 리전폼 수집
+        elif view == 'dex' and dg == GENS + 2:  # 도감 마지막 쪽 — 특수 모습(메가진화·거다이맥스·원시회귀·울트라버스트)
+            made, og, items = st.get('specials', []), opened_gen(st), st.get('items', {})
+            rows = []
+            for p, (s_, kind, g, *_) in SPECIALS.items():
+                key = 'soup' if kind == 'gmax' else f'stone:{p}'
+                rows.append((p, ('● ' if p in made else '  ') + f'{s_:04d} ' + name(p) + ('' if p in made else '   · ' + (
+                    L(f'{g}세대가 열리면', f'opens with Gen {g}') if og < g else L(f'{item_name(key)} {items.get(key, 0)}개', f'{item_name(key)} ×{items.get(key, 0)}')))))
+            put(scr, 1, 1, L(f'◀ 특수 모습 {len(made)}/{len(SPECIALS)}   ● 만듦', f'◀ Special forms {len(made)}/{len(SPECIALS)}   ● made'), curses.A_DIM)
+            hint = fold(L('메가스톤·울트라네크로Z: 그 종 연구 완료(이후 5마리마다 또) · 다이수프: 레이드 승리 · 구슬: 그란돈·가이오가 레이드 포획 — 가방 F 로 바꾼다',
+                          'Mega Stones, Ultranecrozium Z: finish that species\' research (another every 5 catches after) · Max Soup: raid wins · orbs: catch Groudon/Kyogre in a raid — change with F in the bag'), max(10, w - 2))
+            body = h - 3 - len(hint)  # 아래 안내가 접힌 줄 수만큼 목록을 줄인다 — 버튼 줄과 겹치지 않게
+            sel = max(0, min(sel, len(rows) - 1))
+            top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
+            for k, (p, text) in enumerate(rows[top:top + body]):
+                if p in made:
+                    btns.append((2 + k, 1, w - 1, ('info', p)))
+                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
+            for k, line in enumerate(hint):
+                put(scr, h - 1 - len(hint) + k, 1, line, curses.A_DIM)
+            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
+            put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ← 리전폼', '↑↓ move · Enter details · ← regional'), curses.A_DIM)
+        elif view == 'dex' and dg > GENS:  # 도감 리전폼 쪽
             top_g = opened_gen(st) if wild_pool(st) else GENS + 1
             rows = [(p, ('● ' if p in st['forms'] else '○ ' if p in st['forms_seen'] else '  ')
                      + f'{sp:04d} ' + (name(p) if p in st['forms_seen'] else L(REGION[ident.split('-')[0]][0], REGION[ident.split('-')[0]][1]) + ' ???')
@@ -1836,8 +1970,8 @@ def main(scr):
                          L('이전 세대 탐색 · 하이퍼볼·마스터볼', 'earlier-gen explore · Ultra/Master') if DEX[sp][5] else
                          L('이전 세대 탐색', 'earlier-gen explore'))))
                     for p, (sp, ident) in FORMS.items()]
-            put(scr, 1, 1, L(f'◀ 리전폼 {len(st["forms"])}/{len(FORMS)}   ● 잡음 ○ 봄',
-                              f'◀ Regional forms {len(st["forms"])}/{len(FORMS)}   ● caught ○ seen'), curses.A_DIM)
+            put(scr, 1, 1, L(f'◀ 리전폼 {len(st["forms"])}/{len(FORMS)} ▶   ● 잡음 ○ 봄',
+                              f'◀ Regional forms {len(st["forms"])}/{len(FORMS)} ▶   ● caught ○ seen'), curses.A_DIM)
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
@@ -1849,7 +1983,7 @@ def main(scr):
             put(scr, h - 2, 1, L(f'이전 세대 탐색(5번 중 1번)에서 나온다 · 지금 나올 수 있는 폼 {ready}',
                                  f'They show up in earlier-generation explores (1 in 5) · {ready} can appear now')[:w - 2], curses.A_DIM)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
-            put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ← 세대', '↑↓ move · Enter details · ← generation'), curses.A_DIM)
+            put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ←→ 세대·특수 모습', '↑↓ move · Enter details · ←→ generation/special'), curses.A_DIM)
         else:
             open_gen = opened_gen(st)
             if view in ('box', 'trade'):  # 보이는 순서(가방 번호들) — 키·버튼이 고른 줄도 이것으로 가방 번호를 찾는다
@@ -1902,9 +2036,9 @@ def main(scr):
             if view == 'box':
                 x = button(h - 1, 1, L('동료로', 'partner'), 'partner_sel')
                 x = button(h - 1, x, L('팀', 'team'), 'team')
-                pk = order[sel] if order else None  # 고른 줄이 합체할 수 있거나 합체한 것이면 [합체]/[분리]
-                if pk is not None and (st['box'][pk].get('fused') or fuse_options(st, pk)):
-                    x = button(h - 1, x, L('분리 F', 'unfuse F') if st['box'][pk].get('fused') else L('합체 F', 'fuse F'), 'fuse')
+                pk = order[sel] if order else None  # 고른 줄이 바뀔 수 있는 모습(합체·메가진화·거다이맥스…)이 있으면 [변신]
+                if pk is not None and change_options(st, pk):
+                    x = button(h - 1, x, L('변신 F', 'change F'), 'fuse')
                 x = button(h - 1, x, L(f'정렬: {SORTS[bag_sort][0]}', f'sort: {SORTS[bag_sort][1]}'), 'sort')
                 button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
             elif view == 'trade':
@@ -1937,7 +2071,7 @@ def main(scr):
         if key != -1:
             _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
-        lists = view in ('box', 'trade', 'balls', 'dex', 'badges', 'gyms')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
+        lists = view in ('box', 'trade', 'balls', 'change', 'dex', 'badges', 'gyms')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
         if view in ('box', 'trade') and key == 9:  # Tab — 정렬 바꾸기
             act = 'sort'
         if view == 'box' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):  # 세대 넘기기: 전체 → 가방에 있는 세대들
@@ -1945,9 +2079,10 @@ def main(scr):
             bag_g = pages[(pages.index(bag_g) + (1 if key == curses.KEY_RIGHT else -1)) % len(pages)] if bag_g in pages else None
             top, sel, msg = 0, 0, ''
         elif view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
-            dg, top, sel = max(1, min(GENS + bool(FORMS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 마지막 쪽은 리전폼
+            dg, top, sel = max(1, min(GENS + 1 + bool(SPECIALS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 뒤의 두 쪽은 리전폼 · 특수 모습
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
-            seen = [p for p in FORMS if p in st['forms_seen']] if info in FORMS else \
+            seen = [p for p in SPECIALS if p in st.get('specials', [])] if info in SPECIALS else \
+                [p for p in FORMS if p in st['forms_seen']] if info in FORMS else \
                 sorted(n for n in st['seen'] if gen(n) == gen(info))  # 같은 세대(리전폼은 리전폼)에서 본 것끼리 앞뒤로
             info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
         elif lists and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
@@ -1955,7 +2090,10 @@ def main(scr):
         elif key in (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN):
             focus = move_focus(navbtns, focus, key)
         if key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
-            if view == 'dex' and dg > GENS:
+            if view == 'dex' and dg == GENS + 2:
+                p = list(SPECIALS)[min(sel, len(SPECIALS) - 1)]
+                act = ('info', p) if p in st.get('specials', []) else None
+            elif view == 'dex' and dg > GENS:
                 p = list(FORMS)[min(sel, len(FORMS) - 1)]
                 act = ('info', p) if p in st['forms_seen'] else None
             elif view == 'dex':
@@ -1970,7 +2108,7 @@ def main(scr):
         if view == 'box' and key == ord(' '):
             act = 'team'  # Space 는 팀 넣기/빼기
         if view == 'box' and key in (ord('f'), ord('F')):
-            act = 'fuse'  # F 는 합체/분리 — 가방에선 방향키가 줄·세대라 아래 버튼까지 못 간다
+            act = 'fuse'  # F 는 변신(합체·메가진화·거다이맥스…) 화면 — 가방에선 방향키가 줄·세대라 아래 버튼까지 못 간다
         picked = order[max(0, min(sel, len(order) - 1))] if order and view in ('box', 'trade') else None
         # 고른 줄에 하는 버튼 → 그 줄의 일로
         if act == 'swap_sel':
@@ -2000,6 +2138,27 @@ def main(scr):
             _lang.put('bag_sort', bag_sort)  # PC 설정에 — 다시 열어도 그 정렬
         if act == 'close':
             break
+        if act == 'chg_sel' and view == 'change':
+            act = ('chg', sel)
+        if isinstance(act, tuple) and act[0] == 'chg' and view == 'change':
+            opts = change_options(st, chg) if chg is not None and chg < len(st['box']) else []
+            k = act[1]
+            if not 0 <= k < len(opts):
+                msg = ''
+            elif not opts[k][2]:
+                msg = L(f'아직 못 바꾼다 — {opts[k][3]}', f'Not yet — {opts[k][3]}')
+            elif confirm != ('chg', chg, k):  # 되돌릴 수 없으니 한 번 더 눌러야 바뀐다
+                confirm = ('chg', chg, k)
+                msg = L(f'{name(opts[k][0])}(으)로 바꾼다 — 재료는 사라지고 되돌릴 수 없다. 한 번 더 누르면 바뀐다',
+                        f'Change into {name(opts[k][0])} — the material is used up and it can\'t be undone. Press again')
+            else:
+                mon, before = st['box'][chg], name(st['box'][chg]['id'])
+                f = change(st, chg, k)
+                save(st)
+                msg = L(f'오잉!? {before}의 모습이… {name(f)}(으)로 바뀌었다!', f'What? {before} became {name(f)}!')
+                view, confirm, rec = 'box', None, None
+                to_partner = next(j for j, m in enumerate(st['box']) if m is mon)  # 가방으로 돌아가면 커서는 그 포켓몬에
+            act = None
         if act in ('send', 'tidy') and view == 'trade' and picked is not None:
             i = picked
             idxs = [i] if act == 'send' else tidy_targets(st)
@@ -2047,17 +2206,10 @@ def main(scr):
             msg = toggle_team(st, picked)
             save(st)
         if act == 'fuse' and view == 'box' and picked is not None:
-            mon = st['box'][picked]
-            before = name(mon['id'])
-            if mon.get('fused'):
-                back = unfuse(st, picked)
-                msg = L(f'{before}의 합체를 풀었다 — {name(back)}(이)가 가방으로 돌아왔다.', f'{before} split — {name(back)} is back in the bag.')
+            if change_options(st, picked):
+                view, chg, top, sel, msg, confirm = 'change', picked, 0, 0, '', None
             else:
-                piece = name(FUSIONS[fuse_options(st, picked)[0][0]][1]) if fuse_options(st, picked) else ''
-                f = fuse(st, picked)
-                msg = L(f'{before}(와)과 {piece}(이)가 합체했다! → {name(f)}', f'{before} fused with {piece}! → {name(f)}') if f else ''
-            to_partner = next(k for k, m in enumerate(st['box']) if m is mon)  # 정렬이 바뀌어도 커서는 그 포켓몬에
-            save(st)
+                msg = L('이 포켓몬은 바뀔 수 있는 모습이 없다.', 'This Pokémon has no other form to change into.')
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
@@ -2098,7 +2250,7 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'balls': 'trade'}.get(view, 'main')  # 한 단계 위로
+            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'balls': 'trade', 'change': 'box'}.get(view, 'main')  # 한 단계 위로
         elif isinstance(act, tuple) and act[0] == 'gym':
             view, gsel, msg = 'gym', act[1], ''
         elif isinstance(act, tuple) and act[0] == 'pin':
@@ -2639,13 +2791,45 @@ def selftest():
                  {'id': 644, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 644, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 643, 'xp': 0, 'iv': [2, 2, 2]}]
     fu['partner'], fu['team'] = 4, [1, 3]
     assert fuse_options(fu, 0) == [] and fuse_options(fu, 1) == [(10022, 3)]  # 레시라무(4)는 동료라 못 쓴다
-    assert fuse(fu, 1) == 10022
-    assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and fu['box'][1]['fused']['iv'] == [15, 15, 15]
+    assert change_options(fu, 1) == [(10022, ('mon', 3), True, '')] and change(fu, 1, 0) == 10022
+    assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1]  # 상대는 사라진다(분리 없음)
     assert fu['partner'] == 3 and fu['team'] == [1] and fu['box'][1]['bxp'] == 120  # 번호 당김 · 팀에 있던 상대는 빠짐 · 본체 경험치 유지
     assert name(10022) == L('블랙큐레무', 'Black Kyurem') and gen(10022) == 5 and evo_next(10022) == [] and art_of(fu['box'][1]) == 'form:10022'
     assert 'fuse1' in check_badges(fu) and send_away(fu, [1]) == (0, 0)  # 합체한 것은 박사에게 안 간다
-    assert unfuse(fu, 1) == 644 and [m['id'] for m in fu['box']] == [25, 646, 644, 643, 644] and 'fused' not in fu['box'][1]
-    assert unfuse(fu, 1) is None and fuse_options(fu, 2) == []
+    assert change_options(fu, 1) == [] and fuse_options(fu, 2) == []  # 합체한 것은 다시 못 바꾼다
+    # 특수 모습: 연구 완료 → 메가스톤(X·Y), 그 뒤 5마리 더 잡을 때마다 또 · 쓰는 건 그 세대가 열린 뒤 · 되돌릴 수 없다
+    real_sp = dict(SPECIALS)
+    SPECIALS.clear()
+    SPECIALS.update({10034: (6, 'mega', 6, 'x', ''), 10035: (6, 'mega', 6, 'y', ''), 10196: (6, 'gmax', 8, '', ''),
+                     10078: (383, 'primal', 6, '', ''), 10157: (800, 'ultra', 7, '', '')})
+    try:
+        mg = new_state()
+        mg['box'], mg['partner'] = [{'id': 6, 'xp': 0, 'iv': [5, 5, 5], 'bxp': 300}], 0
+        lv0 = box_level(mg['box'][0])
+        assert [(f, ok) for f, _, ok, _ in change_options(mg, 0)] == [(10034, False), (10035, False), (10196, False)]
+        for key in 'ccccc' + 'www':
+            research_bump(mg, 6, key)
+        assert mg['items'] == {'stone:10034': 1, 'stone:10035': 1} and mg['news'][-1]['kind'] == 'item'
+        for _ in range(RESEARCH_CATCH):
+            research_bump(mg, 6, 'c')
+        assert mg['items'] == {'stone:10034': 2, 'stone:10035': 2}  # 다시 모은다
+        assert change(mg, 0, 0) is None  # 6세대가 아직 안 열렸다
+        mg['league'] = {str(g): '2026-10-30' for g in range(1, 6)}  # 5세대까지 사천왕 → 6세대 열림
+        assert change(mg, 0, 0) == 10034 and mg['box'][0]['id'] == 10034 and mg['items']['stone:10034'] == 1
+        assert mg['specials'] == [10034] and box_level(mg['box'][0]) == lv0 and name(10034) == L('메가리자몽 X', 'Mega Charizard X')
+        assert change_options(mg, 0) == [] and item_name('stone:10035') == L('리자몽나이트Y', 'Charizardite Y')
+        assert [ok for _, _, ok, _ in change_options({**mg, 'box': [{'id': 6, 'xp': 0}]}, 0)][2] is False  # 거다이맥스는 8세대
+        ul = new_state()
+        ul['box'], ul['items'], ul['league'] = [{'id': 10155, 'xp': 0}], {'stone:10157': 1}, {str(g): 'x' for g in range(1, 7)}
+        assert change(ul, 0, 0) == 10157 and name(10157) == L('울트라네크로즈마', 'Ultra Necrozma')
+        pr = new_state()
+        raid_state(pr)
+        pr['wild'] = {'id': 383, 'balls': RAID_BALLS, 'raid': True}
+        assert throw(pr, 0, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and pr['items'] == {'stone:10078': 1}
+        assert item_name('stone:10078') == L('주홍구슬', 'Red Orb') and item_name('soup') == L('다이수프', 'Max Soup')
+    finally:
+        SPECIALS.clear()
+        SPECIALS.update(real_sp)
     # 연구: 잡기 5 · 진화 1 · 배틀 승리 3 을 다 채우면 ★ 와 슈퍼볼 2 — 한 번만
     rs = new_state()
     assert research_goals(1) == {'c': 5, 'e': 1, 'w': 3} and research_goals(150) == {'c': 1, 'e': 0, 'w': 3}
@@ -2675,6 +2859,7 @@ def selftest():
     won, ev, first = fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R', random.Random(1))
     assert won and not first and rd['wild'] == {**rd['wild'], 'id': boss, 'balls': RAID_BALLS, 'raid': True} and rd['raid']['won']
     assert rd['research']['7']['w'] == 1 and fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R')[0] is None  # 이번 주는 한 번만
+    assert rd['items'] == {'soup': 1}  # 레이드 승리마다 다이수프
     rd['hyper'] = 5
     assert throw(rd, 0, never2, 'hyper') == 'raidonly' and rd['hyper'] == 5  # 가진 볼은 못 쓴다
     assert [throw(rd, 0, never2) for _ in range(RAID_BALLS)] == ['missed', 'missed', 'fled'] and rd['wild'] is None

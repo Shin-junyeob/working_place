@@ -63,7 +63,9 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Regional forms** — a side collection of 57 Alolan, Galarian, Hisuian and Paldean forms. Once a species' generation is behind you (Elite Four beaten or Pokédex complete), its regional forms join the earlier-generation explores (one in five) — evolved forms too, caught directly. A caught form goes into the bag like any other Pokémon — partner, evolution, levels, IVs, the Professor and battles all work, with the form's own types and base stats (generation and evolution stage come from the species). A form evolves into the same region's form (Alolan Rattata → Alolan Raticate, Galarian Slowpoke → Galarian Slowbro or Slowking) or into its region-only evolution (Galarian Meowth → Perrserker, Galarian Linoone → Obstagoon, Hisuian Sneasel → Sneasler, Paldean Wooper → Clodsire …); those evolutions follow the opened generations like any other. Forms stay out of the Pokédex count; the last page of the Pokédex (→ past the newest generation) lists them by species number like the other pages, and Enter opens a detail screen with the form's own types, height, weight, base stats, weaknesses and sprite (←→ steps through the forms you have seen; PokeAPI has no per-form category or entry, so those stay blank). No shiny forms; Galarian Articuno, Zapdos and Moltres need an Ultra or Master Ball.
 
-**Fusion** — pick Kyurem, Necrozma or Calyrex in the bag and press **F** (the **fuse** button): it takes Zekrom or Reshiram (Black/White Kyurem), Solgaleo or Lunala (Dusk Mane/Dawn Wings Necrozma), Glastrier or Spectrier (Ice/Shadow Rider Calyrex) from the bag — the one with the best IVs, never your partner, a fusion you don't have yet first. The fused Pokémon battles with that form's own types and base stats and keeps the level, XP and IVs of Kyurem/Necrozma/Calyrex; **F** again splits it and the other one comes back to the bag. A fused Pokémon can't be sent to the Professor.
+**Fusion** — pick Kyurem, Necrozma or Calyrex in the bag and press **F**: the change screen offers Zekrom or Reshiram (Black/White Kyurem), Solgaleo or Lunala (Dusk Mane/Dawn Wings Necrozma), Glastrier or Spectrier (Ice/Shadow Rider Calyrex) from the bag — the one with the best IVs, never your partner. Fusion is permanent: the other Pokémon is used up, there is no split, and another fusion needs another pair. The fused Pokémon keeps the level, XP and IVs of Kyurem/Necrozma/Calyrex and battles with that form's own types and base stats.
+
+**Special forms** — 133 Mega Evolutions, Primal Reversions, Ultra Burst and Gigantamax forms, opened one generation at a time: XY/ORAS Megas and Primal Groudon/Kyogre with Gen 6, Ultra Necrozma with Gen 7, Gigantamax with Gen 8 and the Legends: Z-A Megas with Gen 9 (Mega Zygarde has no sprite and is left out). Each needs the Pokémon plus an item, and the change is permanent — the item is used up and another form takes another set of materials: a **Mega Stone** (one per form; Charizard X and Y are separate) from finishing that species' research and another every five catches after; **Ultranecrozium Z** the same way from Necrozma, used on Dusk Mane/Dawn Wings Necrozma; the **Red/Blue Orb** from catching Groudon/Kyogre in a raid; **Max Soup** from every raid win. Items can be earned before their generation opens and are listed on the trade screen's balls page. Press **F** on the Pokémon in the bag, pick the form and press twice; level, XP and IVs carry over and it battles with the form's types and base stats (its research still counts for the base species). The Pokédex's last page lists them all with what each still needs.
 
 **Research** — every species has research tasks: catch 5 (legendaries 1), evolve once (if it evolves) and win 3 battles with it on the team. Finishing them stars the species in the Pokédex (★, with the count per generation in the header) and gives 2 Great Balls; the detail screen shows the progress. Pokémon caught before research existed count toward the catch task.
 
@@ -71,7 +73,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Raids** — each week (from Monday) one legendary from an opened generation sits at the top of the gym list. Beat it (any generation may enter — the place for the teams you maxed out earlier; 48× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over. **pick** draws from the whole bag here, and a win gives the team battle XP and research credit like a gym win.
 
-**Medals** — 49 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
+**Medals** — 51 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids, Mega Evolution, Gigantamax), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
 ![Medals](docs/images/medals.png)
 
@@ -99,8 +101,8 @@ Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generatio
 |---|---|
 | Most screens | arrows move between buttons, Enter presses one, `q` goes back or closes |
 | Lists (medals, gyms, trade) | ↑↓ picks the row, ←→ the button below it, which acts on that row |
-| Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it · F fuses / splits Kyurem, Necrozma, Calyrex |
-| Pokédex | ←→ generation (the last page is regional forms) · Enter details, where ←→ steps through species |
+| Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it · F opens the change screen (fusion, Mega Evolution, Gigantamax …) |
+| Pokédex | ←→ generation (then regional forms, then special forms) · Enter details, where ←→ steps through species |
 
 Every screen fits the pane: long lines wrap at spaces, buttons lose their padding below 80 columns, and below 50 the ` q` hints go and bag rows shorten.
 
@@ -153,7 +155,7 @@ Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's ch
 ## Data on disk
 
 Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
-`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` · `specials.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
 
 ## Pokémon — unofficial fan project
 

@@ -21,6 +21,7 @@ import zlib
 ROOT = os.path.expanduser('~/.claude/pane-tools')
 OUT = f'{ROOT}/pokedex.json'
 DETAIL = f'{ROOT}/pokedex_detail.json'  # 도감 상세(분류·타입·키·몸무게·설명) — 상세 화면을 처음 열 때 받는다
+SPECIALS = f'{ROOT}/specials.json'  # 특수 모습(메가진화·거다이맥스·원시회귀·울트라버스트) — ensure_specials
 FORMS = f'{ROOT}/forms.json'  # 리전폼 [그림 번호, 종 번호, 폼 이름] — 포켓몬 화면을 처음 열 때 받는다
 BASE = 'https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv/'
 KO, EN = '3', '9'  # PokeAPI 의 언어 번호
@@ -90,6 +91,43 @@ def ensure_forms(force=False):
         json.dump(rows, f, separators=(',', ':'))
     os.replace(FORMS + '.tmp', FORMS)
     return FORMS
+
+
+def build_specials(forms, mons, species, groups):
+    """CSV 네 개(행 목록) → 특수 모습 [[모습 번호, 종 번호, 'mega'|'gmax'|'primal'|'ultra', 열리는 세대, 'x'|'y'|'z'|'', 덧붙일 말]].
+    메가진화는 처음 나온 게임의 세대(XY·ORAS 6 · Z-A 9), 원시회귀 6 · 울트라버스트 7 · 거다이맥스 8.
+    덧붙일 말은 같은 종의 여러 모습을 가르는 것(냐오닉스 male · 우라오스 single-strike …). 그림이 없는 메가 지가르데는 뺀다."""
+    sp = {r['id']: (int(r['species_id']), r['identifier']) for r in mons}
+    sid = {int(r['id']): r['identifier'] for r in species}
+    gen_of = {r['id']: int(r['generation_id']) for r in groups}
+    out = []
+    for r in forms:
+        f = r['form_identifier']
+        kind = 'mega' if f.startswith('mega') else 'gmax' if f.endswith('gmax') else f if f in ('primal', 'ultra') else None
+        if not kind or r['pokemon_id'] not in sp or sp[r['pokemon_id']][1] == 'zygarde-mega':
+            continue
+        n, ident = sp[r['pokemon_id']]
+        letter = f[5:] if kind == 'mega' and f[5:] in ('x', 'y', 'z') else ''
+        extra = ident[len(sid.get(n, '')) + 1:] if ident.startswith(sid.get(n, '') + '-') else ''
+        toks = extra.split('-') if extra else []
+        while toks and toks[-1] in ('mega', 'gmax', 'primal', 'ultra', 'x', 'y', 'z'):  # 끝의 모습 표시는 떼고 남은 것만
+            toks.pop()
+        extra = '-'.join(toks)
+        unlock = {'gmax': 8, 'primal': 6, 'ultra': 7}.get(kind) or gen_of.get(r['introduced_in_version_group_id'], 6)
+        out.append([int(r['pokemon_id']), n, kind, unlock, letter, extra])
+    return sorted(out, key=lambda x: (x[3], x[0]))
+
+
+def ensure_specials(force=False):
+    """특수 모습 파일이 없으면 받아 만든다(CSV 4개, 처음 한 번). 네트워크 오류는 그대로 올린다."""
+    if os.path.exists(SPECIALS) and not force:
+        return SPECIALS
+    rows = build_specials(_csv('pokemon_forms'), _csv('pokemon'), _csv('pokemon_species'), _csv('version_groups'))
+    os.makedirs(ROOT, exist_ok=True)
+    with open(SPECIALS + '.tmp', 'w', encoding='utf-8') as f:
+        json.dump(rows, f, separators=(',', ':'))
+    os.replace(SPECIALS + '.tmp', SPECIALS)
+    return SPECIALS
 
 
 def build_detail(names, flavor, mons, ptypes, tnames):
