@@ -28,7 +28,7 @@
   블리자포스·레이스포스 하나가 그 안('fused')에 들어가고, 합체 모습의 타입·종족값으로 싸운다. [분리]로 되돌린다.
 - 연구 레벨: 종마다 잡기 RESEARCH_CATCH(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 RESEARCH_WIN 을 채우면 도감 ★ 와
   RESEARCH_PRIZE(research_bump). 우두머리: 탐색의 ALPHA_RATE 로 붉은 눈의 큰 개체 — 포획률 절반, 볼 ALPHA_TRIES 번 안에 못 잡으면
-  도망, 잡으면 개체값 최소 ALPHA_IV. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 그 세대 팀으로 HP
+  도망, 잡으면 개체값 최소 ALPHA_IV. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 모든 세대 팀으로 HP
   ×RAID_HP 보스를 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다), 잡든 놓치든 그 주는 끝.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
@@ -74,7 +74,9 @@ SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # complet
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
 STREAK_DAYS = 3  # 보상받은 날이 며칠 연속이면 하이퍼볼(3·6·9일째) — 2026-10-23 알에서 바꿈(알은 포획 때 EGG_CATCH)
 ALPHA_RATE, ALPHA_IV, ALPHA_TRIES = 0.01, 12, 3  # 우두머리: 탐색 100번에 1번 · 개체값 최소 12 · 볼 3번 안에 못 잡으면 도망
-RAID_HP, RAID_BALLS, RAID_COST = 16, 3, 2  # 레이드 보스 HP 배수(2026-10-30 실측 — 같은 레벨 개체값 7 팀 약 43%) · 레이드볼 · 도전 1번에 쓰는 탐색
+# 레이드 보스 HP 배수 · 레이드볼 · 도전 1번에 쓰는 탐색. 레이드는 모든 세대가 나간다 — 모든 세대 최종 진화형 중 고른 팀을 보스 레벨에 맞춰
+# 1~3세대 전설 17마리로 잰 승률(2026-10-30): ×40 개체값 7 49%·15 57%, ×48 40%·49%, ×56 28%·28%
+RAID_HP, RAID_BALLS, RAID_COST = 48, 3, 2
 RESEARCH_CATCH, RESEARCH_WIN, RESEARCH_PRIZE = 5, 3, ('super', 2)  # 연구: 잡기 5(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 3
 IV_FLOOR = 10  # 알·전설·환상은 개체값이 최소 이만큼(포켓몬고처럼)
 OLD_GEN_RATE = 0.2  # 탐색 5번 중 1번은 이전 세대 전체에서 — 다 채운 세대도 이로치를 노릴 수 있게(현재 8 : 이전 2)
@@ -1398,7 +1400,7 @@ def fight(st, t, d, g, i, rng=random, today=None):
     """체육관 도전 — 탐색 GYM_COST 회를 쓰고 자동 배틀. 팀원 모두 배틀 경험치를 받고, 처음 이기면 그 관의 배지
     와 하이퍼볼 1개(마스터볼은 한 세대 8관을 모두 이겼을 때 지방 정복 훈장과 함께 — check_badges).
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
-    team, cost = team_of(st, g), LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else GYM_COST
+    team, cost = team_of(st, None if i == 'R' else g), LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else GYM_COST  # 레이드는 모든 세대
     if i == 'R' and raid_state(st)['won']:
         return None, L('이번 주 레이드는 이미 이겼다 — 메인 화면에서 레이드볼로 잡자.', 'You already beat this raid — catch it with Raid Balls on the main screen.'), False
     if not team:
@@ -1725,7 +1727,7 @@ def main(scr):
         elif view == 'gym':
             g, i = gsel
             opp = gym_opp(BATTLE, g, i, st)
-            team = team_of(st, g)
+            team = team_of(st, None if i == 'R' else g)
             tn = lambda tp: BATTLE['tnames'].get(tp, ['', ''])  # noqa: E731
             won = st.get('league', {}).get(str(g)) if i == 'L' else (L('이번 주', 'this week') if raid_state(st)['won'] else None) \
                 if i == 'R' else st.get('gym', {}).get(f'gym:{g}-{i}')
@@ -1742,7 +1744,7 @@ def main(scr):
                 y = para(scr, y + 1, L('상대  ', 'Foe   ') + ', '.join(f'{name(n)}\xa0Lv{lv}' for n, lv, *_ in opp), w, curses.A_DIM)
             y = para(scr, y, L('내 팀 ', 'Team  ') + (', '.join(f'{name(n)}\xa0Lv{lv}' for _, n, lv in team) or
                                                     L('(비었다 — [추천] → [적용])', '(empty — [pick] → [apply])')), w)
-            put(scr, y, 1, L(f'{g}세대 포켓몬만 출전', f'Gen {g} Pokémon only'), curses.A_DIM)
+            put(scr, y, 1, L('모든 세대 포켓몬 출전', 'Any generation may enter') if i == 'R' else L(f'{g}세대 포켓몬만 출전', f'Gen {g} Pokémon only'), curses.A_DIM)
             wkey = (tuple(fighters(st, team)), g, i)
             if wkey not in wr_cache:
                 if i == 'L' and team:
@@ -2059,7 +2061,7 @@ def main(scr):
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
-            cands = [(k, m['id'], box_level(m), iv_of(m)) for k, m in enumerate(st['box']) if gen(m['id']) == gsel[0]]
+            cands = [(k, m['id'], box_level(m), iv_of(m)) for k, m in enumerate(st['box']) if gsel[1] == 'R' or gen(m['id']) == gsel[0]]
             opp = gym_opp(BATTLE, *gsel, st)
             if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률로(가볍게 40번씩)
                 pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
@@ -2667,8 +2669,9 @@ def selftest():
     rd = new_state()
     g_r, boss = raid_boss(rd)
     assert g_r == 1 and DEX[boss][5] == 1 and raid_boss(new_state()) == (g_r, boss) and gym_rows(rd)[0] == (1, 'R')
-    rd['box'], rd['team'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 3}], [0]
-    gd2 = {'stats': {boss: [1] * 6, 7: [200] * 6}, 'types': {boss: [11], 7: [11]}, 'eff': {}, 'tnames': {}}
+    rd['box'], rd['team'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 3}, {'id': 152, 'xp': 0, 'iv': [0] * 3}], [1, 0]
+    assert [n for _, n, _ in team_of(rd)] == [152, 7]  # 레이드엔 다른 세대(치코리타)도 나간다
+    gd2 = {'stats': {boss: [1] * 6, 7: [200] * 6, 152: [200] * 6}, 'types': {boss: [11], 7: [11], 152: [12]}, 'eff': {}, 'tnames': {}}
     won, ev, first = fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R', random.Random(1))
     assert won and not first and rd['wild'] == {**rd['wild'], 'id': boss, 'balls': RAID_BALLS, 'raid': True} and rd['raid']['won']
     assert rd['research']['7']['w'] == 1 and fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R')[0] is None  # 이번 주는 한 번만
