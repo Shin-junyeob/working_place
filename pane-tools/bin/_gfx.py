@@ -141,7 +141,8 @@ def _send(seq):
 
 def sixel_show(y, x, key, data, cols, rows):
     """(y, x) 칸에 Sixel 그림을 놓는다. 같은 그림이면 30초에 한 번만 다시 놓는다(tmux 가 화면을 다시 그려 지웠을 때 대비)
-    — 자주 보내면 깜빡인다. 키를 누르면 바로 다시 놓는다(sixel_touch)."""
+    — 자주 보내면 깜빡인다. 키를 누르거나 배틀 기록이 한 줄 진행되면 바로 다시 놓는다(sixel_touch — 배틀 중엔 HP·기록이
+    바뀔 때마다 tmux 가 패널을 다시 그려 그림이 지워졌다, 2026-10-30)."""
     if _six['key'] == key and time.time() - _six['t'] < 30:
         return
     oy, ox = _outer(y, x)

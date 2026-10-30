@@ -77,7 +77,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 ![Medals](docs/images/medals.png)
 
-**Pokédex** — each uncaught entry shows how to get it (wild · evolve from … · legendary/mythical), and the bottom line counts what is left in the wild, evolve-only and legendary, plus who is in the grass right now. Pick a species and press Enter (←→ switches generation): category, types, height and weight, base stats, weaknesses (×4 marked), resistances and immunities, the Pokédex entry and a crisp sprite.
+**Pokédex** — each uncaught entry shows how to get it (wild · evolve from … · legendary/mythical), and the bottom line counts what is left in the wild, evolve-only and legendary, plus who is in the grass right now. Pick a species and press Enter (←→ switches generation): category, types, height and weight, base stats, weaknesses (×4 marked), resistances and immunities, the Pokédex entry, a crisp sprite and its research progress. Researched species carry a ★ and each page's header counts them. After the nine generations come two more pages: regional forms and special forms (what each still needs, ★ for researched ones).
 
 ![Pokédex detail](docs/images/dex.png)
 
