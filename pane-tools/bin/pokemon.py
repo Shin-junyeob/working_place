@@ -36,7 +36,7 @@
   ×RAID_HP 보스를 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다), 잡든 놓치든 그 주는 끝.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
-  도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장) · F 합체·분리.
+  도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장) · F 모습 바꾸기(합체·메가 등).
   화면은 패널 폭에 맞춘다 — 긴 줄은 para/fold 로 접고, 80칸 미만이면 버튼 여백을 줄인다. 마우스 클릭도 된다.
 상태는 ~/.claude/pane-tools/pokemon.json. 허브는 summary() 로 동료를 보여 준다.
 `python3 pokemon.py --selftest` 로 규칙을 점검한다(데이터가 없으면 먼저 받는다).
@@ -1421,13 +1421,18 @@ def fuse_options(st, i):
     m = st['box'][i]
     out = []
     for f, (base, part, _, _) in FUSIONS.items():
-        if m['id'] != base or m.get('fused'):
+        if m['id'] != base:
             continue
-        cands = [j for j, o in enumerate(st['box']) if o['id'] == part and j not in (i, st['partner']) and not o.get('fused')]
+        cands = [j for j, o in enumerate(st['box']) if o['id'] == part and j not in (i, st['partner'])]
         if cands:
             out.append((f, min(cands, key=lambda j: (j in st.get('team', []), sum(iv_of(st['box'][j])), st['box'][j].get('bxp', 0)))))
     have = {o['id'] for o in st['box']}
     return sorted(out, key=lambda o: o[0] in have)
+
+
+def made(m):
+    """재료를 써서 만든 모습(합체·메가 등)인가 — 되돌릴 수 없으니 박사에게도, [정리]로도 보내지 않는다."""
+    return m['id'] in FUSIONS or m['id'] in SPECIALS
 
 
 def send_away(st, idxs):
@@ -1435,7 +1440,7 @@ def send_away(st, idxs):
     가방 번호가 당겨지니 동료·팀 번호도 맞춰 옮긴다. (보낸 마릿수, 받은 볼)."""
     keep = {st['partner']} | set(st.get('team', []))
     gone = {i for i in idxs if 0 <= i < len(st['box']) and i not in keep and not st['box'][i].get('shiny')
-            and not st['box'][i].get('fused')}  # 합체한 포켓몬은 안에 든 상대까지 사라지니 보내지 않는다
+            and not made(st['box'][i])}
     if not gone:
         return 0, 0
     k = sum(dupe_balls(st['box'][i]['id']) for i in gone)
@@ -1450,7 +1455,7 @@ def tidy_targets(st):
     진화 경험치가 가장 많은 것만 남긴다(동료·팀은 send_away 가 지킨다)."""
     groups = {}
     for i, m in enumerate(st['box']):
-        if not m.get('shiny'):
+        if not m.get('shiny') and not made(m):
             groups.setdefault(m['id'], []).append(i)
     out = []
     for ids in groups.values():
@@ -2198,9 +2203,9 @@ def main(scr):
             idxs = [i] if act == 'send' else tidy_targets(st)
             what = (act, tuple(idxs))
             m = st['box'][i]
-            if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny') or m.get('fused')):
-                msg, confirm = L('동료·팀·이로치·합체한 포켓몬은 박사에게 보내지 않는다(합체는 가방에서 [분리]).',
-                                 "Partner, team, shiny and fused Pokémon can't be sent (split a fusion in the bag)."), None
+            if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny') or made(m)):
+                msg, confirm = L('동료·팀·이로치와 재료로 만든 모습(합체·메가 등)은 박사에게 보내지 않는다.',
+                                 "Partner, team, shiny and changed (fused, Mega …) Pokémon can't be sent."), None
             elif not idxs:
                 msg, confirm = L('정리할 것이 없다 — 같은 종이 둘 이상일 때 가장 좋은 것만 남긴다.', 'Nothing to tidy — only duplicates are sent.'), None
             elif confirm != what:  # 되돌릴 수 없으니 한 번 더 눌러야 보낸다
@@ -2847,6 +2852,8 @@ def selftest():
     assert fu['partner'] == 3 and fu['team'] == [1, 2] and fu['box'][1]['bxp'] == 120  # 번호 당김 · 본체 경험치 유지
     assert name(10022) == L('블랙큐레무', 'Black Kyurem') and gen(10022) == 5 and evo_next(10022) == [] and art_of(fu['box'][1]) == 'form:10022'
     assert 'fuse1' in check_badges(fu) and send_away(fu, [1]) == (0, 0)  # 합체한 것은 박사에게 안 간다
+    fu2 = {**new_state(), 'box': [{'id': 10022, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 10022, 'xp': 0, 'iv': [9, 9, 9]}]}
+    assert send_away(fu2, [0]) == (0, 0) and tidy_targets(fu2) == []  # 팀 밖이어도, 둘이어도 — 재료까지 잃는다
     assert change_options(fu, 1) == [] and fuse_options(fu, 2) == []  # 합체한 것은 다시 못 바꾼다
     # 특수 모습: 연구 완료 → 메가스톤(X·Y), 그 뒤 5마리 더 잡을 때마다 또 · 쓰는 건 그 세대가 열린 뒤 · 되돌릴 수 없다
     real_sp = dict(SPECIALS)
