@@ -1,6 +1,6 @@
 {
   "name": "pane-tools",
-  "version": "0.29.0",
+  "version": "0.29.1",
   "description": "/mods 모드 허브 — 세션의 컨텍스트·비용 게이지, claude agents 세션 상태·활동 피드, 메모·테트리스·포켓몬(도감·체육관·사천왕 배틀). tmux 패널·새 창·사용자 명령(cmux 등) 중 원하는 곳에 띄운다. Mods hub with gauges, memo and games, opened where you choose.",
   "author": {
     "name": "Shin-junyeob",
