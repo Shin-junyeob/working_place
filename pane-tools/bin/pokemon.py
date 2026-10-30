@@ -544,14 +544,16 @@ def throw(st, t, rng=random, kind='ball'):
             return None
         w['balls'] -= 1
         if rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS['hyper']):
-            st['raid']['done'], st['raids'] = True, st.get('raids', 0) + 1
+            raid_done(st)
+            st['raids'] = st.get('raids', 0) + 1
             orb = [p for p, (s, kind, *_) in SPECIALS.items() if s == w['id'] and kind == 'primal']
             for p in orb:  # 그란돈·가이오가 — 원시회귀 구슬
                 give_item(st, f'stone:{p}')
                 tell(st, 'item', f'stone:{p}')
             return _caught(st, t, w, rng)
         if w['balls'] <= 0:
-            st['wild'], st['raid']['done'] = None, True
+            raid_done(st)
+            st['wild'] = None
             return 'fled'
         return 'missed'
     if not w or (w['balls'] + st['balls'] if kind == 'ball' else st[kind]) <= 0:
@@ -897,19 +899,34 @@ def raid_state(st, key=None):
     """이번 주 레이드 기록 {'week', 'won', 'done', 'pending'} — 주가 바뀌면 새로."""
     key = key or week_key()
     if not st.get('raid') or st['raid'].get('week') != key:
+        old = st.get('raid') or {}
         st['raid'] = {'week': key, 'won': False, 'done': False, 'pending': False}
+        late = old.get('late') or (old.get('week') if old.get('pending') else None)
+        if late:  # 지난주에 이기고 아직 못 만난 보스 — 주가 바뀌어도 한 번은 내준다(raid_release)
+            st['raid']['late'] = late
     return st['raid']
+
+
+def raid_done(st):
+    """만난 레이드 보스가 끝남(잡음·도망·놓아줌) — 그 보스의 주 기록에만 적는다. 주가 바뀐 뒤면 이번 주 레이드는 그대로 남는다."""
+    r = st.get('raid')
+    if r and st['wild'].get('week', r.get('week')) == r.get('week'):
+        r['done'] = True
 
 
 def raid_release(st):
     """이긴 레이드 보스를 포획 기회로 — 다른 야생과 만나는 중이면 그게 끝날 때까지 기다린다."""
     r = st.get('raid')
-    if r and r.get('pending') and not st['wild'] and r.get('week') == week_key():
-        boss = raid_boss(st, r['week'])[1]
-        st['wild'] = {'id': boss, 'balls': RAID_BALLS, 'raid': True,
+    wk = r and (r.get('late') or (r['week'] if r.get('pending') else None))
+    if wk and not st['wild']:
+        boss = raid_boss(st, wk)[1]
+        st['wild'] = {'id': boss, 'balls': RAID_BALLS, 'raid': True, 'week': wk,
                       **({'shiny': True} if random.random() < shiny_rate(st, boss, EGG_SHINY) else {})}
         _mark(st, 'seen', boss)
-        r['pending'] = False
+        if r.get('late'):
+            del r['late']
+        else:
+            r['pending'] = False
 
 
 def week_key(now=None):
@@ -2327,8 +2344,8 @@ def main(scr):
                 if r == 'caught' and len(st.get('eggs', [])) > eggs0:
                     msg += L(' 풀숲에서 알도 하나 주웠다!', ' Found an egg in the grass too!')
             elif act == 'run' and st['wild']:
-                if st['wild'].get('raid'):  # 레이드 보스를 놓아주면 이번 주 레이드는 끝
-                    raid_state(st)['done'] = True
+                if st['wild'].get('raid'):  # 레이드 보스를 놓아주면 그 주 레이드는 끝
+                    raid_done(st)
                 msg, st['wild'] = L('무사히 도망쳤다.', 'Got away safely.'), None
             elif act in ('evolve', 'candy'):
                 before = name(st['box'][st['partner']]['id']) if st['partner'] is not None else ''
@@ -2936,6 +2953,16 @@ def selftest():
     lucky2 = type('R', (), {'random': lambda s: 0.0})()
     assert rc['wild']['raid'] and throw(rc, 0, lucky2) == 'caught' and rc['raids'] == 1 and rc['box'][-1]['id'] == boss
     assert min(rc['box'][-1]['iv']) >= IV_FLOOR and 'raid1' in check_badges(rc)
+    # 주가 바뀌어도: 지난주 보스를 놓쳐도 이번 주 레이드는 남고, 지난주에 이기고 못 만난 보스는 한 번 나온다
+    rw = {**new_state(), 'raid': {'week': '2026-W40', 'won': True, 'done': False, 'pending': False},
+          'wild': {'id': boss, 'balls': 1, 'raid': True, 'week': '2026-W40'}}
+    raid_state(rw)
+    assert throw(rw, 0, never2) == 'fled' and not rw['raid']['done'] and gym_rows(rw)[0][1] == 'R'
+    rp = {**new_state(), 'raid': {'week': '2026-W40', 'won': True, 'done': False, 'pending': True}, 'wild': {'id': 19, 'balls': BALLS}}
+    raid_state(rp)
+    rp['wild'] = None
+    raid_release(rp)
+    assert rp['wild']['raid'] and rp['wild']['id'] == raid_boss(rp, '2026-W40')[1] and 'late' not in rp['raid'] and not rp['raid']['done']
     # 줄 접기: 폭 안에서 빈칸·쉼표 뒤에서 접고, '·' 는 앞 낱말에 붙인다(한글은 2칸)
     assert fold('가나다 · 라마 · 바사', 12) == ['가나다 ·', '라마 · 바사'] and fold('a, b, c', 3) == ['a,', 'b,', 'c'] and fold('a, b, c', 4) == ['a,', 'b, c']
     assert all(sum(map(memo.cw, x)) <= 20 for x in fold('내 팀 메가니움 Lv39, 블레이범 Lv39, 장크로다일 Lv39, 토게틱 Lv27', 20))
