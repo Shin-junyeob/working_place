@@ -123,8 +123,9 @@ def matchup(d, me, foe):
 
 
 class Mon:
-    def __init__(self, d, n, lv, iv=(0, 0, 0)):
+    def __init__(self, d, n, lv, iv=(0, 0, 0), hp_x=1):
         self.n, self.lv, self.st = n, lv, calc(d['stats'][n], lv, iv)
+        self.st[0] *= hp_x  # 레이드 보스는 HP 가 몇 배
         self.hp = self.st[0]
 
 

@@ -65,7 +65,13 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Fusion** — pick Kyurem, Necrozma or Calyrex in the bag and press **F** (the **fuse** button): it takes Zekrom or Reshiram (Black/White Kyurem), Solgaleo or Lunala (Dusk Mane/Dawn Wings Necrozma), Glastrier or Spectrier (Ice/Shadow Rider Calyrex) from the bag — the one with the best IVs, never your partner, a fusion you don't have yet first. The fused Pokémon battles with that form's own types and base stats and keeps the level, XP and IVs of Kyurem/Necrozma/Calyrex; **F** again splits it and the other one comes back to the bag. A fused Pokémon can't be sent to the Professor.
 
-**Medals** — 44 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
+**Research** — every species has research tasks: catch 5 (legendaries 1), evolve once (if it evolves) and win 3 battles with it on the team. Finishing them stars the species in the Pokédex (★, with the count per generation in the header) and gives 2 Great Balls; the detail screen shows the progress. Pokémon caught before research existed count toward the catch task.
+
+**Alphas** — about one explore in a hundred meets a red-eyed alpha (◆ in the bag): half the catch rate and only three throws before it flees, but its IVs start at 12.
+
+**Raids** — each week one legendary from an opened generation sits at the top of the gym list. Beat it (that generation's team only, 16× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over.
+
+**Medals** — 49 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
 ![Medals](docs/images/medals.png)
 
