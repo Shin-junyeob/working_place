@@ -96,7 +96,8 @@ def ensure_forms(force=False):
 def build_specials(forms, mons, species, groups):
     """CSV 네 개(행 목록) → 특수 모습 [[모습 번호, 종 번호, 'mega'|'gmax'|'primal'|'ultra', 열리는 세대, 'x'|'y'|'z'|'', 덧붙일 말]].
     메가진화는 처음 나온 게임의 세대(XY·ORAS 6 · Z-A 9), 원시회귀 6 · 울트라버스트 7 · 거다이맥스 8.
-    덧붙일 말은 같은 종의 여러 모습을 가르는 것(냐오닉스 male · 우라오스 single-strike …). 그림이 없는 메가 지가르데는 뺀다."""
+    덧붙일 말은 같은 종의 여러 모습을 가르는 것(냐오닉스 male · 우라오스 single-strike …). 메가 지가르데는 도트 그림이 없어
+    HOME 그림으로 대신 받는다(_fetch)."""
     sp = {r['id']: (int(r['species_id']), r['identifier']) for r in mons}
     sid = {int(r['id']): r['identifier'] for r in species}
     gen_of = {r['id']: int(r['generation_id']) for r in groups}
@@ -104,7 +105,7 @@ def build_specials(forms, mons, species, groups):
     for r in forms:
         f = r['form_identifier']
         kind = 'mega' if f.startswith('mega') else 'gmax' if f.endswith('gmax') else f if f in ('primal', 'ultra') else None
-        if not kind or r['pokemon_id'] not in sp or sp[r['pokemon_id']][1] == 'zygarde-mega':
+        if not kind or r['pokemon_id'] not in sp:
             continue
         n, ident = sp[r['pokemon_id']]
         letter = f[5:] if kind == 'mega' and f[5:] in ('x', 'y', 'z') else ''
@@ -121,7 +122,12 @@ def build_specials(forms, mons, species, groups):
 def ensure_specials(force=False):
     """특수 모습 파일이 없으면 받아 만든다(CSV 4개, 처음 한 번). 네트워크 오류는 그대로 올린다."""
     if os.path.exists(SPECIALS) and not force:
-        return SPECIALS
+        try:
+            with open(SPECIALS, encoding='utf-8') as f:
+                if any(r[0] == 10301 for r in json.load(f)):  # 메가 지가르데를 빼고 받았던 옛 파일(2026-10-30)이면 다시
+                    return SPECIALS
+        except (OSError, ValueError):
+            pass
     rows = build_specials(_csv('pokemon_forms'), _csv('pokemon'), _csv('pokemon_species'), _csv('version_groups'))
     os.makedirs(ROOT, exist_ok=True)
     with open(SPECIALS + '.tmp', 'w', encoding='utf-8') as f:
@@ -494,9 +500,18 @@ def sprite_sixel_fit(n, gray, max_w, max_h):
 
 
 def _fetch(n, path):
+    """그림 하나를 받아 둔다. 포켓몬 도트 그림이 없으면(메가 지가르데) 같은 번호의 HOME 그림으로 — 그림체가 다르다."""
+    url = _url(n)
+    for u in (url, url.replace('/sprites/pokemon/', '/sprites/pokemon/other/home/')) if '/sprites/pokemon/' in url else (url,):
+        try:
+            with urllib.request.urlopen(u, timeout=20) as r:
+                data = r.read()
+            break
+        except Exception:
+            data = None
     try:
-        with urllib.request.urlopen(_url(n), timeout=20) as r:
-            data = r.read()
+        if data is None:
+            return
         decode_png(data)  # 깨진 파일은 저장하지 않는다
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + '.tmp', 'wb') as f:
