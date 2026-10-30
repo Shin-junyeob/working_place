@@ -26,6 +26,10 @@
   도감 숫자에는 안 들어가고 st['forms'] 에 따로 모인다(도감 마지막 쪽에 목록).
 - 합체(FUSIONS): 가방에서 큐레무·네크로즈마·버드렉스를 골라 [합체] — 가방의 레시라무·제크로무 / 솔가레오·루나아라 /
   블리자포스·레이스포스 하나가 그 안('fused')에 들어가고, 합체 모습의 타입·종족값으로 싸운다. [분리]로 되돌린다.
+- 연구 레벨: 종마다 잡기 RESEARCH_CATCH(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 RESEARCH_WIN 을 채우면 도감 ★ 와
+  RESEARCH_PRIZE(research_bump). 우두머리: 탐색의 ALPHA_RATE 로 붉은 눈의 큰 개체 — 포획률 절반, 볼 ALPHA_TRIES 번 안에 못 잡으면
+  도망, 잡으면 개체값 최소 ALPHA_IV. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 그 세대 팀으로 HP
+  ×RAID_HP 보스를 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다), 잡든 놓치든 그 주는 끝.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
   도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장) · F 합체·분리.
@@ -69,6 +73,9 @@ SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이�
 SHIP = re.compile(r'PR|병합|배포|merge|deploy|push|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
 STREAK_DAYS = 3  # 보상받은 날이 며칠 연속이면 하이퍼볼(3·6·9일째) — 2026-10-23 알에서 바꿈(알은 포획 때 EGG_CATCH)
+ALPHA_RATE, ALPHA_IV, ALPHA_TRIES = 0.01, 12, 3  # 우두머리: 탐색 100번에 1번 · 개체값 최소 12 · 볼 3번 안에 못 잡으면 도망
+RAID_HP, RAID_BALLS, RAID_COST = 16, 3, 2  # 레이드 보스 HP 배수(2026-10-30 실측 — 같은 레벨 개체값 7 팀 약 43%) · 레이드볼 · 도전 1번에 쓰는 탐색
+RESEARCH_CATCH, RESEARCH_WIN, RESEARCH_PRIZE = 5, 3, ('super', 2)  # 연구: 잡기 5(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 3
 IV_FLOOR = 10  # 알·전설·환상은 개체값이 최소 이만큼(포켓몬고처럼)
 OLD_GEN_RATE = 0.2  # 탐색 5번 중 1번은 이전 세대 전체에서 — 다 채운 세대도 이로치를 노릴 수 있게(현재 8 : 이전 2)
 EGG_CATCH, EGG_MAX, EGG_STEP = 0.1, 3, 5000  # 잡을 때 알을 함께 얻을 확률 · 가질 수 있는 알 · 부화 걸음 하나당 토큰
@@ -260,7 +267,12 @@ BADGES = [('catch1', '첫 포획', 'First catch', lambda st: len(st['caught']) >
      for g in range(1, 10)] + [
     ('form1', '첫 리전폼', 'First regional form', lambda st: len(st.get('forms', [])) >= 1),
     ('form_all', '리전폼 완성', 'All regional forms', lambda st: bool(FORMS) and len(st.get('forms', [])) >= len(FORMS)),
-    ('fuse1', '첫 합체', 'First fusion', lambda st: st.get('fusions', 0) >= 1)]
+    ('fuse1', '첫 합체', 'First fusion', lambda st: st.get('fusions', 0) >= 1),
+    ('research1', '첫 연구 완료', 'First research', lambda st: len(st.get('researched', [])) >= 1),
+    ('research10', '연구 10', '10 researched', lambda st: len(st.get('researched', [])) >= 10),
+    ('research50', '연구 50', '50 researched', lambda st: len(st.get('researched', [])) >= 50),
+    ('alpha1', '첫 우두머리', 'First alpha', lambda st: any(m.get('alpha') for m in st['box'])),
+    ('raid1', '첫 레이드 포획', 'First raid catch', lambda st: st.get('raids', 0) >= 1)]
 
 
 def badge_name(bid):
@@ -365,7 +377,8 @@ def new_state():
     return {'used': 0, 'box': [], 'partner': None, 'base': 0, 'seen': [], 'caught': [], 'wild': None, 'balls': 0,
             'super': 0, 'hyper': 0, 'master': 0, 'shiny': [], 'rewarded': [], 'reward_since': None, 'news': [],
             'badges': {}, 'charms': [], 'evolved': 0, 'exchanged': 0, 'super_earned': None, 'eggs': [], 'showcase': [],
-            'gym': {}, 'team': [], 'league': {}, 'weekly': None, 'candy': 0, 'forms': [], 'forms_seen': []}  # forms_boxed 는 load 가 처음 옮길 때 적는다
+            'gym': {}, 'team': [], 'league': {}, 'weekly': None, 'candy': 0, 'forms': [], 'forms_seen': [],
+            'research': {}, 'researched': [], 'raid': None}  # forms_boxed 는 load 가 처음 옮길 때 적는다
 
 
 def load(root=ROOT):
@@ -378,6 +391,11 @@ def load(root=ROOT):
         inbag = {m['id'] for m in st['box']}
         st['box'] += [{'id': p, 'xp': 0} for p in st.get('forms', []) if p in FORMS and p not in inbag]
         st['forms_boxed'] = True
+    if not st['research']:  # 연구를 넣기 전(2026-10-30)에 잡은 것 — 가방 마릿수를 잡은 횟수로(상은 주지 않는다)
+        for m in st['box']:
+            if m['id'] in DEX:
+                r = st['research'].setdefault(str(m['id']), {})
+                r['c'] = r.get('c', 0) + 1
     for i, m in enumerate(st['box']):  # 개체값을 넣기 전(2026-10-28)에 잡은 것 — 저장될 때까지 같은 값이 나오게 자리·종으로 고정
         if 'iv' not in m:
             m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'), IV_FLOOR if DEX[sp(m['id'])][5] else 0)
@@ -458,8 +476,9 @@ def explore(st, t, rng=random):
         st['wild'] = {'id': FORMS[n][0], 'form': n, 'balls': BALLS}
         return n, 0
     shiny = rng.random() < shiny_rate(st, n)
+    alpha = not DEX[n][5] and rng.random() < ALPHA_RATE
     _mark(st, 'seen', n)
-    st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {})}
+    st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {}), **({'alpha': True, 'tries': 0} if alpha else {})}
     return n, 0
 
 
@@ -473,6 +492,19 @@ def throw(st, t, rng=random, kind='ball'):
     """볼 하나(kind: ball · super · hyper · master). 'caught' / 'missed' / 'fled' · 볼이 없으면 None ·
     전설·환상에 하이퍼볼·마스터볼이 아니면 'needhyper'(볼을 쓰지 않는다 — 가방에서 바꿔 와 다시 던지게)."""
     w = st['wild']
+    if w and w.get('raid'):  # 레이드 보스 — 레이드볼(만날 때 받은 RAID_BALLS 개)만, 하이퍼볼과 같은 2배
+        if kind != 'ball':
+            return 'raidonly'
+        if w['balls'] <= 0:
+            return None
+        w['balls'] -= 1
+        if rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS['hyper']):
+            st['raid']['done'], st['raids'] = True, st.get('raids', 0) + 1
+            return _caught(st, t, w, rng)
+        if w['balls'] <= 0:
+            st['wild'], st['raid']['done'] = None, True
+            return 'fled'
+        return 'missed'
     if not w or (w['balls'] + st['balls'] if kind == 'ball' else st[kind]) <= 0:
         return None
     if DEX[w['id']][5] and kind not in ('hyper', 'master'):
@@ -483,28 +515,40 @@ def throw(st, t, rng=random, kind='ball'):
         w['balls'] -= 1
     else:
         st['balls'] -= 1
-    if kind == 'master' or rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS[kind]):
-        # 리전폼은 폼 번호로 가방에 — 도감 숫자(caught) 대신 리전폼 목록(forms)에 적는다
-        st['box'].append({'id': w.get('form') or w['id'], 'xp': 0, 'iv': roll_iv(rng, IV_FLOOR if DEX[w['id']][5] else 0),
-                          **({'shiny': True} if w.get('shiny') else {})})
-        if w.get('form'):
-            _mark(st, 'forms', w['form'])
-        else:
-            _mark(st, 'caught', w['id'])
-            if w.get('shiny'):
-                _mark(st, 'shiny', w['id'])
-        if st['partner'] is None:
-            set_partner(st, t, len(st['box']) - 1)
-        st['wild'] = None
-        st['balls'] += 1  # 포획 보상 — 중복이 안 나오니 볼은 여기서 쌓인다
-        if rng.random() < EGG_CATCH:
-            give_egg(st, t)  # 알이 가득 차 있으면 못 받는다
-        bump(st, 'catch')
-        return 'caught'
+    if kind == 'master' or rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS[kind] * (0.5 if w.get('alpha') else 1)):
+        return _caught(st, t, w, rng)
+    if w.get('alpha'):  # 우두머리는 ALPHA_TRIES 번 안에 못 잡으면 도망
+        w['tries'] = w.get('tries', 0) + 1
+        if w['tries'] >= ALPHA_TRIES:
+            st['wild'] = None
+            return 'fled'
     if w['balls'] + st['balls'] + st['super'] + st['hyper'] + st['master'] <= 0:
         st['wild'] = None
         return 'fled'
     return 'missed'
+
+
+def _caught(st, t, w, rng):
+    """잡았다 — 가방에 넣고(개체값 바닥: 전설·환상 IV_FLOOR · 우두머리 ALPHA_IV) 도감·연구·보상. 'caught'."""
+    floor = max(IV_FLOOR if DEX[w['id']][5] else 0, ALPHA_IV if w.get('alpha') else 0)
+    # 리전폼은 폼 번호로 가방에 — 도감 숫자(caught) 대신 리전폼 목록(forms)에 적는다
+    st['box'].append({'id': w.get('form') or w['id'], 'xp': 0, 'iv': roll_iv(rng, floor),
+                      **({'shiny': True} if w.get('shiny') else {}), **({'alpha': True} if w.get('alpha') else {})})
+    if w.get('form'):
+        _mark(st, 'forms', w['form'])
+    else:
+        research_bump(st, w['id'], 'c')
+        _mark(st, 'caught', w['id'])
+        if w.get('shiny'):
+            _mark(st, 'shiny', w['id'])
+    if st['partner'] is None:
+        set_partner(st, t, len(st['box']) - 1)
+    st['wild'] = None
+    st['balls'] += 1  # 포획 보상 — 중복이 안 나오니 볼은 여기서 쌓인다
+    if rng.random() < EGG_CATCH:
+        give_egg(st, t)  # 알이 가득 차 있으면 못 받는다
+    bump(st, 'catch')
+    return 'caught'
 
 
 def exchange(st, k):
@@ -587,6 +631,12 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
             ko = '·'.join(ball_name(b, c)[0] for b, c in WEEKLY_PRIZE)
             en = ', '.join(ball_name(b, c)[1] for b, c in WEEKLY_PRIZE)
             return L(f'주간 과제 달성! {pn}(이)가 {ko}를 받아 왔다!', f'Weekly challenge done! {pn} brought {en}!'), False
+        if n['kind'] == 'research':
+            pz = ball_name(*RESEARCH_PRIZE)
+            return L(f'{name(int(n["arg"]))} 연구 완료! {pn}(이)가 {pz[0]}를 받아 왔다!', f'{name(int(n["arg"]))} research done! {pn} brought {pz[1]}!'), False
+        if n['kind'] == 'raid':
+            return L(f'레이드 승리! 레이드볼 {RAID_BALLS}개로 {name(int(n["arg"]))}(을)를 잡자!',
+                     f'Raid won! Catch {name(int(n["arg"]))} with {RAID_BALLS} Raid Balls!'), False
         if n['kind'] == 'egg':
             return L(f'{pn}(이)가 알을 안고 왔다!', f'{pn} brought an egg!'), False
         if n['kind'] == 'badge' and n['arg'].startswith('conquer'):
@@ -644,6 +694,7 @@ def hatch(st, t, rng=random):
         n = e['id']
         shiny = rng.random() < shiny_rate(st, n, EGG_SHINY)
         st['box'].append({'id': n, 'xp': 0, 'iv': roll_iv(rng, IV_FLOOR), **({'shiny': True} if shiny else {})})
+        research_bump(st, n, 'c')
         for key in ('seen', 'caught') + (('shiny',) if shiny else ()):
             _mark(st, key, n)
         if st['partner'] is None:
@@ -703,6 +754,65 @@ def streak(st, day):
     while d.strftime('%Y-%m-%d') in got:
         n, d = n + 1, d - timedelta(days=1)
     return n
+
+
+def research_goals(n):
+    """그 종의 연구 과제 {'c': 잡기, 'e': 진화, 'w': 배틀 승리} — 진화형이 없으면 진화 과제는 없다."""
+    return {'c': 1 if DEX[n][5] else RESEARCH_CATCH, 'e': 1 if n in CHILDREN else 0, 'w': RESEARCH_WIN}
+
+
+def research_done(st, n):
+    r = st.get('research', {}).get(str(n), {})
+    return n in DEX and all(r.get(k, 0) >= v for k, v in research_goals(n).items())
+
+
+def research_bump(st, n, key):
+    """연구 기록 하나 — 과제를 다 채우면 연구 완료(도감 ★)와 RESEARCH_PRIZE. 리전폼·합체 모습 번호는 세지 않는다."""
+    if n not in DEX:
+        return
+    r = st.setdefault('research', {}).setdefault(str(n), {})
+    r[key] = r.get(key, 0) + 1
+    if research_done(st, n) and n not in st.setdefault('researched', []):
+        st['researched'].append(n)
+        st[RESEARCH_PRIZE[0]] += RESEARCH_PRIZE[1]
+        tell(st, 'research', str(n))
+
+
+def research_text(st, n):
+    """'연구 — 잡기 3/5 · 진화 0/1 · 배틀 승리 1/3' (다 채웠으면 ★ 연구 완료)."""
+    r, names = st.get('research', {}).get(str(n), {}), {'c': L('잡기', 'catch'), 'e': L('진화', 'evolve'), 'w': L('배틀 승리', 'battle wins')}
+    parts = [f'{names[k]} {min(r.get(k, 0), v)}/{v}' for k, v in research_goals(n).items() if v]
+    return (L('★ 연구 완료 — ', '★ Research done — ') if research_done(st, n) else L('연구 — ', 'Research — ')) + ' · '.join(parts)
+
+
+def raid_boss(st, key=None):
+    """이번 주 레이드 (세대, 보스) — 열린 세대 중 전설이 있는 세대에서, 주 번호로 정한다. 없으면 None."""
+    key = key or week_key()
+    gens = [g for g in range(1, opened_gen(st) + 1) if any(gen(n) == g and DEX[n][5] == 1 for n in DEX)]
+    if not gens:
+        return None
+    rng = random.Random(f'raid:{key}')
+    g = rng.choice(gens)
+    return g, rng.choice(sorted(n for n in DEX if gen(n) == g and DEX[n][5] == 1))
+
+
+def raid_state(st, key=None):
+    """이번 주 레이드 기록 {'week', 'won', 'done', 'pending'} — 주가 바뀌면 새로."""
+    key = key or week_key()
+    if not st.get('raid') or st['raid'].get('week') != key:
+        st['raid'] = {'week': key, 'won': False, 'done': False, 'pending': False}
+    return st['raid']
+
+
+def raid_release(st):
+    """이긴 레이드 보스를 포획 기회로 — 다른 야생과 만나는 중이면 그게 끝날 때까지 기다린다."""
+    r = st.get('raid')
+    if r and r.get('pending') and not st['wild'] and r.get('week') == week_key():
+        boss = raid_boss(st, r['week'])[1]
+        st['wild'] = {'id': boss, 'balls': RAID_BALLS, 'raid': True,
+                      **({'shiny': True} if random.random() < shiny_rate(st, boss, EGG_SHINY) else {})}
+        _mark(st, 'seen', boss)
+        r['pending'] = False
 
 
 def week_key(now=None):
@@ -796,6 +906,7 @@ def evolve(st, t, rng=random):
 
 def _evolve(st, t, rng):
     mon = st['box'][st['partner']]
+    research_bump(st, mon['id'], 'e')
     mon['id'], mon['xp'] = rng.choice(evolutions(st, mon['id'], mon.get('shiny'))), 0  # 이로치는 이로치로 진화
     st['base'] = t
     st['evolved'] = st.get('evolved', 0) + 1
@@ -991,7 +1102,7 @@ def draw_info(scr, st, n, h, w, gold):
                 y = fy + 1 + i
         else:
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
-    room, sid, gray = h - 2 - (y + 1), f'form:{n}' if form else n + (_pokedata.SHINY if sh else 0), False
+    room, sid, gray = h - 3 - (y + 1), f'form:{n}' if form else n + (_pokedata.SHINY if sh else 0), False
     loading = lambda: put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM) and None  # noqa: E731
     if room < 4:
         return None
@@ -1036,7 +1147,9 @@ MEDAL_ART = {'catch1': 'poke-ball', 'catch10': 'great-ball', 'catch50': 'ultra-b
              'conquer8': 'rusted-sword', 'conquer9': 'scarlet-book', 'champ1': 'relic-copper', 'champ2': 'relic-silver',
              'champ3': 'relic-gold', 'champ4': 'relic-vase', 'champ5': 'relic-band', 'champ6': 'relic-statue',
              'champ7': 'pearl-string', 'champ8': 'big-pearl', 'champ9': 'relic-crown',
-             'form1': 'galarica-twig', 'form_all': 'galarica-wreath', 'fuse1': 'dna-splicers'}
+             'form1': 'galarica-twig', 'form_all': 'galarica-wreath', 'fuse1': 'dna-splicers',
+             'research1': 'scope-lens', 'research10': 'poke-radar', 'research50': 'old-amber', 'alpha1': 'kings-rock',
+             'raid1': 'wishing-piece'}
 
 
 def art_id(key):
@@ -1073,6 +1186,8 @@ def badge_goal(st, b):
     """못 받은 배지의 진행 (지금, 목표) — 셀 수 없는 것(첫 전설 등)은 None."""
     if b.startswith('catch'):
         return len(st['caught']), int(b[5:])
+    if b.startswith('research'):
+        return len(st.get('researched', [])), int(b[8:])
     if b.startswith('gen'):
         g = int(b[3:])
         return (sum(1 for n in st['caught'] if gen(n) == g), GEN_SIZE[g]) if g in GEN_SIZE else None
@@ -1251,21 +1366,27 @@ def toggle_team(st, i):
     return L(f'{nm}(을)를 팀에 넣었다! ({len(team)}/{_battle.TEAM_MAX})', f'{nm} joined the team! ({len(team)}/{_battle.TEAM_MAX})')
 
 
-def gym_opp(d, g, i):
-    """체육관 상대 — 전설·환상은 나오지 않는다. i 가 'L' 이면 사천왕·챔피언 팀들 [[(종, 레벨)] × 5]."""
+def gym_opp(d, g, i, st=None):
+    """체육관 상대 — 전설·환상은 나오지 않는다. i 가 'L' 이면 사천왕·챔피언 팀들 [[(종, 레벨)] × 5],
+    'R' 이면 이번 주 레이드 보스 하나 [(종, 8관 레벨 + 2, 개체값 15, HP ×RAID_HP)]."""
+    if i == 'R':
+        return [(raid_boss(st)[1], 12 + 7 * 7 + (g - 1) * 5 + _battle.OPP_LV_BONUS + 2, (15,) * 3, RAID_HP)]
     gen_of, final = {n: gen(n) for n in DEX if not DEX[n][5]}, {n for n in DEX if n not in CHILDREN}
     return _battle.league_teams(d, g, gen_of, final) if i == 'L' else _battle.gym_team(d, g, i, gen_of, final)
 
 
-def gym_rate(d, team, g, i):
+def gym_rate(d, team, g, i, st=None):
     """그 체육관(또는 사천왕 연전) 승률."""
-    opp = gym_opp(d, g, i)
+    opp = gym_opp(d, g, i, st)
     return _battle.league_rate(d, team, opp) if i == 'L' else _battle.win_rate(d, team, opp)
 
 
 def gym_rows(st):
-    """체육관 목록 [(세대, 관 또는 'L')] — 한 세대 8관을 모두 이기면 그 아래 사천왕·챔피언이 열린다."""
-    return [(g, i) for g in gym_gens(st) for i in list(range(8)) + (['L'] if f'conquer{g}' in st['badges'] else [])]
+    """체육관 목록 [(세대, 관 또는 'L' · 'R')] — 맨 위는 이번 주 레이드(잡거나 놓치면 다음 주까지 빠진다),
+    한 세대 8관을 모두 이기면 그 아래 사천왕·챔피언이 열린다."""
+    raid = raid_boss(st)
+    return ([(raid[0], 'R')] if raid and not raid_state(st)['done'] else []) + \
+        [(g, i) for g in gym_gens(st) for i in list(range(8)) + (['L'] if f'conquer{g}' in st['badges'] else [])]
 
 
 def gym_gens(st):
@@ -1277,7 +1398,9 @@ def fight(st, t, d, g, i, rng=random, today=None):
     """체육관 도전 — 탐색 GYM_COST 회를 쓰고 자동 배틀. 팀원 모두 배틀 경험치를 받고, 처음 이기면 그 관의 배지
     와 하이퍼볼 1개(마스터볼은 한 세대 8관을 모두 이겼을 때 지방 정복 훈장과 함께 — check_badges).
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
-    team, cost = team_of(st, g), LEAGUE_COST if i == 'L' else GYM_COST
+    team, cost = team_of(st, g), LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else GYM_COST
+    if i == 'R' and raid_state(st)['won']:
+        return None, L('이번 주 레이드는 이미 이겼다 — 메인 화면에서 레이드볼로 잡자.', 'You already beat this raid — catch it with Raid Balls on the main screen.'), False
     if not team:
         return None, L(f'팀에 {g}세대 포켓몬이 없다 — {g}세대 포켓몬만 나갈 수 있다. 가방에서 [팀]으로 넣거나 [추천] → [적용]을 하자.',
                        f'No Gen {g} Pokémon on the team — only Gen {g} may enter. Add with [team] in the bag, or [pick] → [apply].'), False
@@ -1285,13 +1408,20 @@ def fight(st, t, d, g, i, rng=random, today=None):
         return None, L(f'탐색 기회가 {cost}번 있어야 도전할 수 있다.', f'You need {cost} explores to challenge.'), False
     st['used'] += cost
     mine = fighters(st, team)
-    won, ev = (_battle.gauntlet(d, mine, gym_opp(d, g, i), rng) if i == 'L' else _battle.battle(d, mine, gym_opp(d, g, i), rng))
-    for k, _, _ in team:
-        st['box'][k]['bxp'] = st['box'][k].get('bxp', 0) + (GYM_WIN_XP + 10 * (8 if i == 'L' else i) if won else GYM_LOSE_XP)
+    won, ev = (_battle.gauntlet(d, mine, gym_opp(d, g, i, st), rng) if i == 'L' else _battle.battle(d, mine, gym_opp(d, g, i, st), rng))
+    for k, n, _ in team:
+        st['box'][k]['bxp'] = st['box'][k].get('bxp', 0) + (GYM_WIN_XP + 10 * (8 if i in ('L', 'R') else i) if won else GYM_LOSE_XP)
+        if won:
+            research_bump(st, n, 'w')
     day, first = today or datetime.now().astimezone().strftime('%Y-%m-%d'), False
     if won:
         bump(st, 'gym')
-    if won and i == 'L' and str(g) not in st.setdefault('league', {}):
+    if won and i == 'R':  # 레이드 — 레이드볼 RAID_BALLS 개로 잡을 기회(다른 야생과 만나는 중이면 그게 끝난 뒤)
+        r = raid_state(st)
+        r['won'], r['pending'] = True, True
+        raid_release(st)
+        tell(st, 'raid', str(raid_boss(st)[1]))
+    elif won and i == 'L' and str(g) not in st.setdefault('league', {}):
         st['league'][str(g)] = day  # 챔피언 훈장(마스터볼)은 check_badges 가
         tell(st, 'league', str(g))
         if g < GENS and not gen_done(st, g):
@@ -1418,6 +1548,7 @@ def main(scr):
         st, t = load(), total_tokens()
         fresh = not st.get('reward_since') or st.get('super_earned') is None
         got, born = reward(st), hatch(st, t)
+        raid_release(st)
         badges = check_badges(st)
         if got or born or badges or fresh:
             save(st)
@@ -1485,21 +1616,28 @@ def main(scr):
                 y += 1
             y = para(scr, y, weekly_text(st), w, curses.A_DIM if weekly(st)['done'] else 0)
             if st['wild']:
-                sh = st['wild'].get('shiny')
-                x = put(scr, y, 1, L('앗! 야생의 ', 'Oh! A wild '), curses.A_BOLD)
+                sh, wd = st['wild'].get('shiny'), st['wild']
+                x = put(scr, y, 1, L('레이드 보스 ', 'Raid boss ') if wd.get('raid') else
+                        L('앗! 붉은 눈의 우두머리 ', 'Oh! An alpha ') if wd.get('alpha') else L('앗! 야생의 ', 'Oh! A wild '), curses.A_BOLD)
                 x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if sh else '') + name(st['wild'].get('form') or st['wild']['id']),
                         gold if sh else curses.A_BOLD)
-                put(scr, y, x, L('(이)가 나타났다!', ' appeared!'), curses.A_BOLD)
-                left = st['wild']['balls'] or st['balls']
-                own = '' if st['wild']['balls'] else L(' 보유', ' owned')
-                x = button(y + 1, 1, L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')
-                if st['super']:
-                    x = button(y + 1, x, L(f'슈퍼볼 ({st["super"]})', f'Great ({st["super"]})'), 'super')
-                if st['hyper']:
-                    x = button(y + 1, x, L(f'하이퍼볼 ({st["hyper"]})', f'Ultra ({st["hyper"]})'), 'hyper')
-                if st['master']:
-                    x = button(y + 1, x, L(f'마스터볼 ({st["master"]})', f'Master ({st["master"]})'), 'master')
-                button(y + 1, x, L('도망', 'run'), 'run')
+                put(scr, y, x, L('(이)가 나타났다!', ' appeared!') + (L(f' (볼 {ALPHA_TRIES - wd.get("tries", 0)}번 안에 못 잡으면 도망)',
+                                                                            f' (flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws)')
+                                                                          if wd.get('alpha') else ''), curses.A_BOLD)
+                if wd.get('raid'):  # 레이드볼만 — 보유 볼은 못 쓴다
+                    x = button(y + 1, 1, L(f'레이드볼 ({wd["balls"]})', f'Raid Ball ({wd["balls"]})'), 'throw')
+                    button(y + 1, x, L('놓아주기', 'let go'), 'run')
+                else:
+                    left = wd['balls'] or st['balls']
+                    own = '' if wd['balls'] else L(' 보유', ' owned')
+                    x = button(y + 1, 1, L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')
+                    if st['super']:
+                        x = button(y + 1, x, L(f'슈퍼볼 ({st["super"]})', f'Great ({st["super"]})'), 'super')
+                    if st['hyper']:
+                        x = button(y + 1, x, L(f'하이퍼볼 ({st["hyper"]})', f'Ultra ({st["hyper"]})'), 'hyper')
+                    if st['master']:
+                        x = button(y + 1, x, L(f'마스터볼 ({st["master"]})', f'Master ({st["master"]})'), 'master')
+                    button(y + 1, x, L('도망', 'run'), 'run')
                 y += 2
             else:
                 k = tickets(st, t)
@@ -1551,10 +1689,18 @@ def main(scr):
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
-            put(scr, 1, 1, msg or L(f'체육관 배지 {len(st.get("gym", {}))}/{len(rows)}', f'Gym badges {len(st.get("gym", {}))}/{len(rows)}'),
+            put(scr, 1, 1, msg or L(f'체육관 배지 {len(st.get("gym", {}))}/{sum(1 for r in rows if r[1] != "R")}', f'Gym badges {len(st.get("gym", {}))}/{sum(1 for r in rows if r[1] != "R")}'),
                 curses.A_DIM)
             for k, (g, i) in enumerate(rows[top:top + body]):
                 key = f'gym:{g}-{i}'
+                if i == 'R':
+                    rs = raid_state(st)
+                    x = put(scr, 2 + k, 0, ('▶ ' if top + k == sel else '  ') + L(f'이번 주 레이드 — {name(raid_boss(st)[1])} ({g}세대)',
+                                                                                  f'Raid this week — {name(raid_boss(st)[1])} (Gen {g})'), curses.A_BOLD)
+                    if rs['won']:
+                        put(scr, 2 + k, x + 2, L('✔ 승리 — 레이드볼로 잡자', '✔ won — catch it'))
+                    btns.append((2 + k, 1, w - 1, ('gym', (g, i))))
+                    continue
                 if i == 'L':
                     won = st.get('league', {}).get(str(g))
                     x = put(scr, 2 + k, 0, ('▶ ' if top + k == sel else '  ') + L(f'{g}세대 사천왕·챔피언', f'Gen {g} Elite Four'),
@@ -1571,18 +1717,21 @@ def main(scr):
                 btns.append((2 + k, 1, w - 1, ('gym', (g, i))))
             if w >= 50 and rows:
                 g_, i_ = rows[sel]
-                art = badge_art(st, [f'champ{g_}' if i_ == 'L' else f'gym:{g_}-{i_}'], 3, w - 14, 4)
+                art = None if i_ == 'R' else badge_art(st, [f'champ{g_}' if i_ == 'L' else f'gym:{g_}-{i_}'], 3, w - 14, 4)
             x = button(h - 1, 1, L('도전 준비', 'prepare'), 'gym_sel')
             x = button(h - 1, x, L('장식', 'show'), 'pin_gym')
             x = button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 관 · ←→ 버튼 · Enter', '↑↓ gym · ←→ button · Enter'), curses.A_DIM)
         elif view == 'gym':
             g, i = gsel
-            opp = gym_opp(BATTLE, g, i)
+            opp = gym_opp(BATTLE, g, i, st)
             team = team_of(st, g)
             tn = lambda tp: BATTLE['tnames'].get(tp, ['', ''])  # noqa: E731
-            won = st.get('league', {}).get(str(g)) if i == 'L' else st.get('gym', {}).get(f'gym:{g}-{i}')
+            won = st.get('league', {}).get(str(g)) if i == 'L' else (L('이번 주', 'this week') if raid_state(st)['won'] else None) \
+                if i == 'R' else st.get('gym', {}).get(f'gym:{g}-{i}')
             y = para(scr, 1, (L(f'{g}세대 사천왕·챔피언 — 5연전', f'Gen {g} Elite Four — 5 battles') if i == 'L' else
+                              L(f'이번 주 레이드 — {name(opp[0][0])} ({g}세대 전설, HP ×{RAID_HP})',
+                                f'Raid this week — {name(opp[0][0])} (Gen {g} legendary, HP ×{RAID_HP})') if i == 'R' else
                               L(f'{g}세대 {i + 1}관 — {tn(_battle.GYMS[g][i][0])[0]} 타입', f'Gen {g} gym {i + 1} — {tn(_battle.GYMS[g][i][0])[1]} type'))
                      + (L(f'  ✔ {won}\xa0승리', f'  ✔ won\xa0{won}') if won else ''), w, curses.A_BOLD)
             if i == 'L':  # 사천왕 4명(타입)과 챔피언 — 한 명씩, 길면 접는다
@@ -1599,14 +1748,16 @@ def main(scr):
                 if i == 'L' and team:
                     put(scr, y + 1, 1, L('승률 계산 중…', 'Working out the odds…'), curses.A_DIM)
                     scr.refresh()
-                wr_cache[wkey] = gym_rate(BATTLE, fighters(st, team), g, i)
+                wr_cache[wkey] = gym_rate(BATTLE, fighters(st, team), g, i, st)
             put(scr, y + 1, 1, L(f'승률 {wr_cache[wkey]:.0%}', f'Win rate {wr_cache[wkey]:.0%}'), curses.A_BOLD)
             y += 2
             if rec and rec[0] == (g, i):
                 rteam = [(st['box'][k]['id'], box_level(st['box'][k])) for k in rec[1]]
                 y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(name(n) for n, _ in rteam) +
                          L(f'  (승률\xa0{rec[2]:.0%})\xa0—\xa0[적용]', f'  ({rec[2]:.0%})\xa0—\xa0[apply]'), w)
-            cost = LEAGUE_COST if i == 'L' else GYM_COST
+            cost = LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else GYM_COST
+            if i == 'R':
+                y = para(scr, y, L(f'이기면 레이드볼 {RAID_BALLS}개로 잡을 기회 — 가진 볼은 못 쓴다', f'Win for {RAID_BALLS} Raid Balls to catch it — your own balls don\'t work'), w, curses.A_DIM)
             y = para(scr, y + 1, msg, w)
             para(scr, y, L(f'탐색 기회 {tickets(st, t)}회 · 도전 1번에 {cost}회', f'{tickets(st, t)} explores · {cost} per challenge'),
                  w, curses.A_DIM)
@@ -1658,6 +1809,8 @@ def main(scr):
                 put(scr, h - 1, x, L('Enter 끝까지', 'Enter skip'), curses.A_DIM)
         elif view == 'info':
             art = draw_info(scr, st, info, h, w, gold)
+            if info in DEX:
+                put(scr, h - 2, 1, research_text(st, info), curses.A_BOLD if research_done(st, info) else curses.A_DIM)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('←→ 앞뒤 포켓몬', '←→ prev/next'), curses.A_DIM)
         elif view == 'balls':  # [교환] → [몬스터볼] — 한 단계 위 볼로
@@ -1700,18 +1853,19 @@ def main(scr):
             if view in ('box', 'trade'):  # 보이는 순서(가방 번호들) — 키·버튼이 고른 줄도 이것으로 가방 번호를 찾는다
                 order = bag_order(st, bag_g if view == 'box' else None, bag_sort)
             rows = ([(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
-                      + f'{n:04d} ' + (name(n) if n in st['seen'] else '???')
+                      + f'{n:04d} ' + (name(n) if n in st['seen'] else '???') + (' ★' if n in st.get('researched', []) else '')
                       + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in DEX if gen(n) == dg]
                     if dg <= open_gen else []) \
                 if view == 'dex' else \
-                [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '')
+                [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '') + ('◆' if m.get('alpha') else '')
                   + (f'{name(m["id"])}  (No.{sp(m["id"]):03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}' if w >= 62 else
                      f'{name(m["id"])} Lv{box_level(m)} · {iv_text(m)}'))  # 좁으면 번호·경험치는 빼고 개체값까지 보이게
                  for i, m in ((i, st['box'][i]) for i in order)]
             if view == 'dex':
                 have = sum(1 for n in st['caught'] if gen(n) == dg)
-                put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶   ● 잡음 ○ 봄',
-                                  f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶   ● caught ○ seen'), curses.A_DIM)
+                done_r = sum(1 for n in st.get('researched', []) if gen(n) == dg)
+                put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶ ★연구 {done_r}  ● 잡음 ○ 봄',
+                                  f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶ ★research {done_r}  ● caught ○ seen'), curses.A_DIM)
             elif view == 'trade':
                 put(scr, 1, 1, msg or L(f'교환 · 정렬 {SORTS[bag_sort][0]} (Tab) — [박사에게] 한 마리 · [정리] 중복 한꺼번에 · [몬스터볼] 볼 바꾸기',
                                         f'Trade · sort {SORTS[bag_sort][1]} (Tab) — [send] one · [tidy] all duplicates · [balls] swap balls'), curses.A_DIM)
@@ -1906,12 +2060,12 @@ def main(scr):
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
             cands = [(k, m['id'], box_level(m), iv_of(m)) for k, m in enumerate(st['box']) if gen(m['id']) == gsel[0]]
-            opp = gym_opp(BATTLE, *gsel)
+            opp = gym_opp(BATTLE, *gsel, st)
             if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률로(가볍게 40번씩)
                 pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
             else:
                 pick = _battle.recommend(BATTLE, cands, opp)
-            rec = (gsel, pick, gym_rate(BATTLE, [c[1:] for c in cands if c[0] in pick], *gsel))
+            rec = (gsel, pick, gym_rate(BATTLE, [c[1:] for c in cands if c[0] in pick], *gsel, st))
             msg = ''
         if act == 'apply' and view == 'gym' and rec and rec[0] == gsel:
             st['team'] = list(rec[1])
@@ -1973,12 +2127,15 @@ def main(scr):
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
                        'fled': L(f'{name(n)}(은)는 도망쳐 버렸다…', f'{name(n)} ran away…'),
+                       'raidonly': L('레이드 보스에겐 레이드볼만 던질 수 있다.', 'Only Raid Balls work on a raid boss.'),
                        'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! [교환] → [몬스터볼]에서 바꿔 오자.',
                                       f'Only an Ultra or Master Ball works on {name(n)}! Swap balls in [trade] → [balls].'),
                        None: L('그 볼이 없다.', "You don't have that ball.")}[r]
                 if r == 'caught' and len(st.get('eggs', [])) > eggs0:
                     msg += L(' 풀숲에서 알도 하나 주웠다!', ' Found an egg in the grass too!')
             elif act == 'run' and st['wild']:
+                if st['wild'].get('raid'):  # 레이드 보스를 놓아주면 이번 주 레이드는 끝
+                    raid_state(st)['done'] = True
                 msg, st['wild'] = L('무사히 도망쳤다.', 'Got away safely.'), None
             elif act in ('evolve', 'candy'):
                 before = name(st['box'][st['partner']]['id']) if st['partner'] is not None else ''
@@ -2146,8 +2303,10 @@ def selftest():
     sh = new_state()
     sh['box'], sh['caught'] = [{'id': 25, 'xp': 0}], [25]
     lucky = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.0})()
-    assert explore(sh, ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild'] == {'id': 25, 'balls': BALLS, 'shiny': True}
-    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'iv': [0, 0, 0], 'shiny': True} and sh['shiny'] == [25]
+    # (난수 0 이면 우두머리도 함께 — 개체값은 우두머리 바닥 ALPHA_IV 부터)
+    assert explore(sh, ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild'] == {'id': 25, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0}
+    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'iv': [ALPHA_IV] * 3, 'shiny': True, 'alpha': True}
+    assert sh['shiny'] == [25]
     assert explore(sh, 2 * ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild']
     sh['wild'] = None
     # 이로치 동료는 기본 라이츄가 가방에 있어도 진화하고, 진화해도 이로치
@@ -2485,6 +2644,46 @@ def selftest():
     assert 'fuse1' in check_badges(fu) and send_away(fu, [1]) == (0, 0)  # 합체한 것은 박사에게 안 간다
     assert unfuse(fu, 1) == 644 and [m['id'] for m in fu['box']] == [25, 646, 644, 643, 644] and 'fused' not in fu['box'][1]
     assert unfuse(fu, 1) is None and fuse_options(fu, 2) == []
+    # 연구: 잡기 5 · 진화 1 · 배틀 승리 3 을 다 채우면 ★ 와 슈퍼볼 2 — 한 번만
+    rs = new_state()
+    assert research_goals(1) == {'c': 5, 'e': 1, 'w': 3} and research_goals(150) == {'c': 1, 'e': 0, 'w': 3}
+    for key in 'ccccce' + 'ww':
+        research_bump(rs, 1, key)
+    assert not research_done(rs, 1) and rs['super'] == 0 and '2/3' in research_text(rs, 1)
+    research_bump(rs, 1, 'w')
+    assert research_done(rs, 1) and rs['researched'] == [1] and rs['super'] == 2 and rs['news'][-1]['kind'] == 'research'
+    research_bump(rs, 1, 'w')
+    research_bump(rs, 10091, 'c')  # 리전폼 번호는 세지 않는다
+    assert rs['super'] == 2 and '10091' not in rs['research'] and research_text(rs, 1).startswith(L('★', '★'))
+    lr2 = tempfile.mkdtemp()
+    save({**new_state(), 'research': {}, 'box': [{'id': 1, 'xp': 0}, {'id': 1, 'xp': 0}]}, lr2)
+    assert load(lr2)['research'] == {'1': {'c': 2}}  # 옛 가방은 마릿수를 잡은 횟수로(상 없이)
+    # 우두머리: 볼 3번 안에 못 잡으면 보유 볼이 남아도 도망
+    al = new_state()
+    al['wild'], al['balls'] = {'id': 19, 'balls': BALLS, 'alpha': True, 'tries': 0}, 10
+    never2 = type('R', (), {'random': lambda s: 0.99})()
+    assert [throw(al, 0, never2) for _ in range(3)] == ['missed', 'missed', 'fled'] and al['wild'] is None
+    # 레이드: 이번 주 보스(열린 세대의 전설) · 목록 맨 위 · 이기면 레이드볼 3개로만 · 놓치면 이번 주 끝
+    rd = new_state()
+    g_r, boss = raid_boss(rd)
+    assert g_r == 1 and DEX[boss][5] == 1 and raid_boss(new_state()) == (g_r, boss) and gym_rows(rd)[0] == (1, 'R')
+    rd['box'], rd['team'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 3}], [0]
+    gd2 = {'stats': {boss: [1] * 6, 7: [200] * 6}, 'types': {boss: [11], 7: [11]}, 'eff': {}, 'tnames': {}}
+    won, ev, first = fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R', random.Random(1))
+    assert won and not first and rd['wild'] == {**rd['wild'], 'id': boss, 'balls': RAID_BALLS, 'raid': True} and rd['raid']['won']
+    assert rd['research']['7']['w'] == 1 and fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R')[0] is None  # 이번 주는 한 번만
+    rd['hyper'] = 5
+    assert throw(rd, 0, never2, 'hyper') == 'raidonly' and rd['hyper'] == 5  # 가진 볼은 못 쓴다
+    assert [throw(rd, 0, never2) for _ in range(RAID_BALLS)] == ['missed', 'missed', 'fled'] and rd['wild'] is None
+    assert rd['raid']['done'] and gym_rows(rd)[0] != (1, 'R')
+    rc = new_state()
+    rc['box'], rc['team'], rc['wild'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 3}], [0], {'id': 19, 'balls': BALLS}
+    assert fight(rc, 4 * ENCOUNTER_EVERY, gd2, 1, 'R', random.Random(1))[0] and rc['raid']['pending'] and rc['wild']['id'] == 19
+    rc['wild'] = None  # 하던 야생이 끝나면 레이드 보스가 나온다
+    raid_release(rc)
+    lucky2 = type('R', (), {'random': lambda s: 0.0})()
+    assert rc['wild']['raid'] and throw(rc, 0, lucky2) == 'caught' and rc['raids'] == 1 and rc['box'][-1]['id'] == boss
+    assert min(rc['box'][-1]['iv']) >= IV_FLOOR and 'raid1' in check_badges(rc)
     # 줄 접기: 폭 안에서 빈칸·쉼표 뒤에서 접고, '·' 는 앞 낱말에 붙인다(한글은 2칸)
     assert fold('가나다 · 라마 · 바사', 12) == ['가나다 ·', '라마 · 바사'] and fold('a, b, c', 3) == ['a,', 'b,', 'c'] and fold('a, b, c', 4) == ['a,', 'b, c']
     assert all(sum(map(memo.cw, x)) <= 20 for x in fold('내 팀 메가니움 Lv39, 블레이범 Lv39, 장크로다일 Lv39, 토게틱 Lv27', 20))
