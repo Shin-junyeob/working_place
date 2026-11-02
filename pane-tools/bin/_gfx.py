@@ -14,7 +14,8 @@ import time
 import tty
 
 KITTY = False  # __main__ 이 curses 를 켜기 전에 kitty_ok() 로 정한다
-_sent, _placed = set(), [None]  # 터미널에 보내 둔 그림 번호들 · 지금 화면에 놓인 그림 번호
+_sent, _placed = set(), [None]  # 터미널에 보내 둔 그림 번호들 · 지금 화면에 놓인 그림 번호(함께 놓인 것은 _more)
+_more = []
 
 
 def kitty_ok():
@@ -46,23 +47,27 @@ def kitty_cols(pw, ph, rows):
     return max(1, round(pw / ph * rows * ratio))
 
 
-def kitty_show(y, x, key, png, cols, rows):
-    """PNG 를 key 번 그림으로 처음 한 번만 보내 두고, (y, x) 칸에 cols×rows 로 놓는다.
-    매 화면마다 다시 놓는다 — curses 가 화면을 통째로 지워도 그림이 돌아오게(같은 자리 표시는 바꿔 끼워진다)."""
-    out = []
-    if _placed[0] not in (None, key):  # 동료가 바뀌면 전 그림을 내린다
-        out.append(f'\x1b_Ga=d,d=i,i={_placed[0]},q=2\x1b\\')
-    if key not in _sent:
-        data = base64.b64encode(png).decode()
-        parts = [data[i:i + 4096] for i in range(0, len(data), 4096)]  # Kitty 는 4096바이트씩 받는다
-        for i, part in enumerate(parts):
-            head = f'a=t,f=100,i={key},q=2,' if i == 0 else ''
-            out.append(f'\x1b_G{head}m={int(i < len(parts) - 1)};{part}\x1b\\')
-        _sent.add(key)
-    out.append(f'\x1b7\x1b[{y + 1};{x + 1}H\x1b_Ga=p,i={key},p=1,c={cols},r={rows},C=1,q=2\x1b\\\x1b8')
+def kitty_show(y, x, key, png, cols, rows, more=()):
+    """PNG 를 key 번 그림으로 처음 한 번만 보내 두고, (y, x) 칸에 cols×rows 로 놓는다. more: 함께 놓을
+    (y, x, key, png, cols, rows) 들(장식 배지와 동료 그림처럼). 매 화면마다 다시 놓는다 — curses 가 화면을 통째로
+    지워도 그림이 돌아오게(같은 자리 표시는 바꿔 끼워진다)."""
+    out, items = [], [(y, x, key, png, cols, rows), *more]
+    keys = {it[2] for it in items}
+    for old in [_placed[0], *_more]:  # 동료가 바뀌면 전 그림을 내린다
+        if old is not None and old not in keys:
+            out.append(f'\x1b_Ga=d,d=i,i={old},q=2\x1b\\')
+    for y, x, key, png, cols, rows in items:
+        if key not in _sent:
+            data = base64.b64encode(png).decode()
+            parts = [data[i:i + 4096] for i in range(0, len(data), 4096)]  # Kitty 는 4096바이트씩 받는다
+            for i, part in enumerate(parts):
+                head = f'a=t,f=100,i={key},q=2,' if i == 0 else ''
+                out.append(f'\x1b_G{head}m={int(i < len(parts) - 1)};{part}\x1b\\')
+            _sent.add(key)
+        out.append(f'\x1b7\x1b[{y + 1};{x + 1}H\x1b_Ga=p,i={key},p=1,c={cols},r={rows},C=1,q=2\x1b\\\x1b8')
     sys.stdout.write(''.join(out))
     sys.stdout.flush()
-    _placed[0] = key
+    _placed[0], _more[:] = items[0][2], [it[2] for it in items[1:]]
 
 
 def kitty_hide(free=False):
@@ -70,10 +75,12 @@ def kitty_hide(free=False):
     if free and _sent:
         sys.stdout.write('\x1b_Ga=d,d=A,q=2\x1b\\')
         _sent.clear()
-    elif _placed[0] is not None:
-        sys.stdout.write(f'\x1b_Ga=d,d=i,i={_placed[0]},q=2\x1b\\')
+    else:
+        for old in [_placed[0], *_more]:
+            if old is not None:
+                sys.stdout.write(f'\x1b_Ga=d,d=i,i={old},q=2\x1b\\')
     sys.stdout.flush()
-    _placed[0] = None
+    _placed[0], _more[:] = None, []
 
 
 SIXEL = False  # 터미널이 Sixel 이미지를 받으면 True — __main__ 이 sixel_ok() 로 정한다
@@ -139,7 +146,7 @@ def _send(seq):
     sys.stdout.flush()
 
 
-def sixel_show(y, x, key, data, cols, rows):
+def sixel_show(y, x, key, data, cols, rows, more=()):
     """(y, x) 칸에 Sixel 그림을 놓는다. 같은 그림이면 30초에 한 번만 다시 놓는다(tmux 가 화면을 다시 그려 지웠을 때 대비)
     — 자주 보내면 깜빡인다. 키를 누르거나 배틀 기록이 한 줄 진행되면 바로 다시 놓는다(sixel_touch — 배틀 중엔 HP·기록이
     바뀔 때마다 tmux 가 패널을 다시 그려 그림이 지워졌다, 2026-10-30)."""
@@ -148,7 +155,11 @@ def sixel_show(y, x, key, data, cols, rows):
     oy, ox = _outer(y, x)
     if _six['box'] and _six['box'][:2] != (oy, ox):
         sixel_hide()
-    _send(f'\x1b7\x1b[{oy + 1};{ox + 1}H{data}\x1b8')
+    seq = f'\x1b7\x1b[{oy + 1};{ox + 1}H{data}'
+    for my, mx, mdata in more:  # 함께 놓을 그림들 (y, x, Sixel) — key 에 함께 담아야 바뀔 때 다시 놓인다
+        my, mx = _outer(my, mx)
+        seq += f'\x1b[{my + 1};{mx + 1}H{mdata}'
+    _send(seq + '\x1b8')
     _six.update(key=key, t=time.time(), box=(oy, ox, cols, rows))
 
 
