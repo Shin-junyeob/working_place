@@ -1305,15 +1305,14 @@ def badge_art(st, keys, y, x, rows):
     return ('kitty', y, x, 100000 + zlib.crc32(repr(ids).encode()) % 100000, img[0], cols, rows)
 
 
-def partner_art(st, y, w):
-    """메인 화면 동료 그림 — (y, 1) 에 2줄. Sixel 은 허브처럼 1.5줄 높이. 그림을 못 놓거나 좁으면 None."""
-    n = partner_id_of(st)
+def mon_art(n, y, w):
+    """메인 화면의 포켓몬 그림(동료·야생) — 그림 번호 n 을 (y, 1) 에 2줄. Sixel 은 허브처럼 1.5줄 높이. 못 놓거나 좁으면 None."""
     if n is None or w < 44 or not (SIXEL or KITTY):
         return None
     cw_, ch_ = _gfx.cell_px()
     if SIXEL:
         six = _pokedata.sprite_sixel(n, False, int(1.5 * ch_))
-        return six and ('six', y, 1, ('partner', n, y), six[0], math.ceil(six[1] / cw_), 2)
+        return six and ('six', y, 1, ('mon', n, y), six[0], math.ceil(six[1] / cw_), 2)
     png = _pokedata.sprite_png(n)
     return png and ('kitty', y, 1, _pokedata.img_id(n) * 2, png[0], _gfx.kitty_cols(png[1], png[2], 2), 2)
 
@@ -1322,9 +1321,10 @@ def join_art(a, b):
     """그림 둘을 한 번에 놓을 하나로 — 화면엔 그림 자리가 하나뿐이라(장식 배지 + 동료). 하나가 None 이면 다른 하나."""
     if not a or not b:
         return a or b
-    if a[0] == 'six':  # 열쇠에 둘 다 담아야 어느 쪽이 바뀌어도 다시 놓인다
-        return ('six', a[1], a[2], (a[3], b[3]), a[4], a[5], a[6], [(b[1], b[2], b[4])])
-    return (*a, [b[1:]])
+    more = list(a[7]) if len(a) > 7 else []  # 셋째부터는 a 에 이미 붙은 것 뒤로
+    if a[0] == 'six':  # 열쇠에 모두 담아야 어느 쪽이 바뀌어도 다시 놓인다
+        return ('six', a[1], a[2], (a[3], b[3]), a[4], a[5], a[6], more + [(b[1], b[2], b[4])])
+    return (*a[:7], more + [b[1:]])
 
 
 def badge_goal(st, b):
@@ -1763,7 +1763,7 @@ def main(scr):
             else:
                 m = st['box'][st['partner']]
                 n = m['id']
-                pic = partner_art(st, y, w)  # 동료 그림은 왼쪽 2줄, 글은 그 오른쪽 — 허브와 같이
+                pic = mon_art(partner_id_of(st), y, w)  # 동료 그림은 왼쪽 2줄, 글은 그 오른쪽 — 허브와 같이
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
                 x = put(scr, y, px, L('동료  ', 'Partner  '), curses.A_BOLD)
@@ -1796,7 +1796,10 @@ def main(scr):
             y = para(scr, y, weekly_text(st), w, curses.A_DIM if weekly(st)['done'] else 0)
             if st['wild']:
                 sh, wd = st['wild'].get('shiny'), st['wild']
-                x = put(scr, y, 1, L('레이드 보스 ', 'Raid boss ') if wd.get('raid') else
+                pic = mon_art(art_of({'id': wd.get('form') or wd['id'], 'shiny': sh}), y, w)  # 야생도 그림 — 글·볼 버튼은 그 오른쪽
+                art = join_art(art, pic)
+                px = pic[5] + 3 if pic else 1
+                x = put(scr, y, px, L('레이드 보스 ', 'Raid boss ') if wd.get('raid') else
                         L('앗! 붉은 눈의 우두머리 ', 'Oh! An alpha ') if wd.get('alpha') else L('앗! 야생의 ', 'Oh! A wild '), curses.A_BOLD)
                 x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if sh else '') + name(st['wild'].get('form') or st['wild']['id']),
                         gold if sh else curses.A_BOLD)
@@ -1804,12 +1807,12 @@ def main(scr):
                                                                             f' (flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws)')
                                                                           if wd.get('alpha') else ''), curses.A_BOLD)
                 if wd.get('raid'):  # 레이드볼만 — 보유 볼은 못 쓴다
-                    x = button(y + 1, 1, L(f'레이드볼 ({wd["balls"]})', f'Raid Ball ({wd["balls"]})'), 'throw')
+                    x = button(y + 1, px, L(f'레이드볼 ({wd["balls"]})', f'Raid Ball ({wd["balls"]})'), 'throw')
                     button(y + 1, x, L('놓아주기', 'let go'), 'run')
                 else:
                     left = wd['balls'] or st['balls']
                     own = '' if wd['balls'] else L(' 보유', ' owned')
-                    x = button(y + 1, 1, L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')
+                    x = button(y + 1, px, L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')
                     if st['super']:
                         x = button(y + 1, x, L(f'슈퍼볼 ({st["super"]})', f'Great ({st["super"]})'), 'super')
                     if st['hyper']:
@@ -2591,6 +2594,7 @@ def selftest():
     assert not any(SHIP.search(x) for x in ('[Test] prefix', 'e-approval todo', 'keep it private', 'improvement_roadmap'))
     ja, jb = ('six', 2, 1, 'b', 'B', 3, 1), ('six', 4, 1, 'p', 'P', 2, 2)  # 장식 배지 + 동료 그림을 한 번에
     assert join_art(ja, jb) == ('six', 2, 1, ('b', 'p'), 'B', 3, 1, [(4, 1, 'P')]) and join_art(None, jb) == jb
+    assert join_art(join_art(ja, jb), ('six', 7, 1, 'w', 'W', 2, 2))[7] == [(4, 1, 'P'), (7, 1, 'W')]  # 배지·동료·야생 셋도
     assert join_art(('kitty', 2, 1, 7, b'B', 3, 1), ('kitty', 4, 1, 9, b'P', 2, 2))[7] == [(4, 1, 9, b'P', 2, 2)]
     rw = new_state()
     rw['reward_since'] = '2026-10-01'
