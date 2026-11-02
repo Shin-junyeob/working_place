@@ -1305,6 +1305,28 @@ def badge_art(st, keys, y, x, rows):
     return ('kitty', y, x, 100000 + zlib.crc32(repr(ids).encode()) % 100000, img[0], cols, rows)
 
 
+def partner_art(st, y, w):
+    """메인 화면 동료 그림 — (y, 1) 에 2줄. Sixel 은 허브처럼 1.5줄 높이. 그림을 못 놓거나 좁으면 None."""
+    n = partner_id_of(st)
+    if n is None or w < 44 or not (SIXEL or KITTY):
+        return None
+    cw_, ch_ = _gfx.cell_px()
+    if SIXEL:
+        six = _pokedata.sprite_sixel(n, False, int(1.5 * ch_))
+        return six and ('six', y, 1, ('partner', n, y), six[0], math.ceil(six[1] / cw_), 2)
+    png = _pokedata.sprite_png(n)
+    return png and ('kitty', y, 1, _pokedata.img_id(n) * 2, png[0], _gfx.kitty_cols(png[1], png[2], 2), 2)
+
+
+def join_art(a, b):
+    """그림 둘을 한 번에 놓을 하나로 — 화면엔 그림 자리가 하나뿐이라(장식 배지 + 동료). 하나가 None 이면 다른 하나."""
+    if not a or not b:
+        return a or b
+    if a[0] == 'six':  # 열쇠에 둘 다 담아야 어느 쪽이 바뀌어도 다시 놓인다
+        return ('six', a[1], a[2], (a[3], b[3]), a[4], a[5], a[6], [(b[1], b[2], b[4])])
+    return (*a, [b[1:]])
+
+
 def badge_goal(st, b):
     """못 받은 배지의 진행 (지금, 목표) — 셀 수 없는 것(첫 전설 등)은 None."""
     if b.startswith('catch'):
@@ -1741,25 +1763,28 @@ def main(scr):
             else:
                 m = st['box'][st['partner']]
                 n = m['id']
-                x = put(scr, y, 1, L('동료  ', 'Partner  '), curses.A_BOLD)
+                pic = partner_art(st, y, w)  # 동료 그림은 왼쪽 2줄, 글은 그 오른쪽 — 허브와 같이
+                art = join_art(art, pic)
+                px = pic[5] + 3 if pic else 1
+                x = put(scr, y, px, L('동료  ', 'Partner  '), curses.A_BOLD)
                 x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n),
                         gold if m.get('shiny') else curses.A_BOLD)
                 put(scr, y, x, L(f'  (No.{sp(n):04d}, {gen(n)}세대 · {depth(n) + 1}단계)',
                                  f'  (No.{sp(n):04d}, Gen {gen(n)} · stage {depth(n) + 1})'), curses.A_BOLD)
                 ev = evo_status(st, t)
                 if ev[0] == 'final':
-                    put(scr, y + 1, 1, L('더 진화하지 않는 포켓몬입니다.', 'This Pokémon does not evolve any further.'), curses.A_DIM)
+                    put(scr, y + 1, px, L('더 진화하지 않는 포켓몬입니다.', 'This Pokémon does not evolve any further.'), curses.A_DIM)
                 elif ev[0] == 'locked':
-                    put(scr, y + 1, 1, L('진화형은 다음 세대가 열리면(사천왕 클리어 또는 도감 완성) 만날 수 있다.',
+                    put(scr, y + 1, px, L('진화형은 다음 세대가 열리면(사천왕 클리어 또는 도감 완성) 만날 수 있다.',
                                           'Its evolution unlocks with the next generation (beat the Elite Four or finish the dex).'), curses.A_DIM)
                 elif ev[0] == 'blocked':
-                    put(scr, y + 1, 1, blocked_text(ev[1]), curses.A_DIM)
+                    put(scr, y + 1, px, blocked_text(ev[1]), curses.A_DIM)
                 elif ev[0] == 'ready':
-                    x = put(scr, y + 1, 1, L('✨ 진화할 수 있다!', '✨ It can evolve!'), curses.A_BOLD)
+                    x = put(scr, y + 1, px, L('✨ 진화할 수 있다!', '✨ It can evolve!'), curses.A_BOLD)
                     button(y + 1, x + 3, L('진화', 'evolve'), 'evolve')
                 else:
-                    x = put(scr, y + 1, 1, L('진화 ', 'Evolve '))
-                    x = put(scr, y + 1, x, f'{bar(ev[1] / ev[2], max(6, min(24, w - 40)))} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
+                    x = put(scr, y + 1, px, L('진화 ', 'Evolve '))
+                    x = put(scr, y + 1, x, f'{bar(ev[1] / ev[2], max(6, min(24, w - 40 - px)))} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
                     if st.get('candy'):
                         button(y + 1, x + 3, L(f'이상한사탕 ({st["candy"]})', f'Rare Candy ({st["candy"]})'), 'candy')
             y = y0 + 2
@@ -1796,9 +1821,11 @@ def main(scr):
             else:
                 k = tickets(st, t)
                 if k > 0:
-                    y = para(scr, y, L(f'탐색 {k}회 가능 · 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
-                                       f'{k} explore{"" if k == 1 else "s"} ready · Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}')
+                    # 볼 → 탐색 → 사탕 순 — 탐색 횟수가 맨 앞이면 볼 숫자들에 묻혀 눈에 안 들어왔다(2026-11-02 사용자)
+                    y = para(scr, y, L(f'몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]}',
+                                       f'Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]}')
                              + (L(f' · 마스터볼 {st["master"]}', f' · Master {st["master"]}') if st['master'] else '')
+                             + L(f' · 탐색 {k}회 가능', f' · {k} explore{"" if k == 1 else "s"} ready')
                              + (L(f' · 이상한사탕 {st["candy"]}', f' · Rare Candy {st["candy"]}') if st.get('candy') else ''), w)
                     button(y, 1, L('풀숲 탐색', 'explore grass'), 'explore')
                     y += 1
@@ -2562,6 +2589,9 @@ def selftest():
     job('c', [(day2, '문서 정리')])  # 내보낸 일이 아니다
     assert all(SHIP.search(x) for x in ('PR을 올렸다', 'PR #3 merged', 'pushed to main', 'git push 완료', '배포함'))
     assert not any(SHIP.search(x) for x in ('[Test] prefix', 'e-approval todo', 'keep it private', 'improvement_roadmap'))
+    ja, jb = ('six', 2, 1, 'b', 'B', 3, 1), ('six', 4, 1, 'p', 'P', 2, 2)  # 장식 배지 + 동료 그림을 한 번에
+    assert join_art(ja, jb) == ('six', 2, 1, ('b', 'p'), 'B', 3, 1, [(4, 1, 'P')]) and join_art(None, jb) == jb
+    assert join_art(('kitty', 2, 1, 7, b'B', 3, 1), ('kitty', 4, 1, 9, b'P', 2, 2))[7] == [(4, 1, 9, b'P', 2, 2)]
     rw = new_state()
     rw['reward_since'] = '2026-10-01'
     assert reward(rw, jd) == 1 and rw['super'] == 1 and reward(rw, jd) == 0  # 21일만, 하루 1개
