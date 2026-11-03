@@ -1306,13 +1306,10 @@ def badge_art(st, keys, y, x, rows):
 
 
 def bag_text(m, room):
-    """가방·교환 목록 한 줄(표시 뒤) — 자세한 글이 room 칸에 안 들어가면 짧은 글, 그래도 길면 이름 끝을 '…'로 줄여
-    개체값(공·방·체·%)이 늘 보이게. 팔데아 켄타로스(블레이즈종) 같은 긴 이름에서 개체값이 잘렸다(2026-11-03)."""
+    """가방·교환 목록 한 줄(표시 뒤) — 늘 '이름 Lv · 공 방 체 (%)'(도감번호·경험치는 빼기로, 2026-11-03 사용자).
+    room 칸보다 길면 이름 끝을 '…'로 줄여 개체값이 늘 보이게 — 팔데아 켄타로스(블레이즈종)에서 잘렸다."""
     cw = lambda t: sum(map(memo.cw, t))  # noqa: E731
     nm = name(m['id'])
-    full = f'{nm}  (No.{sp(m["id"]):03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}'
-    if cw(full) <= room:
-        return full
     tail = f' Lv{box_level(m)} · {iv_text(m)}'
     if cw(nm + tail) <= room:
         return nm + tail
@@ -1393,14 +1390,6 @@ GYM_WIN_XP, GYM_LOSE_XP = 60, 30  # 팀원마다 받는 배틀 경험치(이기�
 
 def box_level(m):
     return _battle.level(depth(m['id']), m.get('bxp', 0))
-
-
-def xp_text(m):
-    """배틀 경험치 진행도 — '(10/50)', 상한이면 '(최대)'."""
-    bxp = m.get('bxp', 0)
-    if bxp // _battle.XP_PER_LEVEL >= _battle.XP_LEVEL_CAP:
-        return L('(최대)', '(max)')
-    return f'({bxp % _battle.XP_PER_LEVEL}/{_battle.XP_PER_LEVEL})'
 
 
 def team_of(st, g=None):
@@ -2842,7 +2831,6 @@ def selftest():
     assert move_focus(nb, 'run', K.KEY_UP) == 'run' and move_focus(nb, 'gone', K.KEY_RIGHT) == 'super'
     assert move_focus([], None, K.KEY_RIGHT) is None
     # 배틀 경험치 진행도: 50 마다 1레벨, 상한이면 (최대)
-    assert xp_text({'id': 1, 'bxp': 60}) == '(10/50)' and xp_text({'id': 1, 'bxp': 10**6}) == L('(최대)', '(max)')
     assert box_level({'id': 1, 'bxp': 60}) == 16  # 이상해씨 15 + 60 // 50
     # 이전 세대 섞기: 1세대만 열렸으면 없음, 2세대가 열리면 탐색의 약 20%가 1세대(잡은 종·전설 포함)
     real_forms = dict(FORMS)  # 리전폼은 받아 둔 파일과 상관없이 정해 둔 셋으로 시험
