@@ -24,7 +24,7 @@ New modes are one file: drop a curses program at `pane-tools/bin/<name>.py` and 
 - **Gauges** — context, cost and rate limits of the session it follows (each session's mod writes them every 2 s).
 - **Speech bubble** — the partner reacts in one line: a session waiting for input (yellow after 10 minutes), ready to evolve, rewards, medals, gym badges and eggs, a session that just finished (it claps when it shipped a PR or a deploy), or rustling grass.
 - **Sessions** — the awake `claude agents` sessions on the right, in the same colors as `claude agents` (needs yellow, working gray, completed green).
-- **Partner art** — real sprites: Kitty graphics (cmux, Ghostty, kitty) or Sixel (Windows Terminal 1.22+, WezTerm, foot), detected automatically, `▀▄` blocks otherwise. Inside tmux the hub enables passthrough for its own pane only; add `set -as terminal-features ',xterm*:sixel'` to `~/.tmux.conf` (`install.sh --tmux-layout` does it).
+- **Partner art** — real sprites: Kitty graphics (cmux, Ghostty, kitty) or Sixel (Windows Terminal 1.22+, WezTerm, foot), detected automatically, `▀▄` blocks otherwise. The Pokémon screen draws the partner and the Pokémon you meet in the grass (shiny colours and regional forms included) the same way, left of their lines, when the panel is at least 44 columns wide. Inside tmux the hub enables passthrough for its own pane only; add `set -as terminal-features ',xterm*:sixel'` to `~/.tmux.conf` (`install.sh --tmux-layout` does it).
 - Keys work with a Korean keyboard layout too; on macOS with [`macism`](https://github.com/laishulu/macism) the hub switches to an English layout while focused.
 
 ### Session activity and memo
@@ -47,11 +47,11 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
 A species already in your bag shows up rarely (1/10 of a new one) but can be caught again. A species that evolves from an earlier generation's Pokémon (Espeon and Umbreon from Eevee, Crobat from Golbat …) is mainly reached by evolution and shows up in the grass at 1/10 too — at full odds only once nothing else is left in its generation, so it never blocks the Pokédex.
 
-**Bag and IVs** — every Pokémon rolls its own **IVs**: Attack, Defense and HP, 0–15 each, shown as `A13 D15 H14 (93%)` (★ at 15/15/15). Eggs, legendaries and mythicals roll at least 10. IVs add to battle stats, so two of the same species are worth comparing. The bag pages through all / each generation and sorts by Pokédex number, level, IVs or name.
+**Bag and IVs** — every Pokémon rolls its own **IVs**: Attack, Defense and HP, 0–15 each, shown as `A13 D15 H14 (93%)` (★ at 15/15/15). Eggs, legendaries and mythicals roll at least 10. IVs add to battle stats, so two of the same species are worth comparing. The bag pages through all / each generation and sorts by Pokédex number, level, IVs or name. Bag and trade rows show only name, level and IVs; a name too long for the panel is cut with `…` so the IVs stay visible.
 
 **Trade** (between bag and medals) — **send** gives the highlighted Pokémon to the Professor for 1–5 Poké Balls (rarer is more); **tidy** sends every duplicate except the best-IV, most-trained ones. Both ask for a second press, and the partner, team members, shinies and changed forms (fusions, Megas and the like — the material is gone) are never sent. The **balls** page swaps balls up a tier: 5 Poké → 1 Great, 20 Great → 1 Ultra, 5 Ultra → 1 Master (500 Poké Balls to a Master Ball).
 
-**Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
+**Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (whole words — `prefix` or `approval` don't count; read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
 
 **Eggs** — each wild catch has a 10% chance to come with an **egg** (up to three; the region conquest gives one too): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
 
@@ -71,7 +71,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Alphas** — about one explore in a hundred meets a red-eyed alpha (◆ in the bag): half the catch rate and only three throws before it flees, but its IVs start at 12.
 
-**Raids** — each week (from Monday) one legendary from an opened generation sits at the top of the gym list. Beat it (any generation may enter — the place for the teams you maxed out earlier; 48× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over. **pick** draws from the whole bag here, and a win gives the team battle XP and research credit like a gym win.
+**Raids** — each week (from Monday) one legendary from an opened generation sits at the top of the gym list. Beat it (any generation may enter — the place for the teams you maxed out earlier; 48× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over — even past Monday, and letting it go then doesn't close the new week's raid. **pick** draws from the whole bag here, and a win gives the team battle XP and research credit like a gym win.
 
 **Medals** — 51 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids, Mega Evolution, Gigantamax), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
@@ -155,7 +155,7 @@ Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's ch
 ## Data on disk
 
 Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
-`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` · `specials.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress — if it can't be read, the game shows a warning and waits instead of starting over, and a corrupt file is first copied to `pokemon.json.bad`), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` · `specials.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
 
 ## Pokémon — unofficial fan project
 
