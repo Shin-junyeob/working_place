@@ -1305,6 +1305,22 @@ def badge_art(st, keys, y, x, rows):
     return ('kitty', y, x, 100000 + zlib.crc32(repr(ids).encode()) % 100000, img[0], cols, rows)
 
 
+def bag_text(m, room):
+    """가방·교환 목록 한 줄(표시 뒤) — 자세한 글이 room 칸에 안 들어가면 짧은 글, 그래도 길면 이름 끝을 '…'로 줄여
+    개체값(공·방·체·%)이 늘 보이게. 팔데아 켄타로스(블레이즈종) 같은 긴 이름에서 개체값이 잘렸다(2026-11-03)."""
+    cw = lambda t: sum(map(memo.cw, t))  # noqa: E731
+    nm = name(m['id'])
+    full = f'{nm}  (No.{sp(m["id"]):03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}'
+    if cw(full) <= room:
+        return full
+    tail = f' Lv{box_level(m)} · {iv_text(m)}'
+    if cw(nm + tail) <= room:
+        return nm + tail
+    while nm and cw(nm + '…' + tail) > room:
+        nm = nm[:-1]
+    return nm + '…' + tail
+
+
 def mon_art(n, y, w):
     """메인 화면의 포켓몬 그림(동료·야생) — 그림 번호 n 을 (y, 1) 에 2줄. Sixel 은 허브처럼 1.5줄 높이. 못 놓거나 좁으면 None."""
     if n is None or w < 44 or not (SIXEL or KITTY):
@@ -1807,20 +1823,20 @@ def main(scr):
                                                                             f' (flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws)')
                                                                           if wd.get('alpha') else ''), curses.A_BOLD)
                 if wd.get('raid'):  # 레이드볼만 — 보유 볼은 못 쓴다
-                    x = button(y + 1, px, L(f'레이드볼 ({wd["balls"]})', f'Raid Ball ({wd["balls"]})'), 'throw')
-                    button(y + 1, x, L('놓아주기', 'let go'), 'run')
+                    acts = [(L(f'레이드볼 ({wd["balls"]})', f'Raid Ball ({wd["balls"]})'), 'throw'), (L('놓아주기', 'let go'), 'run')]
                 else:
                     left = wd['balls'] or st['balls']
                     own = '' if wd['balls'] else L(' 보유', ' owned')
-                    x = button(y + 1, px, L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')
-                    if st['super']:
-                        x = button(y + 1, x, L(f'슈퍼볼 ({st["super"]})', f'Great ({st["super"]})'), 'super')
-                    if st['hyper']:
-                        x = button(y + 1, x, L(f'하이퍼볼 ({st["hyper"]})', f'Ultra ({st["hyper"]})'), 'hyper')
-                    if st['master']:
-                        x = button(y + 1, x, L(f'마스터볼 ({st["master"]})', f'Master ({st["master"]})'), 'master')
-                    button(y + 1, x, L('도망', 'run'), 'run')
-                y += 2
+                    acts = [(L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')] + \
+                        [(L(f'{ko} ({st[k]})', f'{en} ({st[k]})'), k) for k, ko, en in
+                         (('super', '슈퍼볼', 'Great'), ('hyper', '하이퍼볼', 'Ultra'), ('master', '마스터볼', 'Master')) if st[k]] + \
+                        [(L('도망', 'run'), 'run')]
+                bx, by = px, y + 1
+                for label, a in acts:  # 폭을 넘으면 다음 줄로 — 한 줄로 이으면 [도망]이 패널 밖으로 나갔다(2026-11-03)
+                    if bx > px and bx + sum(map(memo.cw, label)) + (2 if tight else 4) > w - 1:
+                        bx, by = px, by + 1
+                    bx = button(by, bx, label, a)
+                y = by + 1
             else:
                 k = tickets(st, t)
                 if k > 0:
@@ -2082,8 +2098,7 @@ def main(scr):
                     if dg <= open_gen else []) \
                 if view == 'dex' else \
                 [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '') + ('◆' if m.get('alpha') else '')
-                  + (f'{name(m["id"])}  (No.{sp(m["id"]):03d} · Lv{box_level(m)} {xp_text(m)}) · {iv_text(m)}' if w >= 62 else
-                     f'{name(m["id"])} Lv{box_level(m)} · {iv_text(m)}'))  # 좁으면 번호·경험치는 빼고 개체값까지 보이게
+                  + bag_text(m, w - 8))
                  for i, m in ((i, st['box'][i]) for i in order)]
             if view == 'dex':
                 have = sum(1 for n in st['caught'] if gen(n) == dg)
@@ -2455,6 +2470,9 @@ def selftest():
     save({**new_state(), 'box': [{'id': 25, 'xp': 0}, {'id': 150, 'xp': 0}]}, lr)
     assert load(lr)['box'][0]['iv'] == load(lr)['box'][0]['iv'] and len(load(lr)['box'][0]['iv']) == 3
     assert min(load(lr)['box'][1]['iv']) >= IV_FLOOR  # 옛 전설도 바닥값부터
+    if FORMS:  # 긴 이름도 개체값(%)은 늘 보인다 — 이름 끝을 줄인다
+        bt = bag_text({'id': 10251, 'xp': 0, 'iv': [14, 15, 13]}, 40)
+        assert bt.endswith('(93%)') and '…' in bt and sum(map(memo.cw, bt)) <= 40
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
