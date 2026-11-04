@@ -817,13 +817,14 @@ def ball_name(kind, k):
     return f'{ko} {k}개', f'{k} {en}{"s" if int(k) > 1 else ""}'
 
 
-def egg_text(st, t):
-    """'알 2개 · 다음 부화까지 18k' — 알이 없으면 ''."""
-    eggs = st.get('eggs', [])
-    if not eggs:
-        return ''
-    left = min(e['need'] - (t - e['base']) for e in eggs)
-    return L(f'알 {len(eggs)}개 · 다음 부화까지 {fmt_tok(max(0, left))}', f'{len(eggs)} egg(s) · next hatch in {fmt_tok(max(0, left))}')
+def egg_lines(st, t):
+    """알마다 한 줄 [('알 · 부화까지 18k', 진행 0~1)] — 부화가 빠른 순. 알은 저마다 받은 때(base)부터 자란다
+    ('알 2개 · 다음 부화까지'로 묶어 보이면 새 알이 옛 알을 리셋한 것처럼 보였다, 2026-11-04)."""
+    out = []
+    for e in sorted(st.get('eggs', []), key=lambda e: e['need'] - (t - e['base'])):
+        left = max(0, e['need'] - (t - e['base']))
+        out.append((L(f'알 · 부화까지 {fmt_tok(left)}', f'Egg · hatches in {fmt_tok(left)}'), min(1.0, (t - e['base']) / e['need'])))
+    return out
 
 
 def reward(st, folder=feed.JOBS, today=None):
@@ -1884,10 +1885,9 @@ def main(scr):
                     if st.get('candy'):
                         button(y + 1, x + 3, L(f'이상한사탕 ({st["candy"]})', f'Rare Candy ({st["candy"]})'), 'candy')
             y = y0 + 2
-            if st.get('eggs'):
-                e = min(st['eggs'], key=lambda e: e['need'] - (t - e['base']))
-                x = put(scr, y, 1, '🥚 ' + egg_text(st, t) + ' ')
-                put(scr, y, x, bar((t - e['base']) / e['need'], 12), curses.A_DIM)
+            for text, frac in egg_lines(st, t):  # 알마다 한 줄
+                x = put(scr, y, 1, '🥚 ' + text + ' ')
+                put(scr, y, x, bar(frac, 12), curses.A_DIM)
                 y += 1
             y = para(scr, y, weekly_text(st), w, curses.A_DIM if weekly(st)['done'] else 0)
             if st['wild']:
@@ -2645,6 +2645,8 @@ def selftest():
     assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('iv', 2), ('iv', 3)]
     assert change(cp, 0, 1) == ('iv', 2) and cp['box'][0]['iv'] == [15, 3, 15] and cp['items']['cap'] == 0
     assert change(cp, 0, 0) == ('iv', 3) and cp['box'][0]['iv'] == [15] * 3 and change_options(cp, 0) == []
+    eg2 = {**new_state(), 'eggs': [{'id': 1, 'base': 0, 'need': 125_000}, {'id': 4, 'base': 50_000, 'need': 75_000}]}
+    assert [round(f, 2) for _, f in egg_lines(eg2, 100_000)] == [0.8, 0.67] and len(egg_lines(eg2, 0)) == 2  # 알마다 따로, 빠른 순
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
