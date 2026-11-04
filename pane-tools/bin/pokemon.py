@@ -583,7 +583,8 @@ def throw(st, t, rng=random, kind='ball'):
         if w['tries'] >= ALPHA_TRIES:
             st['wild'] = None
             return 'fled'
-    if w['balls'] + st['balls'] + st['super'] + st['hyper'] + st['master'] <= 0:
+    usable = st['hyper'] + st['master'] if DEX[w['id']][5] else w['balls'] + st['balls'] + st['super'] + st['hyper'] + st['master']
+    if usable <= 0:  # 전설·환상엔 하이퍼볼·마스터볼만 셈 — 몬스터볼이 남아도 던질 수 없다
         st['wild'] = None
         return 'fled'
     return 'missed'
@@ -609,10 +610,10 @@ def _caught(st, t, w, rng):
     # 리전폼은 폼 번호로 가방에 — 도감 숫자(caught) 대신 리전폼 목록(forms)에 적는다
     st['box'].append({'id': w.get('form') or w['id'], 'xp': 0, 'iv': roll_iv(rng, floor),
                       **({'shiny': True} if w.get('shiny') else {}), **({'alpha': True} if w.get('alpha') else {})})
+    research_bump(st, w['id'], 'c')  # 리전폼도 원래 종(w['id']) 연구에
     if w.get('form'):
         _mark(st, 'forms', w['form'])
     else:
-        research_bump(st, w['id'], 'c')
         _mark(st, 'seen', w['id'])  # 변신한 메타몽은 잡을 때 처음 '봄'이 된다
         _mark(st, 'caught', w['id'])
         if w.get('shiny'):
@@ -1045,7 +1046,7 @@ def evolve(st, t, rng=random):
 
 def _evolve(st, t, rng):
     mon = st['box'][st['partner']]
-    research_bump(st, mon['id'], 'e')
+    research_bump(st, sp(mon['id']), 'e')  # 리전폼은 원래 종 연구에(배틀 승리·포획과 같이)
     mon['id'], mon['xp'] = rng.choice(evolutions(st, mon['id'], mon.get('shiny'))), 0  # 이로치는 이로치로 진화
     st['base'] = t
     st['evolved'] = st.get('evolved', 0) + 1
@@ -1075,16 +1076,13 @@ def dex_text(st):
 
 
 def evo_status(st, t):
-    """동료의 진화 상태: ('final',) · ('locked',) · ('blocked', 진화형들) · ('ready',) · ('progress', 경험치, 필요치)."""
+    """동료의 진화 상태: ('final',) · ('locked',) · ('ready',) · ('progress', 경험치, 필요치)."""
     m = st['box'][st['partner']]
     n = m['id']
     if not evo_next(n):
         return ('final',)
-    opened = opened_evolutions(st, n)
-    if not opened:
+    if not opened_evolutions(st, n):
         return ('locked',)
-    if not evolutions(st, n, m.get('shiny')):
-        return ('blocked', opened)  # 진화형이 이미 가방에 있다
     xp, need = partner_xp(st, t), need_xp(n)
     return ('ready',) if xp >= need else ('progress', xp, need)
 
@@ -1104,12 +1102,6 @@ def move_focus(btns, focus, key):
         return acts[i]
     ny = min(rows, key=lambda b: abs(b[0] - y))[0]
     return min((b for b in rows if b[0] == ny), key=lambda b: abs(b[1] - x))[3]
-
-
-def blocked_text(opened):
-    if len(opened) == 1:
-        return L(f'{name(opened[0])}(이)가 가방에 있어 진화 못 함', f"can't evolve — {name(opened[0])} is already in the bag")
-    return L('진화형이 모두 가방에 있어 진화 못 함', "can't evolve — every evolution is already in the bag")
 
 
 def summary(root=ROOT, awake=None):
@@ -1135,8 +1127,6 @@ def summary(root=ROOT, awake=None):
             lines.append((p + L('최종 진화', 'fully evolved'), False, None))
         elif ev[0] == 'locked':
             lines.append((p + L('다음 세대가 열리면 진화', 'evolves once the next generation opens'), False, None))
-        elif ev[0] == 'blocked':
-            lines.append((p + blocked_text(ev[1]), False, None))
         elif ev[0] == 'ready':
             lines.append((p + L('✨ 진화 가능!', '✨ ready to evolve!'), True, 1.0))
         else:
@@ -1805,8 +1795,6 @@ def main(scr):
                 elif ev[0] == 'locked':
                     put(scr, y + 1, px, L('진화형은 다음 세대가 열리면(사천왕 클리어 또는 도감 완성) 만날 수 있다.',
                                           'Its evolution unlocks with the next generation (beat the Elite Four or finish the dex).'), curses.A_DIM)
-                elif ev[0] == 'blocked':
-                    put(scr, y + 1, px, blocked_text(ev[1]), curses.A_DIM)
                 elif ev[0] == 'ready':
                     x = put(scr, y + 1, px, L('✨ 진화할 수 있다!', '✨ It can evolve!'), curses.A_BOLD)
                     button(y + 1, x + 3, L('진화', 'evolve'), 'evolve')
@@ -1839,15 +1827,20 @@ def main(scr):
                 else:
                     left = wd['balls'] or st['balls']
                     own = '' if wd['balls'] else L(' 보유', ' owned')
-                    acts = [(L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')] + \
+                    legend = DEX[wd['id']][5]  # 전설·환상엔 하이퍼볼·마스터볼만 — 던질 수 없는 볼 버튼은 숨긴다
+                    acts = ([] if legend else [(L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')]) + \
                         [(L(f'{ko} ({st[k]})', f'{en} ({st[k]})'), k) for k, ko, en in
-                         (('super', '슈퍼볼', 'Great'), ('hyper', '하이퍼볼', 'Ultra'), ('master', '마스터볼', 'Master')) if st[k]] + \
+                         (('super', '슈퍼볼', 'Great'), ('hyper', '하이퍼볼', 'Ultra'), ('master', '마스터볼', 'Master'))
+                         if st[k] and not (legend and k == 'super')] + \
                         [(L('도망', 'run'), 'run')]
                 bx, by = px, y + 1
                 for label, a in acts:  # 폭을 넘으면 다음 줄로 — 한 줄로 이으면 [도망]이 패널 밖으로 나갔다(2026-11-03)
                     if bx > px and bx + sum(map(memo.cw, label)) + (2 if tight else 4) > w - 1:
                         bx, by = px, by + 1
                     bx = button(by, bx, label, a)
+                if not wd.get('raid') and DEX[wd['id']][5] and not st['hyper'] + st['master']:
+                    by = para(scr, by + 1, L('하이퍼볼·마스터볼이 없다 — [교환] → [몬스터볼]에서 바꿔 오거나 도망치자.',
+                                             'No Ultra or Master Ball — swap in [trade] → [balls], or run.'), w, curses.A_DIM, px) - 1
                 y = by + 1
             else:
                 k = tickets(st, t)
@@ -1901,7 +1894,7 @@ def main(scr):
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
-            put(scr, 1, 1, msg or L(f'체육관 배지 {len(st.get("gym", {}))}/{sum(1 for r in rows if r[1] != "R")}', f'Gym badges {len(st.get("gym", {}))}/{sum(1 for r in rows if r[1] != "R")}'),
+            put(scr, 1, 1, msg or L(f'체육관 배지 {len(st.get("gym", {}))}/{sum(1 for r in rows if r[1] not in ("R", "L"))}', f'Gym badges {len(st.get("gym", {}))}/{sum(1 for r in rows if r[1] not in ("R", "L"))}'),
                 curses.A_DIM)
             for k, (g, i) in enumerate(rows[top:top + body]):
                 key = f'gym:{g}-{i}'
@@ -2185,6 +2178,9 @@ def main(scr):
         key = getkey(scr, 2000)
         if key != -1:
             _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
+            fresh_st = load()  # 키를 기다린 2초 사이 허브가 저장했을 수 있다(부화·보상) — 그 위에 적용해야 덮어쓰지 않는다
+            if not fresh_st.get('_broken'):
+                st = fresh_st
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
         lists = view in ('box', 'trade', 'balls', 'change', 'dex', 'badges', 'gyms')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
         if view in ('box', 'trade') and key == 9:  # Tab — 정렬 바꾸기
@@ -2206,10 +2202,10 @@ def main(scr):
             focus = move_focus(navbtns, focus, key)
         if key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
             if view == 'dex' and dg == GENS + 2:
-                p = list(SPECIALS)[min(sel, len(SPECIALS) - 1)]
+                p = list(SPECIALS)[min(sel, len(SPECIALS) - 1)] if SPECIALS else None  # 자료를 못 받았으면 빈 쪽
                 act = ('info', p) if p in st.get('specials', []) else None
             elif view == 'dex' and dg > GENS:
-                p = list(FORMS)[min(sel, len(FORMS) - 1)]
+                p = list(FORMS)[min(sel, len(FORMS) - 1)] if FORMS else None
                 act = ('info', p) if p in st['forms_seen'] else None
             elif view == 'dex':
                 n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
@@ -2497,6 +2493,11 @@ def selftest():
     assert 25 in dt['seen'] and DITTO not in dt['seen'] and 25 in disguises(dt) and DITTO not in disguises(dt)
     assert throw(dt, ENCOUNTER_EVERY, type('R', (), {'random': lambda s: 0.0})()) == 'caught'
     assert dt['box'][-1]['id'] == DITTO and DITTO in dt['caught'] and DITTO in dt['seen'] and 25 not in dt['caught']
+    lf = {**new_state(), 'wild': {'id': 150, 'balls': 3}, 'balls': 10, 'hyper': 1}  # 전설: 하이퍼볼이 떨어지면 몬스터볼이 남아도 도망
+    assert throw(lf, 0, type('R', (), {'random': lambda s: 0.99})(), 'hyper') == 'fled' and lf['wild'] is None
+    if FORMS:  # 리전폼을 잡아도 원래 종 연구에
+        rf = {**new_state(), 'wild': {'id': 19, 'form': 10091, 'balls': 3}}
+        assert throw(rf, 0, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and rf['research']['19']['c'] == 1
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
