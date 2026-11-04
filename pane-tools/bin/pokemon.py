@@ -37,6 +37,7 @@
   이기고 못 만난 보스는 월요일이 지나도 한 번 나온다(raid_state 의 late) — 레이드 야생은 자기 주(week)를 들고 다닌다(raid_done).
 - 메타몽(DITTO): 야생에선 다른 일반 포켓몬으로 변신해 나오고(disguises · wild['disguise'] · shown), 잡아야 정체가 드러난다.
   이로치 메타몽도 변신한 모습은 보통 색 — 이로치인 것은 정체와 함께 드러난다.
+  조로아·조로아크(히스이 포함, ZORUA)는 팀 마지막 포켓몬(없으면 동료)의 환영으로 나온다(illusion) — 같은 disguise 구조.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
   도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장) · F 모습 바꾸기(합체·메가 등).
@@ -523,13 +524,17 @@ def explore(st, t, rng=random):
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     if n in FORMS:  # 리전폼 — 이로치 없음, 다른 종처럼 이미 있어도 만나서 잡는다(개체값·박사)
-        _mark(st, 'forms_seen', n)
-        st['wild'] = {'id': FORMS[n][0], 'form': n, 'balls': BALLS}
-        return n, 0
+        ill = illusion(st) if FORMS[n][0] in ZORUA else None  # 히스이 조로아·조로아크도 환영으로
+        if not ill:
+            _mark(st, 'forms_seen', n)
+        st['wild'] = {'id': FORMS[n][0], 'form': n, 'balls': BALLS, **({'disguise': ill} if ill else {})}
+        return ill or n, 0
     shiny = rng.random() < shiny_rate(st, n)
     alpha = not DEX[n][5] and rng.random() < ALPHA_RATE
-    disguise = rng.choice(disguises(st)) if n == DITTO else None  # 메타몽은 다른 포켓몬으로 변신해 나온다 — 잡아야 정체가 드러난다
-    _mark(st, 'seen', disguise or n)
+    # 메타몽은 다른 포켓몬으로 변신해, 조로아·조로아크는 내 포켓몬의 환영으로 나온다 — 잡아야 정체가 드러난다
+    disguise = rng.choice(disguises(st)) if n == DITTO else illusion(st) if n in ZORUA else None
+    if not (n in ZORUA and disguise):  # 환영은 내 포켓몬 모습이라 새로 본 것이 없다
+        _mark(st, 'seen', disguise or n)
     st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {}), **({'alpha': True, 'tries': 0} if alpha else {}),
                   **({'disguise': disguise} if disguise else {})}
     if disguise:
@@ -591,6 +596,13 @@ def throw(st, t, rng=random, kind='ball'):
 
 
 DITTO = 132
+ZORUA = (570, 571)  # 조로아·조로아크 — 환영(illusion)
+
+
+def illusion(st):
+    """조로아·조로아크의 환영 — 원작처럼 팀의 마지막 포켓몬, 팀이 없으면 동료 모습(가방 번호 그대로 — 리전폼·메가도). 없으면 None."""
+    i = st['team'][-1] if st.get('team') else st['partner']
+    return None if i is None else st['box'][i]['id']
 
 
 def disguises(st):
@@ -600,7 +612,7 @@ def disguises(st):
 
 
 def shown(w):
-    """야생이 화면에 보이는 번호 — 변신한 메타몽이면 그 모습, 리전폼이면 폼 번호."""
+    """야생이 화면에 보이는 번호 — 변신한 메타몽·조로아크 환영이면 그 모습, 리전폼이면 폼 번호."""
     return w.get('disguise') or w.get('form') or w['id']
 
 
@@ -612,6 +624,7 @@ def _caught(st, t, w, rng):
                       **({'shiny': True} if w.get('shiny') else {}), **({'alpha': True} if w.get('alpha') else {})})
     research_bump(st, w['id'], 'c')  # 리전폼도 원래 종(w['id']) 연구에
     if w.get('form'):
+        _mark(st, 'forms_seen', w['form'])  # 환영이던 히스이 조로아크는 잡을 때 처음 본다
         _mark(st, 'forms', w['form'])
     else:
         _mark(st, 'seen', w['id'])  # 변신한 메타몽은 잡을 때 처음 '봄'이 된다
@@ -2388,6 +2401,7 @@ def main(scr):
                     msg = L(f'풀숲에서 {name(got[0])}(이)가 튀어나왔다!', f'{name(got[0])} jumped out of the tall grass!')
             elif act in ('throw', 'super', 'hyper', 'master') and st['wild']:
                 n, eggs0, ditto, dsh = shown(st['wild']), len(st.get('eggs', [])), st['wild'].get('disguise'), st['wild'].get('shiny')
+                real = st['wild'].get('form') or st['wild']['id']
                 r = throw(st, t, kind={'throw': 'ball'}.get(act, act))
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
@@ -2396,7 +2410,10 @@ def main(scr):
                        'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! [교환] → [몬스터볼]에서 바꿔 오자.',
                                       f'Only an Ultra or Master Ball works on {name(n)}! Swap balls in [trade] → [balls].'),
                        None: L('그 볼이 없다.', "You don't have that ball.")}[r]
-                if r == 'caught' and ditto:
+                if r == 'caught' and ditto and sp(real) in ZORUA:
+                    msg += L(f' …앗! {name(n)}의 모습이 일그러진다… 환영이 풀렸다! 정체는 {"✨이로치 " if dsh else ""}{name(real)}(이)였다!',
+                             f' …Huh? {name(n)} is warping… the illusion breaks! It was a {"✨shiny " if dsh else ""}{name(real)}!')
+                elif r == 'caught' and ditto:
                     msg += L(f' …어라? {name(n)}의 모습이 흐물흐물 녹아내린다… 정체는 {"✨이로치 " if dsh else ""}메타몽이었다!',
                              f' …Huh? {name(n)} is melting away… it was a {"✨shiny " if dsh else ""}Ditto all along!')
                 if r == 'caught' and len(st.get('eggs', [])) > eggs0:
@@ -2498,6 +2515,16 @@ def selftest():
     if FORMS:  # 리전폼을 잡아도 원래 종 연구에
         rf = {**new_state(), 'wild': {'id': 19, 'form': 10091, 'balls': 3}}
         assert throw(rf, 0, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and rf['research']['19']['c'] == 1
+    class ZoroRng:  # 조로아크를 뽑는다
+        def random(self): return 0.5
+        def choices(self, seq, weights=None): return [571]
+        def choice(self, seq): return seq[0]
+    zr = {**new_state(), 'box': [{'id': 1, 'xp': 0, 'iv': [1] * 3}, {'id': 25, 'xp': 0, 'iv': [1] * 3}], 'partner': 0, 'team': [0, 1]}
+    zr['league'] = {str(g): True for g in range(1, 5)}  # 5세대 열림
+    assert explore(zr, ENCOUNTER_EVERY, ZoroRng()) == (25, 0) and zr['wild']['id'] == 571 and 571 not in zr['seen']  # 팀 마지막(피카츄)의 환영
+    assert throw(zr, ENCOUNTER_EVERY, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and zr['box'][-1]['id'] == 571 and 571 in zr['seen']
+    zn = {**new_state(), 'league': zr['league']}
+    assert explore(zn, ENCOUNTER_EVERY, ZoroRng()) == (571, 0) and 'disguise' not in zn['wild']  # 팀·동료가 없으면 환영 없이
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
