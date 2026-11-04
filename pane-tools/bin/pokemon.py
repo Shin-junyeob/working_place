@@ -18,7 +18,7 @@
   체육관은 처음 이길 때마다 하이퍼볼 1개. [교환] → [몬스터볼]에서 볼을 위 단계로 바꾼다(TRADES — 몬스터볼 5 → 슈퍼볼,
   슈퍼볼 20 → 하이퍼볼, 하이퍼볼 5 → 마스터볼). 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
   하나라도 있으면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline). 그런 날이 STREAK_DAYS 일 연속이면 하이퍼볼.
-- 알: 야생 포켓몬을 잡을 때 EGG_CATCH 확률로 하나(최대 EGG_MAX), 지방 정복 때 하나. 알마다 받은 때(base)부터 따로 자라고, 메인 화면에 한 줄씩(egg_lines).
+- 알: 야생 포켓몬을 잡을 때 EGG_CATCH 확률로 하나(최대 EGG_MAX), 지방 정복 때 하나. 알마다 받은 때(base)부터 따로 자라고, 메인 화면에 한 줄씩(egg_lines). 종류(egg_km, 2·5·7·10·12km)에 따라 덤을 더 준다(EGG_KM_BONUS · EGG_KM_SHINY).
 - 주간 과제: 주마다(월요일) WEEKLY 에서 하나 — 이루면 WEEKLY_PRIZE.
 - 리전폼(알로라·가라르·히스이·팔데아 모습, FORMS): 이전 세대 탐색(OLD_GEN_RATE)에 그 종의 세대가 지난 폼이 함께 나온다.
   잡으면 가방에 폼 번호(FORMS 의 키, 10000 위)로 들어가 진화·레벨·배틀을 한다 — 종족값·타입은 그 모습 것(battle.json),
@@ -108,6 +108,8 @@ WEEKLY_PRIZE = [('hyper', 2), ('super', 3), ('candy', 1)]  # 일주일에 한 �
 EGG_SHINY = 1 / 64
 # 알에서 포켓몬과 함께 나오는 덤 — (볼 종류, 개수, 확률%) (2026-10-21 정함)
 EGG_BONUS = [('balls', 1, 60), ('balls', 2, 20), ('balls', 3, 10), ('super', 1, 7), ('hyper', 1, 3)]
+EGG_KM_BONUS = {7: [('super', 1)], 10: [('hyper', 1)], 12: [('hyper', 2)]}  # 오래 걸리는 알일수록 덤을 더(EGG_BONUS 에 더해)
+EGG_KM_SHINY = {12: 2}  # 12km 알은 이로치 확률 ×2
 DONE_SHOW, NEWS_SHOW, STALE = 120, 300, 12 * 3600  # 완료 반응 · 보상 소식 보이는 시간 · 이보다 오래된 needs 는 무시(초)
 
 DEX, GENS, GEN_SIZE, CHILDREN = {}, 0, {}, {}  # load_dex() 가 채운다
@@ -715,10 +717,11 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
         if n['kind'] == 'charm':
             return L(f'빛나는 부적 {ROMAN[int(n["arg"])]}을 얻었다! ({n["arg"]}세대 이로치 2배)',
                      f'Got Shiny Charm {ROMAN[int(n["arg"])]}! (Gen {n["arg"]} shinies x2)'), False
-        if n['kind'] == 'hatch':  # arg: '번호[*]' 또는 '번호[*]|볼종류:개수'(덤)
+        if n['kind'] == 'hatch':  # arg: '번호[*]' 또는 '번호[*]|볼종류:개수[,볼종류:개수…]'(덤 — 알 종류에 따라 여럿)
             mon, _, extra = n['arg'].partition('|')
             hn, sh = int(mon.rstrip('*')), mon.endswith('*')
-            ko, en = (ball_name(*extra.split(':')) if extra else ('', ''))
+            names = [ball_name(*x.split(':')) for x in extra.split(',')] if extra else []
+            ko, en = ' + '.join(a for a, _ in names), ' + '.join(b for _, b in names)
             return L(f'알이 부화했다! {"✨이로치 " if sh else ""}{name(hn)}(이)가 태어났다!' + (f' 덤으로 {ko}!' if extra else ''),
                      f'An egg hatched! {"✨shiny " if sh else ""}{name(hn)} was born!' + (f' Plus {en}!' if extra else '')), False
         if n['kind'] == 'opengen':
@@ -792,8 +795,8 @@ def hatch(st, t, rng=random):
     out = []
     for e in [e for e in st.get('eggs', []) if t - e['base'] >= e['need']]:
         st['eggs'].remove(e)
-        n = e['id']
-        shiny = rng.random() < shiny_rate(st, n, EGG_SHINY)
+        n, km = e['id'], egg_km(e)
+        shiny = rng.random() < shiny_rate(st, n, EGG_SHINY) * EGG_KM_SHINY.get(km, 1)
         st['box'].append({'id': n, 'xp': 0, 'iv': roll_iv(rng, IV_FLOOR), **({'shiny': True} if shiny else {})})
         research_bump(st, n, 'c')
         for key in ('seen', 'caught') + (('shiny',) if shiny else ()):
@@ -801,8 +804,10 @@ def hatch(st, t, rng=random):
         if st['partner'] is None:
             set_partner(st, t, len(st['box']) - 1)
         kind, k, _ = rng.choices(EGG_BONUS, weights=[w for _, _, w in EGG_BONUS])[0]  # 덤 볼 하나는 늘 붙는다
-        st[kind] += k
-        tell(st, 'hatch', f'{n}{"*" if shiny else ""}|{kind}:{k}')
+        extra = [(kind, k)] + EGG_KM_BONUS.get(km, [])
+        for kind, k in extra:
+            st[kind] += k
+        tell(st, 'hatch', f'{n}{"*" if shiny else ""}|' + ','.join(f'{kind}:{k}' for kind, k in extra))
         bump(st, 'hatch')
         out.append((n, shiny))
     return out
@@ -2667,6 +2672,12 @@ def selftest():
     eg2 = {**new_state(), 'eggs': [{'id': 1, 'base': 0, 'need': 125_000}, {'id': 4, 'base': 50_000, 'need': 75_000}]}
     assert [(round(f, 2), km) for _, f, km in egg_lines(eg2, 100_000)] == [(0.8, 7), (0.67, 5)] and len(egg_lines(eg2, 0)) == 2  # 알마다 따로, 빠른 순
     assert [egg_km({'need': k * EGG_STEP}) for k in (10, 15, 20, 25, 40, 120)] == [2, 5, 5, 7, 10, 12]
+    first_bonus = type('R', (), {'random': lambda s: 0.99, 'choices': lambda s, xs, weights: [xs[0]]})()  # 이로치 아님 · 덤은 몬스터볼 1
+    ek = {**new_state(), 'eggs': [{'id': 798, 'base': 0, 'need': 250_000}, {'id': 123, 'base': 0, 'need': 125_000}]}
+    assert len(hatch(ek, 300_000, first_bonus)) == 2 and (ek['balls'], ek['super'], ek['hyper']) == (2, 1, 2)  # 12km 하이퍼볼 2 · 7km 슈퍼볼 1 더
+    assert ek['news'][0]['arg'] == '798|balls:1,hyper:2'
+    said = speech(ek, 300_000, now=ek['news'][-1]['at'] + 1, folder=tempfile.mkdtemp())  # 가장 최근 — 7km 알
+    assert ek['news'][-1]['arg'] == '123|balls:1,super:1' and L('몬스터볼 1개 + 슈퍼볼 1개', '1 Poké Ball + 1 Great Ball') in said[0]
     assert all(len(_pokedata.egg_px(km)) == 16 for km in _pokedata.EGG_KM) and set(_pokedata.EGG_KM) == {2, 5, 7, 10, 12}
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
