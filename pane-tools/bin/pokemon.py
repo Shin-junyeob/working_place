@@ -36,6 +36,7 @@
   ×RAID_HP 보스를 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다), 잡든 놓치든 그 주는 끝.
   이기고 못 만난 보스는 월요일이 지나도 한 번 나온다(raid_state 의 late) — 레이드 야생은 자기 주(week)를 들고 다닌다(raid_done).
 - 메타몽(DITTO): 야생에선 다른 일반 포켓몬으로 변신해 나오고(disguises · wild['disguise'] · shown), 잡아야 정체가 드러난다.
+  이로치 메타몽도 변신한 모습은 보통 색 — 이로치인 것은 정체와 함께 드러난다.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
   도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장) · F 모습 바꾸기(합체·메가 등).
@@ -1822,7 +1823,7 @@ def main(scr):
                 y += 1
             y = para(scr, y, weekly_text(st), w, curses.A_DIM if weekly(st)['done'] else 0)
             if st['wild']:
-                sh, wd = st['wild'].get('shiny'), st['wild']
+                sh, wd = st['wild'].get('shiny') and not st['wild'].get('disguise'), st['wild']
                 pic = mon_art(art_of({'id': shown(wd), 'shiny': sh}), y, w)  # 야생도 그림 — 글·볼 버튼은 그 오른쪽
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
@@ -2385,12 +2386,12 @@ def main(scr):
                 elif got[1]:
                     msg = L(f'또 {name(got[0])}! 이미 가방에 있어서 몬스터볼 {got[1]}개로 바꿨다.',
                             f'{name(got[0])} again! Already in your bag, so it became {got[1]} Poké Ball(s).')
-                elif st['wild'].get('shiny'):
+                elif st['wild'].get('shiny') and not st['wild'].get('disguise'):  # 이로치 메타몽은 변신한 모습이 보통 색 — 잡아야 안다
                     msg = L(f'✨ 반짝반짝! 이로치 {name(got[0])}(이)가 튀어나왔다!', f'✨ Sparkle! A shiny {name(got[0])} jumped out!')
                 else:
                     msg = L(f'풀숲에서 {name(got[0])}(이)가 튀어나왔다!', f'{name(got[0])} jumped out of the tall grass!')
             elif act in ('throw', 'super', 'hyper', 'master') and st['wild']:
-                n, eggs0, ditto = shown(st['wild']), len(st.get('eggs', [])), st['wild'].get('disguise')
+                n, eggs0, ditto, dsh = shown(st['wild']), len(st.get('eggs', [])), st['wild'].get('disguise'), st['wild'].get('shiny')
                 r = throw(st, t, kind={'throw': 'ball'}.get(act, act))
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
@@ -2400,8 +2401,8 @@ def main(scr):
                                       f'Only an Ultra or Master Ball works on {name(n)}! Swap balls in [trade] → [balls].'),
                        None: L('그 볼이 없다.', "You don't have that ball.")}[r]
                 if r == 'caught' and ditto:
-                    msg += L(f' …어라? {name(n)}의 모습이 흐물흐물 녹아내린다… 정체는 메타몽이었다!',
-                             f' …Huh? {name(n)} is melting away… it was a Ditto all along!')
+                    msg += L(f' …어라? {name(n)}의 모습이 흐물흐물 녹아내린다… 정체는 {"✨이로치 " if dsh else ""}메타몽이었다!',
+                             f' …Huh? {name(n)} is melting away… it was a {"✨shiny " if dsh else ""}Ditto all along!')
                 if r == 'caught' and len(st.get('eggs', [])) > eggs0:
                     msg += L(' 풀숲에서 알도 하나 주웠다!', ' Found an egg in the grass too!')
             elif act == 'run' and st['wild']:
