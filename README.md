@@ -53,7 +53,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Rewards from work** — one Great Ball on any day a session finishes with a push, a PR merge or a deploy (whole words — `prefix` or `approval` don't count; read from the `claude agents` timelines; one per day). Three such days in a row (the 3rd, 6th, 9th day of a streak) bring an Ultra Ball.
 
-**Eggs** — each wild catch has a 10% chance to come with an **egg** (up to three; the region conquest gives one too): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%).
+**Eggs** — each wild catch has a 10% chance to come with an **egg** (up to three; the region conquest gives one too): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%). Each egg counts down on its own from when you got it, and the main screen shows one line per egg (soonest first) with its own bar.
 
 **Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league/raid battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls, 3 Great Balls and a **Rare Candy**, which evolves your partner on the spot when it has a form to evolve into (one candy a week).
 
@@ -67,7 +67,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Special forms** — 133 Mega Evolutions, Primal Reversions, Ultra Burst and Gigantamax forms, opened one generation at a time: XY/ORAS Megas and Primal Groudon/Kyogre with Gen 6, Ultra Necrozma with Gen 7, Gigantamax with Gen 8 and the Legends: Z-A Megas with Gen 9 (Mega Zygarde has no pixel sprite on PokeAPI, so it uses the HOME render instead and looks different from the rest). Each needs the Pokémon plus an item, and the change is permanent — the item is used up and another form takes another set of materials: a **Mega Stone** (one per form; Charizard X and Y are separate) from finishing that species' research and another every five catches after; **Ultranecrozium Z** the same way from Necrozma, used on Dusk Mane/Dawn Wings Necrozma; the **Red/Blue Orb** from catching Groudon/Kyogre in a raid; **Max Soup** from every raid win. Items can be earned before their generation opens and are listed on the trade screen's balls page. Press **F** on the Pokémon in the bag, pick the form and press twice; level, XP, IVs and shininess carry over (a shiny keeps a shiny sprite) and it battles with the form's types and base stats. Each special form has its own research — make it once and win 3 battles with it — and a star on the special-forms page. The Pokédex's last page lists them all with what each still needs.
 
-**Research** — every species has research tasks: catch 5 (legendaries 1), evolve once (if it evolves) and win 3 battles with it on the team. Finishing them stars the species in the Pokédex (★, with the count per generation in the header) and gives 2 Great Balls; the detail screen shows the progress. Pokémon caught before research existed count toward the catch task.
+**Research** — every species has research tasks: catch 5 (legendaries 1), evolve once (if it evolves) and win 3 battles with it on the team. Finishing them stars the species in the Pokédex (★, with the count per generation in the header) and gives 2 Great Balls; the detail screen shows the progress. Pokémon caught before research existed count toward the catch task. Regional forms count toward their base species (catches, evolutions and wins alike).
 
 **Alphas** — about one explore in a hundred meets a red-eyed alpha (◆ in the bag): half the catch rate and only three throws before it flees, but its IVs start at 12.
 
@@ -157,7 +157,7 @@ Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's ch
 ## Data on disk
 
 Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
-`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress — if it can't be read, the game shows a warning and waits instead of starting over, and a corrupt file is first copied to `pokemon.json.bad`), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` · `specials.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress — if it can't be read, the game shows a warning and waits instead of starting over, and a corrupt file is first copied to `pokemon.json.bad`; the Pokémon screen re-reads it before acting on a key, so a hub save in between is kept), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` · `specials.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
 
 ## Pokémon — unofficial fan project
 
