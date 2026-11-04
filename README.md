@@ -44,7 +44,7 @@ Tokens you spend in Claude Code turn into encounters. Fill the Pokédex generati
 ![Pokémon screen with showcased medals and badges](docs/images/pokemon.png)
 
 **Catching** — one explore every 30k tokens. Starters come first, legendaries and mythicals last. Three balls per encounter plus the ones you own:
-Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls.
+Poké Ball, Great Ball (×1.5), Ultra Ball (×2) and Master Ball (always catches). A Poké Ball catches 35–70% depending on the species' original catch rate. Legendaries and mythicals only fall to Ultra or Master Balls — the other ball buttons are hidden for them, and once your Ultra and Master Balls run out they flee.
 A species already in your bag shows up rarely (1/10 of a new one) but can be caught again. A species that evolves from an earlier generation's Pokémon (Espeon and Umbreon from Eevee, Crobat from Golbat …) is mainly reached by evolution and shows up in the grass at 1/10 too — at full odds only once nothing else is left in its generation, so it never blocks the Pokédex.
 
 **Bag and IVs** — every Pokémon rolls its own **IVs**: Attack, Defense and HP, 0–15 each, shown as `A13 D15 H14 (93%)` (★ at 15/15/15). Eggs, legendaries and mythicals roll at least 10. IVs add to battle stats, so two of the same species are worth comparing. The bag pages through all / each generation and sorts by Pokédex number, level, IVs or name. Bag and trade rows show only name, level and IVs; a name too long for the panel is cut with `…` so the IVs stay visible.
@@ -73,7 +73,9 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Raids** — each week (from Monday) one legendary from an opened generation sits at the top of the gym list. Beat it (any generation may enter — the place for the teams you maxed out earlier; 48× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over — even past Monday, and letting it go then doesn't close the new week's raid. **pick** draws from the whole bag here, and a win gives the team battle XP and research credit like a gym win.
 
-**Medals** — 51 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids, Mega Evolution, Gigantamax), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
+**Battle Tower** — once any champion is beaten, the gym list gains a Battle Tower row under the raid. The first three team members (any generation; **pick** chooses three from the whole bag) fight one opponent trio after another until they lose; starting a run costs two explores, every next opponent is free. Opponents are random fully-evolved Pokémon from the opened generations and grow every 7 wins (+6 levels, +1 IV up to 15, with no level cap, so even a maxed team ends somewhere — measured average best streak about 58 for a maxed team, 44 for Lv79 teams, 27 for Lv60 ones); every 7th battle is a little stronger and every 49th brings a legendary. Every 7 wins: 3 Great Balls; every 21: 2 Ultra Balls and a **Bottle Cap**; every 49: a Master Ball and a **Gold Bottle Cap**. Each battle gives the team battle XP. Bottle Caps are Hyper Training: in the bag's F screen a Bottle Cap sets one IV to 15, a Gold Bottle Cap all three.
+
+**Medals** — 55 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids, Mega Evolution, Gigantamax, Battle Tower streaks of 7/21/49/100), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
 ![Medals](docs/images/medals.png)
 
@@ -101,7 +103,7 @@ Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generatio
 |---|---|
 | Most screens | arrows move between buttons, Enter presses one, `q` goes back or closes |
 | Lists (medals, gyms, trade) | ↑↓ picks the row, ←→ the button below it, which acts on that row |
-| Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it · F opens the change screen (fusion, Mega Evolution, Gigantamax …) |
+| Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it · F opens the change screen (fusion, Mega Evolution, Gigantamax …, and Hyper Training with Bottle Caps) |
 | Pokédex | ←→ generation (then regional forms, then special forms) · Enter details, where ←→ steps through species |
 
 Every screen fits the pane: long lines wrap at spaces, buttons lose their padding below 80 columns, and below 50 the ` q` hints go and bag rows shorten.
