@@ -1387,7 +1387,7 @@ def egg_art(km, y, w):
     cw_, ch_ = _gfx.cell_px()
     img = _pokedata.egg_image(km, int(ch_), 'six' if SIXEL else 'png')
     cols = math.ceil(img[1] / cw_)
-    return ('six', y, 1, ('egg', km, y), img[0], cols, 1) if SIXEL else ('kitty', y, 1, 300000 + km * 100 + y, img[0], cols, 1)  # 같은 종류 알이 둘이어도 따로 놓이게 줄도 번호에
+    return ('six', y, 1, ('egg', km, y), img[0], cols, 2) if SIXEL else ('kitty', y, 1, 300000 + km * 100 + y, img[0], cols, 1)  # 같은 종류 알이 둘이어도 따로 놓이게 줄도 번호에
 
 
 def join_art(a, b):
@@ -1912,7 +1912,7 @@ def main(scr):
                 art = join_art(art, pic)
                 x = put(scr, y, pic[5] + 2 if pic else 1, ('' if pic else '🥚 ') + text + ' ')
                 put(scr, y, x, bar(frac, 12), curses.A_DIM)
-                y += 1
+                y += 2 if pic else 1  # 그림은 터미널이 칸보다 크게 그려 2줄 가까이 된다 — 줄이지 않고 알마다 2줄(2026-11-04 사용자)
             y = para(scr, y, weekly_text(st), w, curses.A_DIM if weekly(st)['done'] else 0)
             if st['wild']:
                 sh, wd = st['wild'].get('shiny') and not st['wild'].get('disguise'), st['wild']
