@@ -35,6 +35,7 @@
   도망, 잡으면 개체값 최소 ALPHA_IV. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 모든 세대 팀으로 HP
   ×RAID_HP 보스를 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다), 잡든 놓치든 그 주는 끝.
   이기고 못 만난 보스는 월요일이 지나도 한 번 나온다(raid_state 의 late) — 레이드 야생은 자기 주(week)를 들고 다닌다(raid_done).
+- 메타몽(DITTO): 야생에선 다른 일반 포켓몬으로 변신해 나오고(disguises · wild['disguise'] · shown), 잡아야 정체가 드러난다.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
 - 조작은 방향키·Enter·q: 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼을 고르고, 다른 화면은 방향키로 버튼을 고른다(move_focus).
   도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 가방만 Enter 동료 · Space 팀 · ←→ 세대 · Tab 정렬(SORTS, PC 설정에 저장) · F 모습 바꾸기(합체·메가 등).
@@ -526,8 +527,12 @@ def explore(st, t, rng=random):
         return n, 0
     shiny = rng.random() < shiny_rate(st, n)
     alpha = not DEX[n][5] and rng.random() < ALPHA_RATE
-    _mark(st, 'seen', n)
-    st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {}), **({'alpha': True, 'tries': 0} if alpha else {})}
+    disguise = rng.choice(disguises(st)) if n == DITTO else None  # 메타몽은 다른 포켓몬으로 변신해 나온다 — 잡아야 정체가 드러난다
+    _mark(st, 'seen', disguise or n)
+    st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {}), **({'alpha': True, 'tries': 0} if alpha else {}),
+                  **({'disguise': disguise} if disguise else {})}
+    if disguise:
+        return disguise, 0
     return n, 0
 
 
@@ -583,6 +588,20 @@ def throw(st, t, rng=random, kind='ball'):
     return 'missed'
 
 
+DITTO = 132
+
+
+def disguises(st):
+    """메타몽이 변신할 모습 — 열린 세대에서 야생으로 나오는 일반 포켓몬(전설·환상·메타몽 빼고)."""
+    g = opened_gen(st)
+    return [c for c in DEX if c != DITTO and not DEX[c][5] and wild_ok(c) and gen(c) <= g]
+
+
+def shown(w):
+    """야생이 화면에 보이는 번호 — 변신한 메타몽이면 그 모습, 리전폼이면 폼 번호."""
+    return w.get('disguise') or w.get('form') or w['id']
+
+
 def _caught(st, t, w, rng):
     """잡았다 — 가방에 넣고(개체값 바닥: 전설·환상 IV_FLOOR · 우두머리 ALPHA_IV) 도감·연구·보상. 'caught'."""
     floor = max(IV_FLOOR if DEX[w['id']][5] else 0, ALPHA_IV if w.get('alpha') else 0)
@@ -593,6 +612,7 @@ def _caught(st, t, w, rng):
         _mark(st, 'forms', w['form'])
     else:
         research_bump(st, w['id'], 'c')
+        _mark(st, 'seen', w['id'])  # 변신한 메타몽은 잡을 때 처음 '봄'이 된다
         _mark(st, 'caught', w['id'])
         if w.get('shiny'):
             _mark(st, 'shiny', w['id'])
@@ -1803,12 +1823,12 @@ def main(scr):
             y = para(scr, y, weekly_text(st), w, curses.A_DIM if weekly(st)['done'] else 0)
             if st['wild']:
                 sh, wd = st['wild'].get('shiny'), st['wild']
-                pic = mon_art(art_of({'id': wd.get('form') or wd['id'], 'shiny': sh}), y, w)  # 야생도 그림 — 글·볼 버튼은 그 오른쪽
+                pic = mon_art(art_of({'id': shown(wd), 'shiny': sh}), y, w)  # 야생도 그림 — 글·볼 버튼은 그 오른쪽
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
                 x = put(scr, y, px, L('레이드 보스 ', 'Raid boss ') if wd.get('raid') else
                         L('앗! 붉은 눈의 우두머리 ', 'Oh! An alpha ') if wd.get('alpha') else L('앗! 야생의 ', 'Oh! A wild '), curses.A_BOLD)
-                x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if sh else '') + name(st['wild'].get('form') or st['wild']['id']),
+                x = put(scr, y, x, (L('✨이로치 ', '✨shiny ') if sh else '') + name(shown(st['wild'])),
                         gold if sh else curses.A_BOLD)
                 put(scr, y, x, L('(이)가 나타났다!', ' appeared!') + (L(f' (볼 {ALPHA_TRIES - wd.get("tries", 0)}번 안에 못 잡으면 도망)',
                                                                             f' (flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws)')
@@ -2370,7 +2390,7 @@ def main(scr):
                 else:
                     msg = L(f'풀숲에서 {name(got[0])}(이)가 튀어나왔다!', f'{name(got[0])} jumped out of the tall grass!')
             elif act in ('throw', 'super', 'hyper', 'master') and st['wild']:
-                n, eggs0 = st['wild'].get('form') or st['wild']['id'], len(st.get('eggs', []))
+                n, eggs0, ditto = shown(st['wild']), len(st.get('eggs', [])), st['wild'].get('disguise')
                 r = throw(st, t, kind={'throw': 'ball'}.get(act, act))
                 msg = {'caught': L(f'신난다! {name(n)}(을)를 잡았다!', f'Gotcha! {name(n)} was caught!'),
                        'missed': L('아깝다! 볼에서 빠져나왔다.', 'Argh! It broke free.'),
@@ -2379,6 +2399,9 @@ def main(scr):
                        'needhyper': L(f'{name(n)}(은)는 하이퍼볼·마스터볼로만 잡힌다! [교환] → [몬스터볼]에서 바꿔 오자.',
                                       f'Only an Ultra or Master Ball works on {name(n)}! Swap balls in [trade] → [balls].'),
                        None: L('그 볼이 없다.', "You don't have that ball.")}[r]
+                if r == 'caught' and ditto:
+                    msg += L(f' …어라? {name(n)}의 모습이 흐물흐물 녹아내린다… 정체는 메타몽이었다!',
+                             f' …Huh? {name(n)} is melting away… it was a Ditto all along!')
                 if r == 'caught' and len(st.get('eggs', [])) > eggs0:
                     msg += L(' 풀숲에서 알도 하나 주웠다!', ' Found an egg in the grass too!')
             elif act == 'run' and st['wild']:
@@ -2464,6 +2487,15 @@ def selftest():
     if FORMS:  # 긴 이름도 개체값(%)은 늘 보인다 — 이름 끝을 줄인다
         bt = bag_text({'id': 10251, 'xp': 0, 'iv': [14, 15, 13]}, 40)
         assert bt.endswith('(93%)') and '…' in bt and sum(map(memo.cw, bt)) <= 40
+    class DittoRng:  # 메타몽을 뽑고, 피카츄로 변신, 이로치·우두머리는 아님
+        def random(self): return 0.5
+        def choices(self, seq, weights=None): return [DITTO]
+        def choice(self, seq): return 25
+    dt = new_state()
+    assert explore(dt, ENCOUNTER_EVERY, DittoRng()) == (25, 0) and dt['wild']['id'] == DITTO and shown(dt['wild']) == 25
+    assert 25 in dt['seen'] and DITTO not in dt['seen'] and 25 in disguises(dt) and DITTO not in disguises(dt)
+    assert throw(dt, ENCOUNTER_EVERY, type('R', (), {'random': lambda s: 0.0})()) == 'caught'
+    assert dt['box'][-1]['id'] == DITTO and DITTO in dt['caught'] and DITTO in dt['seen'] and 25 not in dt['caught']
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
