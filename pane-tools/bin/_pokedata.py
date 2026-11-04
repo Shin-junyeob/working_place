@@ -425,6 +425,43 @@ def strip(ids, height, gap=4):
     return [sum((p[y] + [blank] * gap for p in parts), [])[:-gap or None] for y in range(height)]
 
 
+EGG_KM = (2, 5, 7, 10, 12)  # 알 종류(포켓몬고처럼 거리로 부른다) — 무늬 색은 EGG_COLORS
+EGG_COLORS = {2: ((236, 244, 222), (88, 176, 72)), 5: ((250, 238, 214), (236, 132, 44)), 7: ((250, 242, 206), (228, 196, 40), (236, 112, 164)),
+              10: ((242, 232, 250), (146, 84, 200)), 12: ((56, 40, 44), (220, 48, 52))}  # (바탕, 무늬[, 둘째 무늬])
+
+
+def egg_px(km):
+    """km 알 그림(직접 그린 12×16 RGBA) — 크림색 알에 거리별 색 점무늬, 12km 는 어두운 바탕에 빨강. 윤곽은 무늬색을 어둡게."""
+    base, spot, *spot2 = EGG_COLORS[km]
+    edge = tuple(c // 2 for c in spot)
+    dots = {(3, 4), (4, 4), (7, 3), (8, 3), (8, 4), (2, 8), (3, 8), (6, 7), (7, 7), (6, 8), (9, 9), (9, 10), (4, 11), (5, 11), (5, 12), (8, 13)}
+    out = []
+    for y in range(16):
+        ry = (y - 8.5) / 7.5
+        half = max(0.0, 1 - ry * ry) ** 0.5 * 5.6 * (0.78 + 0.22 * y / 15)  # 위가 좁은 알 모양
+        row = []
+        for x in range(12):
+            d = abs(x + 0.5 - 6) - half
+            if d > 0:
+                row.append((0, 0, 0, 0))
+            elif d > -1.1 or y in (0, 15):
+                row.append(edge + (255,))
+            else:
+                c = (spot2[0] if spot2 and (x + y) % 3 == 0 else spot) if (x, y) in dots else base
+                row.append(c + (255,))
+        out.append(row)
+    return out
+
+
+def egg_image(km, height, kind='six'):
+    """egg_px 를 Sixel (문자열, 가로, 세로) 또는 PNG (바이트, 가로, 세로) 로 — 받을 것 없이 바로 만든다."""
+    key = ('egg', km, height, kind)
+    if key not in _sprites:
+        px = egg_px(km)
+        _sprites[key] = encode_sixel(px, height) if kind == 'six' else (encode_png(px), len(px[0]), len(px))
+    return _sprites[key]
+
+
 def strip_image(ids, height, kind='six'):
     """strip() 을 Sixel (문자열, 가로, 세로) 또는 PNG (바이트, 가로, 세로) 로 — 같은 조합은 다시 만들지 않는다."""
     key = ('strip', tuple(ids), height, kind)

@@ -817,13 +817,20 @@ def ball_name(kind, k):
     return f'{ko} {k}개', f'{k} {en}{"s" if int(k) > 1 else ""}'
 
 
+def egg_km(e):
+    """알 종류(포켓몬고처럼 거리) — 부화 걸음(need / EGG_STEP)으로: ~10 → 2km · 15~20 → 5km · 25 → 7km · 30~40 → 10km · 50~ → 12km."""
+    steps = e['need'] // EGG_STEP
+    return 2 if steps <= 10 else 5 if steps <= 20 else 7 if steps <= 25 else 10 if steps <= 40 else 12
+
+
 def egg_lines(st, t):
-    """알마다 한 줄 [('알 · 부화까지 18k', 진행 0~1)] — 부화가 빠른 순. 알은 저마다 받은 때(base)부터 자란다
+    """알마다 한 줄 [('5km 알 · 부화까지 18k', 진행 0~1, km)] — 부화가 빠른 순. 알은 저마다 받은 때(base)부터 자란다
     ('알 2개 · 다음 부화까지'로 묶어 보이면 새 알이 옛 알을 리셋한 것처럼 보였다, 2026-11-04)."""
     out = []
     for e in sorted(st.get('eggs', []), key=lambda e: e['need'] - (t - e['base'])):
         left = max(0, e['need'] - (t - e['base']))
-        out.append((L(f'알 · 부화까지 {fmt_tok(left)}', f'Egg · hatches in {fmt_tok(left)}'), min(1.0, (t - e['base']) / e['need'])))
+        out.append((L(f'{egg_km(e)}km 알 · 부화까지 {fmt_tok(left)}', f'{egg_km(e)} km egg · hatches in {fmt_tok(left)}'),
+                    min(1.0, (t - e['base']) / e['need']), egg_km(e)))
     return out
 
 
@@ -1368,6 +1375,16 @@ def mon_art(n, y, w):
     return png and ('kitty', y, 1, _pokedata.img_id(n) * 2, png[0], _gfx.kitty_cols(png[1], png[2], 2), 2)
 
 
+def egg_art(km, y, w):
+    """알 그림 한 줄 높이 — (y, 1). 직접 그린 그림(_pokedata.egg_px)이라 받을 것이 없다. 못 놓거나 좁으면 None."""
+    if w < 44 or not (SIXEL or KITTY):
+        return None
+    cw_, ch_ = _gfx.cell_px()
+    img = _pokedata.egg_image(km, int(ch_), 'six' if SIXEL else 'png')
+    cols = math.ceil(img[1] / cw_)
+    return ('six', y, 1, ('egg', km, y), img[0], cols, 1) if SIXEL else ('kitty', y, 1, 300000 + km * 100 + y, img[0], cols, 1)  # 같은 종류 알이 둘이어도 따로 놓이게 줄도 번호에
+
+
 def join_art(a, b):
     """그림 둘을 한 번에 놓을 하나로 — 화면엔 그림 자리가 하나뿐이라(장식 배지 + 동료). 하나가 None 이면 다른 하나."""
     if not a or not b:
@@ -1885,8 +1902,10 @@ def main(scr):
                     if st.get('candy'):
                         button(y + 1, x + 3, L(f'이상한사탕 ({st["candy"]})', f'Rare Candy ({st["candy"]})'), 'candy')
             y = y0 + 2
-            for text, frac in egg_lines(st, t):  # 알마다 한 줄
-                x = put(scr, y, 1, '🥚 ' + text + ' ')
+            for text, frac, km in egg_lines(st, t):  # 알마다 한 줄 — 그림을 놓을 수 있으면 거리별 알 그림, 아니면 🥚
+                pic = egg_art(km, y, w)
+                art = join_art(art, pic)
+                x = put(scr, y, pic[5] + 2 if pic else 1, ('' if pic else '🥚 ') + text + ' ')
                 put(scr, y, x, bar(frac, 12), curses.A_DIM)
                 y += 1
             y = para(scr, y, weekly_text(st), w, curses.A_DIM if weekly(st)['done'] else 0)
@@ -2646,7 +2665,9 @@ def selftest():
     assert change(cp, 0, 1) == ('iv', 2) and cp['box'][0]['iv'] == [15, 3, 15] and cp['items']['cap'] == 0
     assert change(cp, 0, 0) == ('iv', 3) and cp['box'][0]['iv'] == [15] * 3 and change_options(cp, 0) == []
     eg2 = {**new_state(), 'eggs': [{'id': 1, 'base': 0, 'need': 125_000}, {'id': 4, 'base': 50_000, 'need': 75_000}]}
-    assert [round(f, 2) for _, f in egg_lines(eg2, 100_000)] == [0.8, 0.67] and len(egg_lines(eg2, 0)) == 2  # 알마다 따로, 빠른 순
+    assert [(round(f, 2), km) for _, f, km in egg_lines(eg2, 100_000)] == [(0.8, 7), (0.67, 5)] and len(egg_lines(eg2, 0)) == 2  # 알마다 따로, 빠른 순
+    assert [egg_km({'need': k * EGG_STEP}) for k in (10, 15, 20, 25, 40, 120)] == [2, 5, 5, 7, 10, 12]
+    assert all(len(_pokedata.egg_px(km)) == 16 for km in _pokedata.EGG_KM) and set(_pokedata.EGG_KM) == {2, 5, 7, 10, 12}
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
