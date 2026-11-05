@@ -2101,6 +2101,7 @@ def main(scr):
     pslot, query, pick_sort = 0, '', 1  # 팀 칸 고르기: 몇 번째 자리 · 이름 찾기 · 정렬(처음은 레벨순)
     searching = False  # 이름 찾기 입력 중인가 — F 로 켜고 Enter(검색어 유지)·Esc(지움)로 끈다(2026-11-05 사용자)
     gcol, gsub, gtop = 0, 0, 0  # 체육관 화면: 커서가 있는 열(0 왼쪽 · 1 오른쪽) · 오른쪽에서 고른 줄 · 오른쪽 맨 위 줄
+    tm, tcol = 0, 0  # 교환 화면: 왼쪽에서 고른 일(0 박사에게 · 1 중복 정리 · 2 볼 바꾸기) · 커서가 있는 열 — 오른쪽 줄은 sel·top
     order, bag_sort = [], _lang.get('bag_sort', 0) % len(SORTS)  # 교환: 보이는 순서(가방 번호들) · 정렬  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
@@ -2570,18 +2571,52 @@ def main(scr):
                     (curses.A_REVERSE if row == sel else 0) | (0 if ok else curses.A_DIM))
             x = button(h - 1, 1, L('바꾸기', 'change'), 'chg_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
-        elif view == 'balls':  # [교환] → [몬스터볼] — 한 단계 위 볼로
-            put(scr, 1, 1, msg or L('볼 바꾸기 — ↑↓ 고르기 · Enter 바꾸기', 'Swap balls — ↑↓ pick · Enter swap'), curses.A_DIM)
-            sel = max(0, min(sel, len(TRADES) - 1))
-            for k, (src, dst, cost) in enumerate(TRADES):
-                text = L(f'{ball_name(src, cost)[0]} → {ball_name(dst, 1)[0]} · 가진 {st[src]}개',
-                         f'{ball_name(src, cost)[1]} → {ball_name(dst, 1)[1]} · have {st[src]}')
-                btns.append((3 + k, 1, w - 1, ('swap', k)))
-                put(scr, 3 + k, 1, text.ljust(w - 2) if k == sel else text, curses.A_REVERSE if k == sel else 0)
-            para(scr, 4 + len(TRADES), L(f'지금: 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]} · 마스터볼 {st["master"]}',
-                                         f'Now: Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]} · Master {st["master"]}'), w, curses.A_DIM)
-            x = button(h - 1, 1, L('바꾸기', 'swap'), 'swap_sel')
-            button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+        elif view == 'trade':  # 2026-11-05 사용자: 체육관처럼 두 열 — 왼쪽 박사에게 · 중복 정리 · 볼 바꾸기, 오른쪽에 그 내용
+            order = bag_order(st, None, bag_sort)  # 박사에게 쪽의 보이는 순서(가방 번호들) — 고른 줄로 가방 번호를 찾는다
+            tidy = tidy_targets(st)
+            lw = max(12, min(16, w // 4))  # 왼쪽 메뉴는 짧다 — 오른쪽 이름 자리를 넓게
+            rx = lw + 2
+            rw = w - rx - 1
+            body = h - 4
+            put(scr, 1, 1, msg or (
+                L(f'↑↓ 고르기 · Tab 정렬 {SORTS[bag_sort][0]} · Enter 두 번 보내기 · ← q 돌아가기', f'↑↓ pick · Tab sort {SORTS[bag_sort][1]} · Enter twice to send · ← q back') if tcol and tm == 0 else
+                L('↑↓ 고르기 · Enter 바꾸기 · ← q 돌아가기', '↑↓ pick · Enter swap · ← q back') if tcol and tm == 2 else
+                L('↑↓ 고르기 · → 안으로 · Enter · q 돌아가기', '↑↓ pick · → into it · Enter · q back')), curses.A_DIM)
+            menu = [L('박사에게', 'Professor'), L(f'중복 정리 {len(tidy)}', f'Tidy {len(tidy)}'), L('볼 바꾸기', 'Swap balls')]
+            for k, label in enumerate(menu):
+                cur = k == tm
+                text = ('▶ ' if cur else '  ') + fit(label, lw - 3)
+                put(scr, 2 + k, 1, text.ljust(lw) if cur and not tcol else text, (curses.A_REVERSE if not tcol else curses.A_BOLD) if cur else 0)
+                btns.append((2 + k, 1, lw, ('tradeleft', k)))
+            if tm == 0:  # 가방 전체 — 한 마리씩 박사에게(동료·팀·이로치·만든 모습은 못 보낸다)
+                rows = [(i, ('★' if i == st['partner'] else '⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '') + ('◆' if m.get('alpha') else '')
+                         + bag_text(m, rw - 3)) for i, m in ((i, st['box'][i]) for i in order)]
+                sel = max(0, min(sel, len(rows) - 1))
+                top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
+                for k, (i, text) in enumerate(rows[top:top + body]):
+                    cur = tcol and top + k == sel
+                    attr = (curses.A_BOLD if i == st['partner'] else 0) | (gold if st['box'][i].get('shiny') else 0) | (curses.A_REVERSE if cur else 0)
+                    put(scr, 2 + k, rx, fit(text, rw).ljust(rw) if cur else fit(text, rw), attr)
+                    btns.append((2 + k, rx, w - 1, ('trrow', top + k)))
+                if not rows:
+                    put(scr, 2, rx, L('아직 잡은 포켓몬이 없다.', 'No Pokémon caught yet.'), curses.A_DIM)
+            elif tm == 1:  # 보낼 것 미리보기 — 같은 종이 둘 이상이면 개체값·배틀 경험치·진화 경험치가 가장 좋은 것만 남긴다
+                y = para(scr, 2, L(f'같은 종 중 가장 좋은 것만 남기고 {len(tidy)}마리를 보낸다 — Enter 두 번',
+                                   f'Keeps the best of each species and sends {len(tidy)} — Enter twice') if tidy else
+                         L('정리할 것이 없다 — 같은 종이 둘 이상일 때 가장 좋은 것만 남긴다.', 'Nothing to tidy — only duplicates are sent.'), rw + rx, curses.A_DIM, rx)
+                for k, i in enumerate(tidy[:max(0, h - 2 - y)]):
+                    put(scr, y + k, rx, fit('  ' + bag_text(st['box'][i], rw - 2), rw))
+            else:  # 볼 바꾸기 — 한 단계 위 볼로
+                sel = max(0, min(sel, len(TRADES) - 1))
+                for k, (src, dst, cost) in enumerate(TRADES):
+                    cur = tcol and k == sel
+                    text = fit(L(f'{ball_name(src, cost)[0]} → {ball_name(dst, 1)[0]} · 가진 {st[src]}개',
+                                 f'{ball_name(src, cost)[1]} → {ball_name(dst, 1)[1]} · have {st[src]}'), rw)
+                    btns.append((2 + k, rx, w - 1, ('swap', k)))
+                    put(scr, 2 + k, rx, text.ljust(rw) if cur else text, curses.A_REVERSE if cur else 0)
+                para(scr, 3 + len(TRADES), L(f'지금: 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]} · 마스터볼 {st["master"]}',
+                                             f'Now: Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]} · Master {st["master"]}'), rw + rx, curses.A_DIM, rx)
+            button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
         elif view == 'dex' and dg == GENS + 2:  # 도감 마지막 쪽 — 특수 모습(메가진화·거다이맥스·원시회귀·울트라버스트)
             have_sp, og, items = st.get('specials', []), opened_gen(st), st.get('items', {})  # made 라 부르면 made() 를 가려 [박사에게]가 꺼졌다
             rows = []
@@ -2625,58 +2660,34 @@ def main(scr):
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ←→ 세대·특수 모습', '↑↓ move · Enter details · ←→ generation/special'), curses.A_DIM)
         else:
             open_gen = opened_gen(st)
-            if view == 'trade':  # 보이는 순서(가방 번호들) — 키·버튼이 고른 줄도 이것으로 가방 번호를 찾는다
-                order = bag_order(st, None, bag_sort)
-            rows = ([(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
-                      + f'{n:04d} ' + (name(n) if n in st['seen'] else '???') + (' ★' if n in st.get('researched', []) else '')
-                      + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in DEX if gen(n) == dg]
-                    if dg <= open_gen else []) \
-                if view == 'dex' else \
-                [(i, ('★ ' if i == st['partner'] else '  ') + ('⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '') + ('◆' if m.get('alpha') else '')
-                  + bag_text(m, w - 8))
-                 for i, m in ((i, st['box'][i]) for i in order)]
-            if view == 'dex':
-                have = sum(1 for n in st['caught'] if gen(n) == dg)
-                done_r = sum(1 for n in st.get('researched', []) if n in DEX and gen(n) == dg)
-                put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶ ★연구 {done_r}  ● 잡음 ○ 봄',
-                                  f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶ ★research {done_r}  ● caught ○ seen'), curses.A_DIM)
-            elif view == 'trade':
-                put(scr, 1, 1, msg or L(f'교환 · 정렬 {SORTS[bag_sort][0]} (Tab) — [박사에게] 한 마리 · [정리] 중복 한꺼번에 · [몬스터볼] 볼 바꾸기',
-                                        f'Trade · sort {SORTS[bag_sort][1]} (Tab) — [send] one · [tidy] all duplicates · [balls] swap balls'), curses.A_DIM)
+            rows = [(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
+                     + f'{n:04d} ' + (name(n) if n in st['seen'] else '???') + (' ★' if n in st.get('researched', []) else '')
+                     + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in DEX if gen(n) == dg] if dg <= open_gen else []
+            have = sum(1 for n in st['caught'] if gen(n) == dg)
+            done_r = sum(1 for n in st.get('researched', []) if n in DEX and gen(n) == dg)
+            put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶ ★연구 {done_r}  ● 잡음 ○ 봄',
+                              f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶ ★research {done_r}  ● caught ○ seen'), curses.A_DIM)
             body = h - 4
             if rows:
                 sel = max(0, min(sel, len(rows) - 1))
                 top = min(max(top, sel - body + 1), sel)  # 커서가 화면 안에 있게
             top = max(0, min(top, len(rows) - body))
             for k, (key, text) in enumerate(rows[top:top + body]):
-                attr = 0
-                if view == 'trade':
-                    attr = (curses.A_BOLD if key == st['partner'] else 0) | (gold if st['box'][key].get('shiny') else 0)
-                else:
-                    if key in st['seen']:
-                        btns.append((2 + k, 1, w - 1, ('info', key)))
-                    attr = gold if key in st['shiny'] else 0  # 이로치를 잡은 종은 도감에서도 금색
-                attr |= curses.A_REVERSE if top + k == sel else 0
+                if key in st['seen']:
+                    btns.append((2 + k, 1, w - 1, ('info', key)))
+                attr = (gold if key in st['shiny'] else 0) | (curses.A_REVERSE if top + k == sel else 0)  # 이로치를 잡은 종은 도감에서도 금색
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, attr)
             if not rows:
-                put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.',
-                                 f'Locked — complete the Gen {dg - 1} Pokédex to open it.') if view == 'dex'
-                    else L('아직 잡은 포켓몬이 없습니다.', 'No Pokémon caught yet.'))
-            if view == 'trade':
-                x = button(h - 1, 1, L('박사에게', 'send'), 'send')
-                x = button(h - 1, x, L('정리', 'tidy'), 'tidy')
-                x = button(h - 1, x, L('몬스터볼', 'balls'), 'balls')
-                button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
-            else:
-                if rows:
-                    put(scr, h - 2, 1, dex_summary(st, dg)[:w - 2], curses.A_DIM)
-                x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
-                put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation'), curses.A_DIM)
+                put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.', f'Locked — complete the Gen {dg - 1} Pokédex to open it.'))
+            if rows:
+                put(scr, h - 2, 1, dex_summary(st, dg)[:w - 2], curses.A_DIM)
+            x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
+            put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation'), curses.A_DIM)
         acts = [b[3] for b in navbtns]
         if focus not in acts:  # 처음이거나 그 버튼이 사라졌으면 — 메인은 풀숲 탐색, 그 밖엔 돌아가기·닫기가 아닌 첫 버튼
             focus = next(a for a in ('encounter', 'explore') if a in acts) if view == 'main' and {'encounter', 'explore'} & set(acts) else next((a for a in acts if a not in ('back', 'close')), acts[0] if acts else None)
         for by, bx, _, a, text in navbtns:
-            if a == focus and view != 'gyms':  # 체육관은 키가 두 열 목록을 움직이니 아래 버튼은 고른 것처럼 보이지 않게(마우스로만)
+            if a == focus and view not in ('gyms', 'trade'):  # 체육관·교환은 키가 두 열 목록을 움직이니 아래 버튼은 고른 것처럼 보이지 않게(마우스로만)
                 put(scr, by, bx, text, curses.A_BOLD | curses.A_REVERSE)
         if _gfx._six['key'] is not None and (not art or art[0] != 'six' or _gfx._six['key'] != art[3]):
             _gfx.redraw()  # 전 그림을 지운다 — tmux 가 화면 전체를 다시 그리게(빈칸으로 덮으면 크기가 어긋날 때 조각이 남았다)
@@ -2695,7 +2706,7 @@ def main(scr):
             if not fresh_st.get('_broken'):
                 st = fresh_st
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
-        lists = view in ('trade', 'balls', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
+        lists = view in ('trade', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
         if view == 'slotpick' and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
             if key == 27:  # Esc — 검색어를 지우고 찾기 끝
                 query, searching, sel, top, act, key = '', False, 0, 0, None, -1
@@ -2728,8 +2739,28 @@ def main(scr):
                 act = 'pin_gym'
             elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
                 act, key = 'gym_sel', -1
-        if view == 'trade' and key == 9:  # Tab — 정렬 바꾸기
-            act = 'sort'
+        if view == 'trade':  # 두 열 — ←→ 열 · 왼쪽 ↑↓ 는 일 고르기 · 오른쪽 ↑↓ 는 목록(lists) · q·Esc 는 오른쪽이면 왼쪽으로
+            if key == curses.KEY_RIGHT:
+                if not tcol and tm != 1:
+                    tcol, sel, top, confirm = 1, 0, 0, None
+                key = -1
+            elif key == curses.KEY_LEFT:
+                tcol, confirm, msg, key = 0, None, '', -1
+            elif not tcol and key in (curses.KEY_UP, curses.KEY_DOWN):
+                tm, sel, top, confirm, msg = max(0, min(2, tm + (1 if key == curses.KEY_DOWN else -1))), 0, 0, None, ''
+                key = -1
+            elif key in (ord('q'), 27) and tcol:
+                tcol, act, confirm, msg, key = 0, None, None, '', -1
+            elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
+                if tm == 1:
+                    act = 'tidy'
+                elif not tcol:
+                    tcol, sel, top, act = 1, 0, 0, None
+                else:
+                    act = 'send' if tm == 0 else ('swap', max(0, min(sel, len(TRADES) - 1)))
+                key = -1
+            elif key == 9 and tm == 0:  # Tab — 박사에게 목록 정렬
+                act = 'sort'
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS + 1 + bool(SPECIALS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 뒤의 두 쪽은 리전폼 · 특수 모습
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
@@ -2765,8 +2796,6 @@ def main(scr):
                 act = focus
         picked = order[max(0, min(sel, len(order) - 1))] if order and view == 'trade' else None
         # 고른 줄에 하는 버튼 → 그 줄의 일로
-        if act == 'swap_sel':
-            act = ('swap', max(0, min(sel, len(TRADES) - 1)))
         if act == 'pin_sel':
             act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
         elif act in ('gym_sel', 'pin_gym'):  # 왼쪽이 세대면 오른쪽 열로 들어가고, 오른쪽이면 그 관 · 레이드·타워는 바로
@@ -2962,8 +2991,11 @@ def main(scr):
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
         if act in ('dex', 'box', 'trade'):
             view, top, dg, msg, sel = 'bag' if act == 'box' else act, 0, opened_gen(st), '', 0  # 가방은 아이템 화면(2026-11-05)
-        elif act == 'balls' and view == 'trade':
-            view, top, sel, msg = 'balls', 0, 0, ''
+            tm, tcol = 0, 0
+        elif isinstance(act, tuple) and act[0] == 'tradeleft':  # 교환 왼쪽 열 클릭 — 그 일로
+            tm, tcol, sel, top, confirm, msg = act[1], 0, 0, 0, None, ''
+        elif isinstance(act, tuple) and act[0] == 'trrow':  # 박사에게 목록 줄 클릭 — 그 줄을 고른다(보내기는 Enter 두 번)
+            tcol, sel = 1, act[1]
         elif act == 'back' and view == 'fight' and battle_now['k'] < len(battle_now['ev']):
             battle_now['k'] = len(battle_now['ev'])  # 먼저 끝까지 보여 주고, 한 번 더 누르면 나간다
         elif act == 'back' and view == 'fight' and battle_now['won'] and not battle_now.get('tower'):
@@ -2971,7 +3003,7 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'balls': 'trade', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main'}.get(view, 'main')  # 한 단계 위로
+            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main'}.get(view, 'main')  # 한 단계 위로
         elif isinstance(act, tuple) and act[0] == 'gymleft':  # 체육관 왼쪽 열 클릭 — 그 줄로(세대면 오른쪽에 관들이 바뀐다)
             sel, gcol, gsub, gtop = act[1], 0, 0, 0
         elif isinstance(act, tuple) and act[0] == 'gym':
