@@ -1577,6 +1577,22 @@ def big_art(n, cy, cx, rows, max_cols=None):
     return ('kitty', max(2, cy - rows // 2), max(1, cx - cols // 2), 500000 + _pokedata.img_id(n) % 100000, png[0], cols, rows)
 
 
+def wild_vertical(acts, focus, key, picked):
+    """만남 화면 ↑↓ — 오른쪽 볼 목록을 위아래로. [던지기]·[도망]에서 ↑ 는 지금 고른 볼로, 볼 목록 맨 아래에서 ↓ 는 [던지기]로.
+    가로가 겹치는 버튼만 찾던 move_geo 로는 아래 가운데 버튼에서 오른쪽 볼 열에 닿지 않았다(2026-11-05 사용자)."""
+    balls = [a for a in acts if isinstance(a, tuple) and a[0] == 'ball']
+    if not balls:
+        return focus
+    if focus in balls:
+        i = balls.index(focus)
+        if key == curses.KEY_UP:
+            return balls[max(0, i - 1)]
+        return balls[i + 1] if i + 1 < len(balls) else ('throw_sel' if 'throw_sel' in acts else focus)
+    if key == curses.KEY_UP:
+        return ('ball', picked) if ('ball', picked) in balls else balls[-1]
+    return focus
+
+
 def move_geo(btns, focus, key):
     """메인 화면 방향키 — ↑↓ 는 같은 열(가로가 겹치는 버튼)에서 위·아래, ←→ 는 왼·오른쪽에서 높이가 가장 가까운 것.
     팀 칸과 오른쪽 버튼 열 사이를 ←→ 로 오간다. btns: [(y, x, 끝, act, 글)]."""
@@ -2667,6 +2683,8 @@ def main(scr):
             info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
         elif lists and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             sel += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
+        elif view == 'wild' and key in (curses.KEY_UP, curses.KEY_DOWN):  # ↑↓ 는 오른쪽 볼 목록(2026-11-05 사용자)
+            focus = wild_vertical([b[3] for b in navbtns], focus, key, ball_pick)
         elif key in (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN):
             focus = (move_geo if view in ('main', 'wild') else move_focus)(navbtns, focus, key)
         if key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
@@ -3691,6 +3709,12 @@ def selftest():
     # 검색어 글자 판정 — 방향키·Enter·Tab·Esc 는 글자가 아니고, 영문·한글·숫자는 글자
     assert not any(typed_char(k) for k in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_ENTER, 9, 10, 13, 27, -1))
     assert all(typed_char(ord(c)) for c in 'aZ9가ㄱ.')
+    # 만남 화면 ↑↓ — 볼 목록 위아래, 던지기에서 ↑ 는 고른 볼로, 맨 아래 볼에서 ↓ 는 던지기로
+    wa = [('ball', 'ball'), ('ball', 'super'), ('ball', 'hyper'), ('ball', 'master'), 'throw_sel', 'run']
+    U, D = curses.KEY_UP, curses.KEY_DOWN
+    assert wild_vertical(wa, 'throw_sel', U, 'super') == ('ball', 'super') and wild_vertical(wa, 'run', U, None) == ('ball', 'master')
+    assert wild_vertical(wa, ('ball', 'super'), D, 'super') == ('ball', 'hyper') and wild_vertical(wa, ('ball', 'ball'), U, 'ball') == ('ball', 'ball')
+    assert wild_vertical(wa, ('ball', 'master'), D, 'ball') == 'throw_sel' and wild_vertical(wa, 'throw_sel', D, 'ball') == 'throw_sel'
     print('pokemon selftest ok')
 
 
