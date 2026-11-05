@@ -558,6 +558,19 @@ def set_partner(st, t, i):
     st['partner'], st['base'] = i, t
 
 
+def catch_chance(st, kind):
+    """지금 야생에 kind 볼을 던졌을 때 잡힐 확률(0~1) — throw 와 같은 식. 레이드볼은 하이퍼볼과 같은 2배, 마스터볼은 1,
+    우두머리는 절반, 전설·환상에 몬스터볼·슈퍼볼은 0(던질 수 없다)."""
+    w = st['wild']
+    if w.get('raid'):
+        return min(1.0, catch_rate(w['id']) * BALL_BONUS['hyper'])
+    if kind == 'master':
+        return 1.0
+    if DEX[w['id']][5] and kind not in ('hyper', 'master'):
+        return 0.0
+    return min(1.0, catch_rate(w['id']) * BALL_BONUS[kind] * (0.5 if w.get('alpha') else 1))
+
+
 def throw(st, t, rng=random, kind='ball'):
     """볼 하나(kind: ball · super · hyper · master). 'caught' / 'missed' / 'fled' · 볼이 없으면 None ·
     전설·환상에 하이퍼볼·마스터볼이 아니면 'needhyper'(볼을 쓰지 않는다 — 가방에서 바꿔 와 다시 던지게)."""
@@ -568,7 +581,7 @@ def throw(st, t, rng=random, kind='ball'):
         if w['balls'] <= 0:
             return None
         w['balls'] -= 1
-        if rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS['hyper']):
+        if rng.random() < catch_chance(st, 'ball'):
             raid_done(st)
             st['raids'] = st.get('raids', 0) + 1
             orb = [p for p, (s, kind, *_) in SPECIALS.items() if s == w['id'] and kind == 'primal']
@@ -591,7 +604,7 @@ def throw(st, t, rng=random, kind='ball'):
         w['balls'] -= 1
     else:
         st['balls'] -= 1
-    if kind == 'master' or rng.random() < min(1.0, catch_rate(w['id']) * BALL_BONUS[kind] * (0.5 if w.get('alpha') else 1)):
+    if kind == 'master' or rng.random() < catch_chance(st, kind):
         return _caught(st, t, w, rng)
     if w.get('alpha'):  # 우두머리는 ALPHA_TRIES 번 안에 못 잡으면 도망
         w['tries'] = w.get('tries', 0) + 1
@@ -2112,6 +2125,10 @@ def main(scr):
             if not art:
                 put(scr, h // 2, max(1, (w - memo_w(name(shown(wd)))) // 2), name(shown(wd)), gold if sh else curses.A_BOLD)
             ball_pick = default_ball(st, ball_pick)
+            if ball_pick:  # 그림 바로 위에 고른 볼의 포획 확률 — 어떤 볼을 던질지 고르기 쉽게(2026-11-05 사용자)
+                bname = L('레이드볼', 'Raid Ball') if wd.get('raid') else next(L(b[1], b[2]) for b in BALL_ORDER if b[0] == ball_pick)
+                odds = L(f'{bname}로 잡을 확률 {catch_chance(st, ball_pick):.0%}', f'{bname}: {catch_chance(st, ball_pick):.0%} to catch')
+                put(scr, max(2, (art[1] if art else h // 2) - 1), max(1, w // 2 - memo_w(odds) // 2), odds, curses.A_BOLD)
             side = []
             for kind, k, can in ball_choices(st):
                 ko, en = (('레이드볼', 'Raid') if wd.get('raid') else next((b[1], b[2]) for b in BALL_ORDER if b[0] == kind))
@@ -2914,6 +2931,12 @@ def selftest():
     bound = {x.id for node in ast.walk(mainf) if isinstance(node, (ast.Assign, ast.For, ast.AugAssign))
              for t in (node.targets if isinstance(node, ast.Assign) else [node.target]) for x in ast.walk(t) if isinstance(x, ast.Name)}
     assert not bound & funcs, bound & funcs
+    cc = {**new_state(), 'wild': {'id': 19, 'balls': 3}}  # 화면에 보이는 포획 확률 = 던질 때 쓰는 확률
+    assert catch_chance(cc, 'super') == min(1.0, catch_rate(19) * 1.5) and catch_chance(cc, 'master') == 1.0
+    cc['wild'] = {'id': 150, 'balls': 3}
+    assert catch_chance(cc, 'ball') == 0 and catch_chance(cc, 'hyper') == 0.4
+    cc['wild'] = {'id': 19, 'balls': 3, 'alpha': True}
+    assert catch_chance(cc, 'ball') == catch_rate(19) * 0.5
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
