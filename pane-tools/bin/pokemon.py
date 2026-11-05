@@ -1703,17 +1703,26 @@ def draw_showcase(scr, st, y, w):
     return y + 2, None
 
 
-def draw_badge_list(scr, st, rows, top, sel, w, btns):
-    """훈장(a) 화면 — 전부 나열, 받은 것은 날짜, 못 받은 것은 진행. 📌 는 장식 중. 색은 쓰지 않는다."""
-    for k, b in enumerate(rows):
-        yy, got = 2 + k, b in st['badges']
-        x = put(scr, yy, 0, ('▶ ' if top + k == sel else '  ') + badge_name(b), 0 if got else curses.A_DIM) + 2
-        goal = badge_goal(st, b)
-        note = st['badges'][b] if got else (f'{min(goal[0], goal[1])}/{goal[1]}' if goal else L('아직', 'not yet'))
-        x = put(scr, yy, x, note, 0 if got else curses.A_DIM)
-        if b in st.get('showcase', []):
-            put(scr, yy, x + 1, '📌')
-        btns.append((yy, 1, w - 1, ('pin', b)))
+MEDAL_GROUPS = [  # 훈장 화면 왼쪽 분류 (한국어, 영어, 훈장 번호 앞부분들) — 어디에도 안 맞는 새 훈장은 '기타'로
+    ('포획', 'Catches', ('catch',)), ('도감', 'Pokédex', ('gen',)), ('이로치', 'Shinies', ('shiny',)),
+    ('전설·환상', 'Legends', ('legend', 'myth')), ('진화', 'Evolution', ('evo', 'final')), ('볼', 'Balls', ('super', 'hyper')),
+    ('지방 정복', 'Conquests', ('conquer',)), ('챔피언', 'Champions', ('champ',)),
+    ('특수 모습', 'Forms', ('form', 'fuse', 'mega', 'gmax')), ('연구', 'Research', ('research',)),
+    ('배틀·레이드', 'Battles', ('alpha', 'raid', 'tower'))]
+
+
+def medal_groups(st):
+    """훈장 화면 왼쪽 열 [(이름, [번호…])] — 맨 위 '장식 중'(가진 장식 — 체육관 배지 포함), 그 아래 MEDAL_GROUPS 분류(2026-11-05 사용자)."""
+    ids = [b for b, _, _, _ in BADGES]
+    out = [(L('장식 중', 'Showing'), [b for b in st.get('showcase', []) if owned(st, b)])]
+    used = set()
+    for ko, en, pre in MEDAL_GROUPS:
+        grp = [b for b in ids if b.startswith(pre) and b not in used]
+        used.update(grp)
+        if grp:
+            out.append((L(ko, en), grp))
+    rest = [b for b in ids if b not in used]
+    return out + ([(L('기타', 'Other'), rest)] if rest else [])
 
 
 GYM_COST, LEAGUE_COST = 2, 4  # 체육관 · 사천왕 도전 1회에 쓰는 탐색 기회
@@ -2102,6 +2111,7 @@ def main(scr):
     searching = False  # 이름 찾기 입력 중인가 — F 로 켜고 Enter(검색어 유지)·Esc(지움)로 끈다(2026-11-05 사용자)
     gcol, gsub, gtop = 0, 0, 0  # 체육관 화면: 커서가 있는 열(0 왼쪽 · 1 오른쪽) · 오른쪽에서 고른 줄 · 오른쪽 맨 위 줄
     tm, tcol = 0, 0  # 교환 화면: 왼쪽에서 고른 일(0 박사에게 · 1 중복 정리 · 2 볼 바꾸기) · 커서가 있는 열 — 오른쪽 줄은 sel·top
+    bcat, bcol = 0, 0  # 훈장 화면: 왼쪽에서 고른 분류 · 커서가 있는 열 — 오른쪽 줄은 sel·top
     order, bag_sort = [], _lang.get('bag_sort', 0) % len(SORTS)  # 교환: 보이는 순서(가방 번호들) · 정렬  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
@@ -2375,21 +2385,39 @@ def main(scr):
                 put(scr, 2, 1, L('찾는 이름이 없다.', 'No match.'), curses.A_DIM)
             x = button(h - 1, 1, L('넣기', 'put'), 'pick_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
-        elif view == 'badges':
-            rows = [b for b, _, _, _ in BADGES]
+        elif view == 'badges':  # 2026-11-05 사용자: 체육관처럼 두 열 — 왼쪽 장식 중·분류, 오른쪽 그 분류의 훈장
+            groups = medal_groups(st)
+            bcat = max(0, min(bcat, len(groups) - 1))
+            lw = max(17, min(20, w // 3))  # '배틀·레이드 0/6' 이 잘리지 않게
+            rx = lw + 2
+            show_art = w >= 70  # 좁으면 그림 대신 글 자리
+            rw = w - rx - 1 - (14 if show_art else 0)  # 오른쪽 위 훈장 그림 자리는 비운다
             body = h - 4
-            sel = max(0, min(sel, len(rows) - 1))
-            top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
-            put(scr, 1, 1, msg or L(f'훈장 {len(st["badges"])}/{len(BADGES)} · 장식 {len(st.get("showcase", []))}/{SHOWCASE_MAX}'
-                                    ' — Enter 로 장식 고르기/빼기',
-                                    f'Medals {len(st["badges"])}/{len(BADGES)} · shown {len(st.get("showcase", []))}/{SHOWCASE_MAX}'
-                                    ' — Enter to show/hide'), curses.A_DIM)
-            draw_badge_list(scr, st, rows[top:top + body], top, sel, w, btns)
-            if rows[sel] in st['badges'] and w >= 50:  # 커서가 놓인 훈장 그림을 오른쪽에 크게
-                art = badge_art(st, [rows[sel]], 3, w - 14, 4)
-            x = button(h - 1, 1, L('장식', 'show'), 'pin_sel')
-            x = button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
-            put(scr, h - 1, x, L('↑↓ 고르기 · ←→ 버튼 · Enter', '↑↓ pick · ←→ button · Enter'), curses.A_DIM)
+            put(scr, 1, 1, msg or (L(f'훈장 {len(st["badges"])}/{len(BADGES)} · 장식 {len(st.get("showcase", []))}/{SHOWCASE_MAX} — '
+                                     + ('↑↓ · Enter 장식 넣기/빼기 · ← q' if bcol else '↑↓ · → 안으로 · q 돌아가기'),
+                                     f'Medals {len(st["badges"])}/{len(BADGES)} · shown {len(st.get("showcase", []))}/{SHOWCASE_MAX} — '
+                                     + ('↑↓ · Enter show/hide · ← q' if bcol else '↑↓ · → into it · q back'))), curses.A_DIM)
+            for k, (label, ids) in enumerate(groups):
+                cur = k == bcat
+                count = str(len(ids)) if k == 0 else f'{sum(1 for b in ids if owned(st, b))}/{len(ids)}'
+                text = ('▶ ' if cur else '  ') + fit(f'{label} {count}', lw - 3)
+                put(scr, 2 + k, 1, text.ljust(lw) if cur and not bcol else text, (curses.A_REVERSE if not bcol else curses.A_BOLD) if cur else 0)
+                btns.append((2 + k, 1, lw, ('medleft', k)))
+            ids = groups[bcat][1] if groups else []
+            sel = max(0, min(sel, len(ids) - 1))
+            top = max(0, min(min(max(top, sel - body + 1), sel), len(ids) - body))
+            for k, b in enumerate(ids[top:top + body]):  # 받은 것은 날짜, 못 받은 것은 진행 · 📌 는 장식 중
+                cur, got = bcol and top + k == sel, owned(st, b)
+                goal = badge_goal(st, b)
+                note = (st['badges'].get(b) or st.get('gym', {}).get(b, '')) if got else (f'{min(goal[0], goal[1])}/{goal[1]}' if goal else L('아직', 'not yet'))
+                text = fit(('▶ ' if cur else '  ') + f'{badge_name(b)}  {note}' + (' 📌' if b in st.get('showcase', []) else ''), rw)
+                put(scr, 2 + k, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if got else curses.A_DIM))
+                btns.append((2 + k, rx, w - 1, ('pin', b)))
+            if not ids:
+                put(scr, 2, rx, fit(L('장식한 것이 없다 — 분류에서 골라 Enter', 'Nothing shown — pick one in a category, Enter'), rw), curses.A_DIM)
+            if show_art and bcol and ids and owned(st, ids[sel]):  # 커서가 놓인 훈장 그림을 오른쪽 위에 크게
+                art = badge_art(st, [ids[sel]], 3, w - 14, 4)
+            button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
         elif view == 'gyms':  # 2026-11-05 사용자 설계: 왼쪽 레이드 · 배틀 타워 · 세대들, 오른쪽에 고른 세대의 관·사천왕
             left = gym_left(st)
             body = h - 4
@@ -2687,7 +2715,7 @@ def main(scr):
         if focus not in acts:  # 처음이거나 그 버튼이 사라졌으면 — 메인은 풀숲 탐색, 그 밖엔 돌아가기·닫기가 아닌 첫 버튼
             focus = next(a for a in ('encounter', 'explore') if a in acts) if view == 'main' and {'encounter', 'explore'} & set(acts) else next((a for a in acts if a not in ('back', 'close')), acts[0] if acts else None)
         for by, bx, _, a, text in navbtns:
-            if a == focus and view not in ('gyms', 'trade'):  # 체육관·교환은 키가 두 열 목록을 움직이니 아래 버튼은 고른 것처럼 보이지 않게(마우스로만)
+            if a == focus and view not in ('gyms', 'trade', 'badges'):  # 체육관·교환·훈장은 키가 두 열 목록을 움직이니 아래 버튼은 고른 것처럼 보이지 않게(마우스로만)
                 put(scr, by, bx, text, curses.A_BOLD | curses.A_REVERSE)
         if _gfx._six['key'] is not None and (not art or art[0] != 'six' or _gfx._six['key'] != art[3]):
             _gfx.redraw()  # 전 그림을 지운다 — tmux 가 화면 전체를 다시 그리게(빈칸으로 덮으면 크기가 어긋날 때 조각이 남았다)
@@ -2739,6 +2767,26 @@ def main(scr):
                 act = 'pin_gym'
             elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
                 act, key = 'gym_sel', -1
+        if view == 'badges':  # 두 열 — ←→ 열 · 왼쪽 ↑↓ 는 분류 · 오른쪽 ↑↓ 는 훈장(lists) · Enter·P 장식 · q·Esc 는 오른쪽이면 왼쪽으로
+            groups = medal_groups(st)
+            ids = groups[max(0, min(bcat, len(groups) - 1))][1] if groups else []
+            if key == curses.KEY_RIGHT:
+                if not bcol and ids:
+                    bcol, sel, top = 1, 0, 0
+                key = -1
+            elif key == curses.KEY_LEFT:
+                bcol, key = 0, -1
+            elif not bcol and key in (curses.KEY_UP, curses.KEY_DOWN):
+                bcat, sel, top, msg = max(0, min(len(groups) - 1, bcat + (1 if key == curses.KEY_DOWN else -1))), 0, 0, ''
+                key = -1
+            elif key in (ord('q'), 27) and bcol:
+                bcol, act, key = 0, None, -1
+            elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER, ord('p'), ord('P')):
+                if not bcol:
+                    bcol, sel, top, act = (1, 0, 0, None) if ids else (0, sel, top, None)
+                else:
+                    act = ('pin', ids[max(0, min(sel, len(ids) - 1))]) if ids else None
+                key = -1
         if view == 'trade':  # 두 열 — ←→ 열 · 왼쪽 ↑↓ 는 일 고르기 · 오른쪽 ↑↓ 는 목록(lists) · q·Esc 는 오른쪽이면 왼쪽으로
             if key == curses.KEY_RIGHT:
                 if not tcol and tm != 1:
@@ -2796,9 +2844,7 @@ def main(scr):
                 act = focus
         picked = order[max(0, min(sel, len(order) - 1))] if order and view == 'trade' else None
         # 고른 줄에 하는 버튼 → 그 줄의 일로
-        if act == 'pin_sel':
-            act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
-        elif act in ('gym_sel', 'pin_gym'):  # 왼쪽이 세대면 오른쪽 열로 들어가고, 오른쪽이면 그 관 · 레이드·타워는 바로
+        if act in ('gym_sel', 'pin_gym'):  # 왼쪽이 세대면 오른쪽 열로 들어가고, 오른쪽이면 그 관 · 레이드·타워는 바로
             left = gym_left(st)
             kind, g = left[max(0, min(sel, len(left) - 1))] if left else ('G', 1)
             if kind == 'G' and not gcol:
@@ -2881,8 +2927,9 @@ def main(scr):
                     f'Swapped {ball_name(src, cost)[1]} for {ball_name(dst, 1)[1]}! (now {st[dst]})') if ok else \
                 L(f'{ball_name(src, cost)[0]}가 있어야 바꿀 수 있다 (지금 {st[src]}개)', f'You need {ball_name(src, cost)[1]} (have {st[src]})')
             act = None
-        if act == 'badges' and view == 'main':
-            view, top, sel, msg = 'badges', 0, 0, ''
+        if act == 'badges' and view == 'main':  # 장식한 게 있으면 '장식 중'부터, 없으면 첫 분류(포획)부터
+            view, top, sel, msg, bcol = 'badges', 0, 0, '', 0
+            bcat = 0 if any(owned(st, b) for b in st.get('showcase', [])) else 1
         if act == 'gyms' and view == 'main':
             if BATTLE is None:  # 처음 — 종족값·타입·상성을 받아 온다
                 put(scr, 1, 1, L('PokeAPI 에서 배틀 데이터를 받는 중…', 'Downloading battle data from PokeAPI…'), curses.A_DIM)
@@ -2992,6 +3039,8 @@ def main(scr):
         if act in ('dex', 'box', 'trade'):
             view, top, dg, msg, sel = 'bag' if act == 'box' else act, 0, opened_gen(st), '', 0  # 가방은 아이템 화면(2026-11-05)
             tm, tcol = 0, 0
+        elif isinstance(act, tuple) and act[0] == 'medleft':  # 훈장 왼쪽 열 클릭 — 그 분류로
+            bcat, bcol, sel, top, msg = act[1], 0, 0, 0, ''
         elif isinstance(act, tuple) and act[0] == 'tradeleft':  # 교환 왼쪽 열 클릭 — 그 일로
             tm, tcol, sel, top, confirm, msg = act[1], 0, 0, 0, None, ''
         elif isinstance(act, tuple) and act[0] == 'trrow':  # 박사에게 목록 줄 클릭 — 그 줄을 고른다(보내기는 Enter 두 번)
@@ -3825,6 +3874,11 @@ def selftest():
     assert gym_right(gy, 1)[-1] == (1, 'L') and gym_left(gy)[gym_start(gy)] == ('G', 1)  # 1세대 사천왕이 남았다
     gy['league'] = {'1': 'd'}
     assert ('T', 0) in gym_left(gy) and gym_left(gy)[gym_start(gy)] == ('G', 2)  # 1세대를 다 이겼으면 2세대부터
+    # 훈장 분류 — 맨 위 '장식 중', 모든 훈장이 한 분류에 한 번씩, 장식한 체육관 배지도 '장식 중'에
+    mg = new_state(); mg['badges'] = {'catch1': 'd'}; mg['gym'] = {'gym:1-0': 'd'}; mg['showcase'] = ['catch1', 'gym:1-0']
+    grps = medal_groups(mg)
+    assert grps[0][1] == ['catch1', 'gym:1-0'] and sorted(b for _, ids in grps[1:] for b in ids) == sorted(b for b, _, _, _ in BADGES)
+    assert grps[1][1][0] == 'catch1' and all(len(ids) for _, ids in grps[1:])
     print('pokemon selftest ok')
 
 
