@@ -2728,6 +2728,8 @@ def main(scr):
             _gfx.kitty_show(*art[1:])
 
         key = getkey(scr, 2000)
+        if key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_PPAGE, curses.KEY_NPAGE):
+            curses.flushinp()  # 화면을 그리는 게 느릴 때 쌓인 방향키를 버린다 — 손을 떼도 계속 움직였다(2026-11-05)
         if key != -1:
             _gfx.sixel_touch()  # 키로 화면이 바뀌면 그림을 다시 놓는다
             fresh_st = load()  # 키를 기다린 2초 사이 허브가 저장했을 수 있다(부화·보상) — 그 위에 적용해야 덮어쓰지 않는다
