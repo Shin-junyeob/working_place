@@ -1397,24 +1397,72 @@ def fit(text, width):
     return text.rstrip() + '…'
 
 
-def side_buttons(scr, side, x0, y, h, btns, navbtns):
-    """오른쪽 네모 버튼 열 — 칸이 넉넉하면 3줄 상자, 모자라면 1줄 [글]. 클릭은 상자 전체, 고르기 표시는 가운데 줄."""
-    inner = SIDE_W - 3
+def box_button(scr, y, x, width, label, a, btns, navbtns, tall=True, attr=curses.A_BOLD):
+    """네모 버튼 하나 — tall 이면 3줄 상자, 아니면 1줄. 클릭은 상자 전체, 고르기 표시는 가운데 줄. 다음 y."""
+    inner = width - 2
+    lab = fit(label, inner)
+    pad = inner - memo_w(lab)  # 한글은 2칸 — str.center 는 글자 수로 맞춰 어긋난다
+    text = '│' + ' ' * (pad // 2) + lab + ' ' * (pad - pad // 2) + '│'
+    mid = y + 1 if tall else y
+    if tall:
+        put(scr, y, x, '┌' + '─' * inner + '┐', curses.A_DIM)
+        put(scr, y + 2, x, '└' + '─' * inner + '┘', curses.A_DIM)
+    put(scr, mid, x, text, attr)
+    btns.extend((r, x, x + width - 1, a) for r in range(y, y + (3 if tall else 1)))
+    navbtns.append((mid, x, x + width - 1, a, text))
+    return y + (3 if tall else 1)
+
+
+def side_buttons(scr, side, x0, y, h, btns, navbtns, width=None):
+    """오른쪽 네모 버튼 열 — 칸이 넉넉하면 3줄 상자, 모자라면 1줄. side: [(글, act[, attr])]."""
     tall = h - 1 - y >= 3 * len(side)
-    for label, a in side:
-        lab = fit(label, inner)
-        pad = inner - memo_w(lab)  # 한글은 2칸 — str.center 는 글자 수로 맞춰 어긋난다
-        text = '│' + ' ' * (pad // 2) + lab + ' ' * (pad - pad // 2) + '│'
-        if tall:
-            put(scr, y, x0, '┌' + '─' * inner + '┐', curses.A_DIM)
-            put(scr, y + 2, x0, '└' + '─' * inner + '┘', curses.A_DIM)
-            mid = y + 1
-        else:
-            mid = y
-        put(scr, mid, x0, text, curses.A_BOLD)
-        btns.extend((r, x0, x0 + SIDE_W - 1, a) for r in range(y, y + (3 if tall else 1)))
-        navbtns.append((mid, x0, x0 + SIDE_W - 1, a, text))
-        y += 3 if tall else 1
+    for label, a, *attr in side:
+        y = box_button(scr, y, x0, (width or SIDE_W) - 1, label, a, btns, navbtns, tall, *attr)
+
+
+BALL_ORDER = [('ball', '몬스터볼', 'Poké'), ('super', '슈퍼볼', 'Great'), ('hyper', '하이퍼볼', 'Ultra'), ('master', '마스터볼', 'Master')]
+
+
+def ball_choices(st):
+    """만남 화면 ② — [(볼, 개수, 던질 수 있나)]. 레이드는 레이드볼만, 전설·환상은 하이퍼볼·마스터볼만."""
+    w = st['wild']
+    if w.get('raid'):
+        return [('ball', w['balls'], w['balls'] > 0)]
+    legend = DEX[w['id']][5]
+    out = []
+    for kind, *_ in BALL_ORDER:
+        k = (w['balls'] or st['balls']) if kind == 'ball' else st[kind]
+        out.append((kind, k, k > 0 and not (legend and kind in ('ball', 'super'))))
+    return out
+
+
+def default_ball(st, now=None):
+    """고른 볼 — now 를 그대로 쓸 수 있으면 그것, 아니면 던질 수 있는 가장 싼 볼(마스터볼은 저절로 고르지 않는다)."""
+    ok = [kind for kind, _, can in ball_choices(st) if can]
+    if now in ok:
+        return now
+    return next((kind for kind in ok if kind != 'master'), None)
+
+
+def big_art(n, y, x, wcols, room):
+    """만남 화면 ① 큰 그림 — wcols 칸 · room 줄 안에 원본 도트를 정수 배로, 가운데에. 칸 크기를 잘못 알아 두 배로 그려져도
+    바깥 터미널 아래를 넘지 않게 남은 줄의 절반까지(draw_info 와 같은 까닭). 못 놓으면 None."""
+    if n is None or not (SIXEL or KITTY):
+        return None
+    cw_, ch_ = _gfx.cell_px()
+    if SIXEL:
+        below = _gfx.rows_below(y)
+        room = max(0, min(room, (below - 1) // 2 if below else room))
+        six = room >= 2 and _pokedata.sprite_sixel_fit(n, False, int(wcols * cw_), int(room * ch_))
+        if not six:
+            return None
+        cols = math.ceil(six[1] / cw_)
+        return ('six', y, x + max(0, (wcols - cols) // 2), ('big', n, y, x), six[0], cols, room)
+    png = _pokedata.sprite_png(n)
+    if not png:
+        return None
+    cols = _gfx.kitty_cols(png[1], png[2], room)
+    return ('kitty', y, x + max(0, (wcols - cols) // 2), 500000 + _pokedata.img_id(n) % 100000, png[0], cols, room)
 
 
 def move_geo(btns, focus, key):
@@ -1888,6 +1936,7 @@ def main(scr):
     info = None  # 도감 상세로 보고 있는 번호
     gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None
     chg = None  # 변신 화면이 다루는 가방 번호
+    ball_pick = None  # 만남 화면에서 고른 볼(던지기 전까지는 고르기만)
     pslot, query, pick_sort = 0, '', 1  # 팀 칸 고르기: 몇 번째 자리 · 이름 찾기 · 정렬(처음은 레벨순)
     order, bag_g, bag_sort, to_partner = [], None, _lang.get('bag_sort', 0) % len(SORTS), False  # 가방: 보이는 순서(가방 번호들) · 세대(None 전체) · 정렬 · 동료 줄로  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
@@ -1994,55 +2043,24 @@ def main(scr):
                     x = put(scr, y + 1, px, L('진화 ', 'Evolve '))
                     put(scr, y + 1, x, f'{bar(ev[1] / ev[2], max(6, min(16, x0 - x - 16)))} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
             y = 6
-            if st['wild']:  # 야생과 만나는 동안은 ⑥ 팀 자리를 야생이 쓴다
-                sh, wd = st['wild'].get('shiny') and not st['wild'].get('disguise'), st['wild']
-                pic = mon_art(art_of({'id': shown(wd), 'shiny': sh}), y, w)
-                art = join_art(art, pic)
-                px = pic[5] + 3 if pic else 1
-                y1 = para(scr, y, (L('레이드 보스 ', 'Raid boss ') if wd.get('raid') else
-                                   L('앗! 붉은 눈의 우두머리 ', 'Oh! An alpha ') if wd.get('alpha') else L('앗! 야생의 ', 'Oh! A wild '))
-                          + (L('✨이로치 ', '✨shiny ') if sh else '') + name(shown(wd)) + L('(이)가 나타났다!', ' appeared!')
-                          + (L(f' (볼 {ALPHA_TRIES - wd.get("tries", 0)}번 안에 못 잡으면 도망)', f' (flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws)')
-                             if wd.get('alpha') else ''), lw, gold | curses.A_BOLD if sh else curses.A_BOLD, px)
-                if wd.get('raid'):  # 레이드볼만 — 보유 볼은 못 쓴다
-                    acts = [(L(f'레이드볼 ({wd["balls"]})', f'Raid Ball ({wd["balls"]})'), 'throw'), (L('놓아주기', 'let go'), 'run')]
+            # ⑥ 팀 3×2 — 칸마다 그림 · 이름 레벨 · 개체값. 칸에서 Enter 면 그 자리에 넣을 포켓몬 고르기(slotpick)
+            cw3 = max(10, (x0 - 1) // 3)
+            team = [i for i in st.get('team', []) if i < len(st['box'])]
+            for k in range(_battle.TEAM_MAX):
+                cy, cx = y + (k // 3) * TEAM_CELL_H, 1 + (k % 3) * cw3  # 그림 2줄(실제론 더 크게 그려진다) · 빈 줄 · 이름 · 개체값
+                if k < len(team):
+                    mm = st['box'][team[k]]
+                    pic = mon_art(art_of(mm), cy, w, cx)
+                    art = join_art(art, pic)
+                    label = fit(name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
+                    pct = round(sum(iv_of(mm)) / 45 * 100)
+                    put(scr, cy + 4, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
                 else:
-                    left = wd['balls'] or st['balls']
-                    own = '' if wd['balls'] else L(' 보유', ' owned')
-                    legend = DEX[wd['id']][5]  # 전설·환상엔 하이퍼볼·마스터볼만 — 던질 수 없는 볼 버튼은 숨긴다
-                    acts = ([] if legend else [(L(f'몬스터볼 ({left}{own})', f'Poké Ball ({left}{own})'), 'throw')]) + \
-                        [(L(f'{ko} ({st[k]})', f'{en} ({st[k]})'), k) for k, ko, en in
-                         (('super', '슈퍼볼', 'Great'), ('hyper', '하이퍼볼', 'Ultra'), ('master', '마스터볼', 'Master'))
-                         if st[k] and not (legend and k == 'super')] + \
-                        [(L('도망', 'run'), 'run')]
-                bx, by = px, max(y1, y + 1)
-                for label, a in acts:  # 왼쪽 폭을 넘으면 다음 줄로
-                    if bx > px and bx + sum(map(memo.cw, label)) + (2 if tight else 4) > x0 - 1:
-                        bx, by = px, by + 1
-                    bx = button(by, bx, label, a)
-                if not wd.get('raid') and DEX[wd['id']][5] and not st['hyper'] + st['master']:
-                    by = para(scr, by + 1, L('하이퍼볼·마스터볼이 없다 — [교환] → [몬스터볼]에서 바꿔 오거나 도망치자.',
-                                             'No Ultra or Master Ball — swap in [trade] → [balls], or run.'), lw, curses.A_DIM, px) - 1
-                y = max(by + 2, y + 4)
-            else:  # ⑥ 팀 3×2 — 칸마다 그림 · 이름 레벨 · 개체값. 칸에서 Enter 면 그 자리에 넣을 포켓몬 고르기(slotpick)
-                put(scr, y, 1, fit(L('팀 · Enter 로 바꾸기 · 타워는 윗줄', 'Team · Enter to change · Tower: top row'), x0 - 2), curses.A_DIM)
-                cw3 = max(10, (x0 - 1) // 3)
-                team = [i for i in st.get('team', []) if i < len(st['box'])]
-                for k in range(_battle.TEAM_MAX):
-                    cy, cx = y + 1 + (k // 3) * TEAM_CELL_H, 1 + (k % 3) * cw3  # 그림 2줄(실제론 더 크게 그려진다) · 빈 줄 · 이름 · 개체값
-                    if k < len(team):
-                        mm = st['box'][team[k]]
-                        pic = mon_art(art_of(mm), cy, w, cx)
-                        art = join_art(art, pic)
-                        label = fit(name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
-                        pct = round(sum(iv_of(mm)) / 45 * 100)
-                        put(scr, cy + 4, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
-                    else:
-                        label = L('(빈칸)', '(empty)')
-                    btns.extend((cy + r, cx, cx + cw3 - 1, ('slot', k)) for r in range(TEAM_CELL_H - 1))
-                    navbtns.append((cy + 3, cx, cx + memo_w(label), ('slot', k), label))
-                    put(scr, cy + 3, cx, label, (gold if k < len(team) and st['box'][team[k]].get('shiny') else 0) | (0 if k < len(team) else curses.A_DIM))
-                y += 1 + 2 * TEAM_CELL_H
+                    label = L('(빈칸)', '(empty)')
+                btns.extend((cy + r, cx, cx + cw3 - 1, ('slot', k)) for r in range(TEAM_CELL_H - 1))
+                navbtns.append((cy + 3, cx, cx + memo_w(label), ('slot', k), label))
+                put(scr, cy + 3, cx, label, (gold if k < len(team) and st['box'][team[k]].get('shiny') else 0) | (0 if k < len(team) else curses.A_DIM))
+            y += 2 * TEAM_CELL_H
             for text, frac, km in egg_lines(st, t):  # 알마다 2줄(그림이 칸보다 크게 그려진다)
                 pic = egg_art(km, y, w)
                 art = join_art(art, pic)
@@ -2058,9 +2076,9 @@ def main(scr):
                                f'Poké\xa0{st["balls"]} · Great\xa0{st["super"]} · Ultra\xa0{st["hyper"]} · Master\xa0{st["master"]}'), lw)  # 이름과 숫자는 붙여 접는다
             para(scr, y, ('💬 ' + msg) if msg else '', lw)
             k = tickets(st, t)  # ⑤ 오른쪽 네모 버튼 — 맨 위는 가장 자주 누르는 풀숲 탐색
-            explore = L(f'풀숲 탐색 {k}', f'Explore {k}') if k > 0 else \
+            explore = L('앗! 야생', 'Wild!') if st['wild'] else L(f'풀숲 탐색 {k}', f'Explore {k}') if k > 0 else \
                 L(f'다음 {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}', f'next {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}')
-            side = [(explore, 'explore'), (L('도감', 'dex'), 'dex'), (L('가방', 'bag'), 'box'), (L('교환', 'trade'), 'trade'),
+            side = [(explore, 'encounter' if st['wild'] else 'explore'), (L('도감', 'dex'), 'dex'), (L('가방', 'bag'), 'box'), (L('교환', 'trade'), 'trade'),
                     (L('훈장', 'medals'), 'badges'), (L('체육관', 'gyms'), 'gyms'), (L('닫기 q', 'close q'), 'close')]
             if x0 < w:
                 side_buttons(scr, side, x0, 2, h, btns, navbtns)
@@ -2068,6 +2086,35 @@ def main(scr):
                 x = 1
                 for label, a in side:
                     x = button(h - 1, x, label, a)
+        elif view == 'wild':  # 풀숲 만남(2026-11-05 사용자 설계) — ① 가운데 포켓몬 · ② 오른쪽 볼 고르기 · ③ 던지기 · ④ 도망
+            wd = st['wild']
+            sw = 18 if w >= 60 else 14  # 볼 버튼 열 — '몬스터볼 120' 이 들어가게
+            x0 = w - sw
+            sh = wd.get('shiny') and not wd.get('disguise')
+            y = para(scr, 1, (L('레이드 보스 ', 'Raid boss ') if wd.get('raid') else
+                              L('앗! 붉은 눈의 우두머리 ', 'Oh! An alpha ') if wd.get('alpha') else L('앗! 야생의 ', 'Oh! A wild '))
+                     + (L('✨이로치 ', '✨shiny ') if sh else '') + name(shown(wd)) + L('(이)가 나타났다!', ' appeared!'), x0, gold | curses.A_BOLD if sh else curses.A_BOLD)
+            if wd.get('alpha'):
+                y = para(scr, y, L(f'볼 {ALPHA_TRIES - wd.get("tries", 0)}번 안에 못 잡으면 도망친다', f'Flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws'), x0, curses.A_DIM)
+            room = max(3, (h - y - 6) // 2)  # 그림은 칸보다 크게 그려질 수 있어 남은 줄의 절반
+            art = big_art(art_of({'id': shown(wd), 'shiny': sh}), y + 1, 1, x0 - 2, room)
+            if not art:
+                put(scr, y + room, max(1, (x0 - memo_w(name(shown(wd)))) // 2), name(shown(wd)), gold if sh else curses.A_BOLD)
+            para(scr, h - 6, msg, x0)
+            ball_pick = default_ball(st, ball_pick)
+            choices = ball_choices(st)
+            side = []
+            for kind, k, can in choices:
+                ko, en = (('레이드볼', 'Raid') if wd.get('raid') else next((b[1], b[2]) for b in BALL_ORDER if b[0] == kind))
+                side.append((('● ' if kind == ball_pick else '') + L(f'{ko} {k}', f'{en} {k}'), ('ball', kind),
+                             curses.A_BOLD | (curses.A_UNDERLINE if kind == ball_pick else 0) if can else curses.A_DIM))
+            side_buttons(scr, side, x0, 1, h - 1, btns, navbtns, sw + 1)
+            if not ball_pick:
+                para(scr, h - 5, L('던질 수 있는 볼이 없다 — [교환] → [몬스터볼]에서 바꿔 오거나 도망치자.',
+                                   'No ball you can throw — swap in [trade] → [balls], or run.'), x0, curses.A_DIM)
+            bw = max(10, min(16, (x0 - 4) // 2))
+            box_button(scr, h - 4, max(1, x0 // 2 - bw - 1), bw, L('던지기', 'throw'), 'throw_sel', btns, navbtns)
+            box_button(scr, h - 4, x0 // 2 + 1, bw, L('놓아주기', 'let go') if wd.get('raid') else L('도망', 'run'), 'run', btns, navbtns)
         elif view == 'slotpick':  # 팀 칸 Enter — 이 자리에 넣을 포켓몬 고르기(이름 찾기 · Tab 정렬)
             team = [i for i in st.get('team', []) if i < len(st['box'])]
             rows = slot_rows(st, pslot, query, pick_sort)
@@ -2396,7 +2443,7 @@ def main(scr):
                 put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation'), curses.A_DIM)
         acts = [b[3] for b in navbtns]
         if focus not in acts:  # 처음이거나 그 버튼이 사라졌으면 — 메인은 풀숲 탐색, 그 밖엔 돌아가기·닫기가 아닌 첫 버튼
-            focus = 'explore' if view == 'main' and 'explore' in acts else next((a for a in acts if a not in ('back', 'close')), acts[0] if acts else None)
+            focus = next(a for a in ('encounter', 'explore') if a in acts) if view == 'main' and {'encounter', 'explore'} & set(acts) else next((a for a in acts if a not in ('back', 'close')), acts[0] if acts else None)
         for by, bx, _, a, text in navbtns:
             if a == focus:
                 put(scr, by, bx, text, curses.A_BOLD | curses.A_REVERSE)
@@ -2441,7 +2488,7 @@ def main(scr):
         elif lists and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             sel += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
         elif key in (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN):
-            focus = (move_geo if view == 'main' else move_focus)(navbtns, focus, key)
+            focus = (move_geo if view in ('main', 'wild') else move_focus)(navbtns, focus, key)
         if key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
             if view == 'dex' and dg == GENS + 2:
                 p = list(SPECIALS)[min(sel, len(SPECIALS) - 1)] if SPECIALS else None  # 자료를 못 받았으면 빈 쪽
@@ -2558,6 +2605,21 @@ def main(scr):
                     msg, act = L('배틀 데이터를 받지 못했다: ', 'Could not download battle data: ') + f'{type(e).__name__}: {e}', None
             if BATTLE is not None:
                 view, top, sel, msg = 'gyms', 0, 0, ''
+        if act == 'encounter' and view == 'main' and st['wild']:
+            view, ball_pick, focus, msg = 'wild', default_ball(st, ball_pick), 'throw_sel', ''
+        if view == 'wild' and isinstance(act, tuple) and act[0] == 'ball':
+            can = dict((kind, c) for kind, _, c in ball_choices(st)) if st['wild'] else {}
+            if can.get(act[1]):
+                ball_pick, msg, focus = act[1], '', 'throw_sel'  # 고르기만 — 던지기는 ③
+            else:
+                msg = L('그 볼은 지금 던질 수 없다.', "You can't throw that ball now.")
+            act = None
+        if view == 'wild' and act == 'throw_sel':
+            act = {'ball': 'throw'}.get(ball_pick, ball_pick) if ball_pick else None
+            if act is None:
+                msg = L('던질 볼을 먼저 고르자.', 'Pick a ball first.')
+        if view == 'wild' and not st['wild']:
+            view = 'main'
         if act == 'pick_sel' and view == 'slotpick':
             act = ('pickrow', sel)
         if isinstance(act, tuple) and act[0] == 'slot' and view == 'main':
@@ -2633,7 +2695,7 @@ def main(scr):
             save(st)
             pn = name(st['box'][act[1]]['id'])
             msg, view = L(f'{pn}(을)를 데리고 다닙니다.', f'{pn} is now your partner.'), 'main'
-        elif view == 'main' and act in ('explore', 'throw', 'super', 'hyper', 'master', 'run', 'evolve', 'candy'):
+        elif view in ('main', 'wild') and act in ('explore', 'throw', 'super', 'hyper', 'master', 'run', 'evolve', 'candy'):
             if act == 'explore':
                 got = explore(st, t)
                 if not got:
@@ -2645,6 +2707,8 @@ def main(scr):
                     msg = L(f'✨ 반짝반짝! 이로치 {name(got[0])}(이)가 튀어나왔다!', f'✨ Sparkle! A shiny {name(got[0])} jumped out!')
                 else:
                     msg = L(f'풀숲에서 {name(got[0])}(이)가 튀어나왔다!', f'{name(got[0])} jumped out of the tall grass!')
+                if st['wild']:  # 만남 화면으로 — 볼은 고르고 [던지기] 로 던진다
+                    view, ball_pick, focus = 'wild', default_ball(st), 'throw_sel'
             elif act in ('throw', 'super', 'hyper', 'master') and st['wild']:
                 n, eggs0, ditto, dsh = shown(st['wild']), len(st.get('eggs', [])), st['wild'].get('disguise'), st['wild'].get('shiny')
                 real = st['wild'].get('form') or st['wild']['id']
@@ -2664,10 +2728,12 @@ def main(scr):
                              f' …Huh? {name(n)} is melting away… it was a {"✨shiny " if dsh else ""}Ditto all along!')
                 if r == 'caught' and len(st.get('eggs', [])) > eggs0:
                     msg += L(' 풀숲에서 알도 하나 주웠다!', ' Found an egg in the grass too!')
+                if not st['wild']:  # 잡았거나 도망갔으면 메인으로
+                    view = 'main'
             elif act == 'run' and st['wild']:
                 if st['wild'].get('raid'):  # 레이드 보스를 놓아주면 그 주 레이드는 끝
                     raid_done(st)
-                msg, st['wild'] = L('무사히 도망쳤다.', 'Got away safely.'), None
+                msg, st['wild'], view = L('무사히 도망쳤다.', 'Got away safely.'), None, 'main'
             elif act in ('evolve', 'candy'):
                 before = name(st['box'][st['partner']]['id']) if st['partner'] is not None else ''
                 n = evolve(st, t) if act == 'evolve' else use_candy(st, t)
@@ -2824,6 +2890,15 @@ def selftest():
     assert move_geo(nb, ('slot', 1), curses.KEY_RIGHT) == 'dex' and move_geo(nb, 'dex', curses.KEY_LEFT) == ('slot', 1)  # 팀 ↔ 버튼 열
     assert move_geo(nb, 'dex', curses.KEY_UP) == 'explore' and move_geo(nb, ('slot', 0), curses.KEY_DOWN) == ('slot', 3)  # ↑↓ 는 같은 열
     assert fit('팔데아 켄타로스', 8) == '팔데아…' and fit('피카츄', 8) == '피카츄'
+    # 만남 화면 볼 고르기: 처음은 던질 수 있는 가장 싼 볼, 마스터볼은 저절로 안 고른다 · 전설은 하이퍼볼부터 · 레이드는 레이드볼
+    bc = {**new_state(), 'wild': {'id': 16, 'balls': 0}, 'balls': 0, 'super': 0, 'hyper': 0, 'master': 1}
+    assert default_ball(bc) is None and default_ball(bc, 'master') == 'master'  # 마스터볼뿐이면 직접 골라야
+    bc['super'] = 2
+    assert default_ball(bc) == 'super' and default_ball(bc, 'ball') == 'super'
+    bc['wild'] = {'id': 150, 'balls': 3}
+    assert [c for _, _, c in ball_choices(bc)] == [False, False, False, True] and default_ball(bc) is None
+    bc['wild'] = {'id': 150, 'balls': 3, 'raid': True}
+    assert ball_choices(bc) == [('ball', 3, True)] and default_ball(bc) == 'ball'
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
