@@ -2363,17 +2363,13 @@ def main(scr):
                              + ('' if p in have_sp else '   · ' + (
                     L(f'{g}세대가 열리면', f'opens with Gen {g}') if og < g else L(f'{item_name(key)} {items.get(key, 0)}개', f'{item_name(key)} ×{items.get(key, 0)}')))))
             put(scr, 1, 1, L(f'◀ 특수 모습 {len(have_sp)}/{len(SPECIALS)}   ● 만듦', f'◀ Special forms {len(have_sp)}/{len(SPECIALS)}   ● made'), curses.A_DIM)
-            hint = fold(L('메가스톤·울트라네크로Z: 그 종 연구 완료(이후 5마리마다 또) · 다이수프: 레이드 승리 · 구슬: 그란돈·가이오가 레이드 포획 — 가방 F 로 바꾼다',
-                          'Mega Stones, Ultranecrozium Z: finish that species\' research (another every 5 catches after) · Max Soup: raid wins · orbs: catch Groudon/Kyogre in a raid — change with F in the bag'), max(10, w - 2))
-            body = h - 3 - len(hint)  # 아래 안내가 접힌 줄 수만큼 목록을 줄인다 — 버튼 줄과 겹치지 않게
+            body = h - 3
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             for k, (p, text) in enumerate(rows[top:top + body]):
                 if p in have_sp:
                     btns.append((2 + k, 1, w - 1, ('info', p)))
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
-            for k, line in enumerate(hint):
-                put(scr, h - 1 - len(hint) + k, 1, line, curses.A_DIM)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ← 리전폼', '↑↓ move · Enter details · ← regional'), curses.A_DIM)
         elif view == 'dex' and dg > GENS:  # 도감 리전폼 쪽
