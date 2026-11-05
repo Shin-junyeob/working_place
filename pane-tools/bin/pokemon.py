@@ -64,6 +64,7 @@ import random
 import re
 import shutil
 import sys
+import time
 import zlib
 from datetime import datetime, timedelta
 
@@ -2085,7 +2086,26 @@ def main(scr):
             load_specials()
         except Exception:
             pass
+    self_path = os.path.abspath(__file__)
+    code_stamp = lambda: max(os.path.getmtime(p) for p in glob.glob(os.path.join(os.path.dirname(self_path), '*.py')))  # noqa: E731
+    code_mine = code_seen = code_stamp()
+    code_at = time.time()
     while True:
+        # 코드가 바뀌면(머지·자동 업데이트) 같은 인자로 다시 뜬다 — 열어 둔 화면이 옛 코드로 남지 않게(2026-11-05 사용자).
+        # 허브와 같은 규칙: 파일이 5초 동안 안 바뀐 뒤, 새 파일에도 재시작 코드가 있을 때만. 진행은 저장 파일에 있고 화면만 처음으로.
+        stamp = code_stamp()
+        if stamp != code_seen:
+            code_seen, code_at = stamp, time.time()
+        elif stamp != code_mine and time.time() - code_at >= 5:
+            with open(self_path, encoding='utf-8') as f:
+                restartable = 'os.execv(' in f.read()
+            if restartable:
+                if _gfx._six['key'] is not None:
+                    _gfx.redraw()
+                _gfx.kitty_hide(free=True)
+                curses.endwin()
+                os.execv(sys.executable, [sys.executable, self_path] + sys.argv[1:])
+            code_mine = stamp  # 재시작 못 하는 버전이면 지금 코드로 계속
         st, t = load(), total_tokens()
         if st.get('_broken'):  # 빈 게임처럼 보여 주지 않는다 — 파일이 다시 읽히면 2초 안에 이어진다
             scr.erase()
