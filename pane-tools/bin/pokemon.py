@@ -1381,6 +1381,7 @@ def mon_art(n, y, w, x=1):
 
 
 SIDE_W = 14  # 메인 화면 오른쪽 버튼 열 폭
+TEAM_CELL_H = 6  # 팀 칸 높이 — 그림 2줄이 실제론 더 크게 그려져 이름과 겹쳤다, 이름은 한 줄 더 아래(2026-11-05 사용자)
 
 
 def memo_w(text):
@@ -1979,7 +1980,7 @@ def main(scr):
                 pic = mon_art(partner_id_of(st), y, w)
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
-                put(scr, y, px, (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n) + f'  Lv{box_level(m)}',
+                put(scr, y, px, (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n) + f'  Lv.{box_level(m)}',
                     gold if m.get('shiny') else curses.A_BOLD)
                 ev = evo_status(st, t)
                 if ev[0] == 'final':
@@ -2028,20 +2029,20 @@ def main(scr):
                 cw3 = max(10, (x0 - 1) // 3)
                 team = [i for i in st.get('team', []) if i < len(st['box'])]
                 for k in range(_battle.TEAM_MAX):
-                    cy, cx = y + 1 + (k // 3) * 5, 1 + (k % 3) * cw3
+                    cy, cx = y + 1 + (k // 3) * TEAM_CELL_H, 1 + (k % 3) * cw3  # 그림 2줄(실제론 더 크게 그려진다) · 빈 줄 · 이름 · 개체값
                     if k < len(team):
                         mm = st['box'][team[k]]
                         pic = mon_art(art_of(mm), cy, w, cx)
                         art = join_art(art, pic)
-                        label = fit(name(mm['id']), cw3 - 6) + f' {box_level(mm)}'
+                        label = fit(name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
                         pct = round(sum(iv_of(mm)) / 45 * 100)
-                        put(scr, cy + 3, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
+                        put(scr, cy + 4, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
                     else:
                         label = L('(빈칸)', '(empty)')
-                    btns.extend((cy + r, cx, cx + cw3 - 1, ('slot', k)) for r in range(4))
-                    navbtns.append((cy + 2, cx, cx + memo_w(label), ('slot', k), label))
-                    put(scr, cy + 2, cx, label, (gold if k < len(team) and st['box'][team[k]].get('shiny') else 0) | (0 if k < len(team) else curses.A_DIM))
-                y += 1 + 2 * 5
+                    btns.extend((cy + r, cx, cx + cw3 - 1, ('slot', k)) for r in range(TEAM_CELL_H - 1))
+                    navbtns.append((cy + 3, cx, cx + memo_w(label), ('slot', k), label))
+                    put(scr, cy + 3, cx, label, (gold if k < len(team) and st['box'][team[k]].get('shiny') else 0) | (0 if k < len(team) else curses.A_DIM))
+                y += 1 + 2 * TEAM_CELL_H
             for text, frac, km in egg_lines(st, t):  # 알마다 2줄(그림이 칸보다 크게 그려진다)
                 pic = egg_art(km, y, w)
                 art = join_art(art, pic)
