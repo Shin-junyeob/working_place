@@ -2076,9 +2076,10 @@ def main(scr):
                                f'Poké\xa0{st["balls"]} · Great\xa0{st["super"]} · Ultra\xa0{st["hyper"]} · Master\xa0{st["master"]}'), lw)  # 이름과 숫자는 붙여 접는다
             para(scr, y, ('💬 ' + msg) if msg else '', lw)
             k = tickets(st, t)  # ⑤ 오른쪽 네모 버튼 — 맨 위는 가장 자주 누르는 풀숲 탐색
-            explore = L('앗! 야생', 'Wild!') if st['wild'] else L(f'풀숲 탐색 {k}', f'Explore {k}') if k > 0 else \
+            explore_label = L('앗! 야생', 'Wild!') if st['wild'] else (L(f'풀숲 탐색 {k}', f'Explore {k}') if k < 10 else L(f'탐색 {k}', f'Explore {k}')) if k > 0 else \
                 L(f'다음 {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}', f'next {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}')
-            side = [(explore, 'encounter' if st['wild'] else 'explore'), (L('도감', 'dex'), 'dex'), (L('가방', 'bag'), 'box'), (L('교환', 'trade'), 'trade'),
+            # 이름을 explore 라 하면 탐색 함수를 가려 눌렀을 때 꺼졌다(2026-11-05)
+            side = [(explore_label, 'encounter' if st['wild'] else 'explore'), (L('도감', 'dex'), 'dex'), (L('가방', 'bag'), 'box'), (L('교환', 'trade'), 'trade'),
                     (L('훈장', 'medals'), 'badges'), (L('체육관', 'gyms'), 'gyms'), (L('닫기 q', 'close q'), 'close')]
             if x0 < w:
                 side_buttons(scr, side, x0, 2, h, btns, navbtns)
@@ -2330,21 +2331,21 @@ def main(scr):
             x = button(h - 1, 1, L('바꾸기', 'swap'), 'swap_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'dex' and dg == GENS + 2:  # 도감 마지막 쪽 — 특수 모습(메가진화·거다이맥스·원시회귀·울트라버스트)
-            made, og, items = st.get('specials', []), opened_gen(st), st.get('items', {})
+            have_sp, og, items = st.get('specials', []), opened_gen(st), st.get('items', {})  # made 라 부르면 made() 를 가려 [박사에게]가 꺼졌다
             rows = []
             for p, (s_, kind, g, *_) in SPECIALS.items():
                 key = 'soup' if kind == 'gmax' else f'stone:{p}'
-                rows.append((p, ('● ' if p in made else '  ') + f'{s_:04d} ' + name(p) + (' ★' if p in st.get('researched', []) else '')
-                             + ('' if p in made else '   · ' + (
+                rows.append((p, ('● ' if p in have_sp else '  ') + f'{s_:04d} ' + name(p) + (' ★' if p in st.get('researched', []) else '')
+                             + ('' if p in have_sp else '   · ' + (
                     L(f'{g}세대가 열리면', f'opens with Gen {g}') if og < g else L(f'{item_name(key)} {items.get(key, 0)}개', f'{item_name(key)} ×{items.get(key, 0)}')))))
-            put(scr, 1, 1, L(f'◀ 특수 모습 {len(made)}/{len(SPECIALS)}   ● 만듦', f'◀ Special forms {len(made)}/{len(SPECIALS)}   ● made'), curses.A_DIM)
+            put(scr, 1, 1, L(f'◀ 특수 모습 {len(have_sp)}/{len(SPECIALS)}   ● 만듦', f'◀ Special forms {len(have_sp)}/{len(SPECIALS)}   ● made'), curses.A_DIM)
             hint = fold(L('메가스톤·울트라네크로Z: 그 종 연구 완료(이후 5마리마다 또) · 다이수프: 레이드 승리 · 구슬: 그란돈·가이오가 레이드 포획 — 가방 F 로 바꾼다',
                           'Mega Stones, Ultranecrozium Z: finish that species\' research (another every 5 catches after) · Max Soup: raid wins · orbs: catch Groudon/Kyogre in a raid — change with F in the bag'), max(10, w - 2))
             body = h - 3 - len(hint)  # 아래 안내가 접힌 줄 수만큼 목록을 줄인다 — 버튼 줄과 겹치지 않게
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             for k, (p, text) in enumerate(rows[top:top + body]):
-                if p in made:
+                if p in have_sp:
                     btns.append((2 + k, 1, w - 1, ('info', p)))
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
             for k, line in enumerate(hint):
@@ -2899,6 +2900,13 @@ def selftest():
     assert [c for _, _, c in ball_choices(bc)] == [False, False, False, True] and default_ball(bc) is None
     bc['wild'] = {'id': 150, 'balls': 3, 'raid': True}
     assert ball_choices(bc) == [('ball', 3, True)] and default_ball(bc) == 'ball'
+    import ast  # main() 안에서 모듈 함수 이름을 변수로 쓰면 main 전체에서 그 함수가 가려져 누르는 순간 꺼졌다(explore · made, 2026-11-05)
+    tree = ast.parse(open(__file__, encoding='utf-8').read())
+    funcs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+    mainf = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+    bound = {x.id for node in ast.walk(mainf) if isinstance(node, (ast.Assign, ast.For, ast.AugAssign))
+             for t in (node.targets if isinstance(node, ast.Assign) else [node.target]) for x in ast.walk(t) if isinstance(x, ast.Name)}
+    assert not bound & funcs, bound & funcs
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
