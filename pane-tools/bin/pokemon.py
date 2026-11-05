@@ -2390,8 +2390,7 @@ def main(scr):
             bcat = max(0, min(bcat, len(groups) - 1))
             lw = max(17, min(20, w // 3))  # '배틀·레이드 0/6' 이 잘리지 않게
             rx = lw + 2
-            show_art = w >= 70  # 좁으면 그림 대신 글 자리
-            rw = w - rx - 1 - (14 if show_art else 0)  # 오른쪽 위 훈장 그림 자리는 비운다
+            rw = w - rx - 1
             body = h - 4
             put(scr, 1, 1, msg or (L(f'훈장 {len(st["badges"])}/{len(BADGES)} · 장식 {len(st.get("showcase", []))}/{SHOWCASE_MAX} — '
                                      + ('↑↓ · Enter 장식 넣기/빼기 · ← q' if bcol else '↑↓ · → 안으로 · q 돌아가기'),
@@ -2415,8 +2414,11 @@ def main(scr):
                 btns.append((2 + k, rx, w - 1, ('pin', b)))
             if not ids:
                 put(scr, 2, rx, fit(L('장식한 것이 없다 — 분류에서 골라 Enter', 'Nothing shown — pick one in a category, Enter'), rw), curses.A_DIM)
-            if show_art and bcol and ids and owned(st, ids[sel]):  # 커서가 놓인 훈장 그림을 오른쪽 위에 크게
-                art = badge_art(st, [ids[sel]], 3, w - 14, 4)
+            # 커서가 놓인 훈장 그림은 오른쪽 열 목록 바로 아래에(2026-11-05 사용자) — 남은 줄이 모자라면 작게, 2줄도 안 되면 생략
+            ay = 2 + min(len(ids), body) + 1
+            arows = min(4, h - 2 - ay)
+            if bcol and ids and owned(st, ids[sel]) and arows >= 2:
+                art = badge_art(st, [ids[sel]], ay, rx + 2, arows)
             button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
         elif view == 'gyms':  # 2026-11-05 사용자 설계: 왼쪽 레이드 · 배틀 타워 · 세대들, 오른쪽에 고른 세대의 관·사천왕
             left = gym_left(st)
