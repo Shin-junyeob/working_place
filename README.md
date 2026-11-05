@@ -75,7 +75,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Battle Tower** — once any champion is beaten, the gym list gains a Battle Tower row under the raid. The first three team members (any generation; **pick** chooses three from the whole bag) fight one opponent trio after another until they lose; starting a run costs two explores, every next opponent is free. Opponents are random fully-evolved Pokémon from the opened generations and grow every 7 wins (+6 levels, +1 IV up to 15, with no level cap, so even a maxed team ends somewhere — measured average best streak about 58 for a maxed team, 44 for Lv79 teams, 27 for Lv60 ones); every 7th battle is a little stronger and every 49th brings a legendary. Every 7 wins: 3 Great Balls; every 21: 2 Ultra Balls and a **Bottle Cap**; every 49: a Master Ball and a **Gold Bottle Cap**. Each battle gives the team battle XP. Bottle Caps are Hyper Training: in the bag's F screen a Bottle Cap sets one IV to 15, a Gold Bottle Cap all three.
 
-**Medals** — 55 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids, Mega Evolution, Gigantamax, Battle Tower streaks of 7/21/49/100), drawn with item sprites. Pick up to five medals or gym badges in the medal screen to show at the top of the Pokémon screen.
+**Medals** — 55 achievements (catches, generations, shinies, legendaries, evolutions, Great Balls, region conquests, champions, regional forms, fusion, research, alphas, raids, Mega Evolution, Gigantamax, Battle Tower streaks of 7/21/49/100), drawn with item sprites. Pick up to twelve medals or gym badges in the medal screen to show at the top of the Pokémon screen.
 
 ![Medals](docs/images/medals.png)
 
@@ -101,6 +101,7 @@ Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generatio
 
 | Screen | Keys |
 |---|---|
+| Main screen | medals across the top; the partner (sprite, name, evolution gauge) and below it the team as a 3×2 grid (the Battle Tower uses the top row; a wild encounter takes the grid's place until it ends); eggs, the weekly task and ball counts under that; square buttons down the right — explore (with the explores left), Pokédex, bag, trade, medals, gyms, close. ←→ move between the grid and the buttons, ↑↓ within a column. Enter on a team slot opens a picker: strongest first, typing filters by name, Tab changes the sort, and the chosen Pokémon fills that slot (one already on the team swaps places; "empty this slot" is at the end) |
 | Most screens | arrows move between buttons, Enter presses one, `q` goes back or closes |
 | Lists (medals, gyms, trade) | ↑↓ picks the row, ←→ the button below it, which acts on that row |
 | Bag | ↑↓ row · Enter makes it your partner · Space adds it to / removes it from the team · ←→ all / each generation · Tab sort: Pokédex number (default), level, IVs, name (가나다 in Korean, abc in English) — remembered per PC, the trade screen follows it · F opens the change screen (fusion, Mega Evolution, Gigantamax …, and Hyper Training with Bottle Caps) |
