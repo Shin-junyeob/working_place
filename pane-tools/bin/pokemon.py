@@ -893,12 +893,51 @@ def form_note(n):
     return L(f'{name(s)}의 {k[0]} 모습', f'{k[1]} form of {name(s)}')
 
 
+FUSE_ITEMS = {646: ('유전자쐐기', 'DNA Splicers'), 800: ('네크로플러스', 'N-Solarizer/Lunarizer'), 898: ('끈의 줄', 'Reins of Unity')}  # 합체 도구 — 쓰면 사라지지 않는다(재료 포켓몬이 사라진다)
+
+
+def bag_items(st):
+    """가방 화면 — [(키, 개수 또는 None(늘 있는 합체 도구))]. 가진 것만: 이상한사탕 · 병뚜껑 · 메가스톤·구슬·Z · 다이수프 · 합체 도구(그 포켓몬이 있으면)."""
+    items = st.get('items', {})
+    out = ([('candy', st['candy'])] if st.get('candy') else []) + \
+        [(k, items[k]) for k in ('gcap', 'cap') if items.get(k)] + \
+        sorted(((k, c) for k, c in items.items() if c > 0 and k.startswith('stone:')), key=lambda kc: int(kc[0].split(':')[1])) + \
+        ([('soup', items['soup'])] if items.get('soup') else [])
+    have = {m['id'] for m in st['box']}
+    return out + [(f'fuse:{b}', None) for b in FUSE_ITEMS if b in have]
+
+
+def item_targets(st, key):
+    """그 아이템을 쓸 수 있는 포켓몬 [(가방 번호, 바꾸기 화면의 칸 번호들, 지금 쓸 수 있나, 못 쓰는 까닭)] — 레벨 높은 것부터.
+    이상한사탕은 진화할 수 있는 포켓몬, 합체 도구는 합체 상대가 가방에 있는 기본 포켓몬, 그 밖엔 change_options 에 그 아이템 칸이 있는 포켓몬."""
+    out = []
+    for i in bag_order(st, None, 1):
+        m = st['box'][i]
+        if key == 'candy':
+            if evolutions(st, m['id'], m.get('shiny')):
+                out.append((i, [], True, ''))
+            continue
+        opts = change_options(st, i)
+        if key.startswith('fuse:'):  # 합체 도구 — 그 기본 포켓몬의 합체 칸들(재료는 가방 속 포켓몬)
+            ks = [k for k, o in enumerate(opts) if o[1][0] == 'mon'] if m['id'] == int(key[5:]) else []
+        else:
+            ks = [k for k, o in enumerate(opts) if o[1] == ('item', key)]
+        if ks:
+            ok = [k for k in ks if opts[k][2]]
+            out.append((i, ks, bool(ok), '' if ok else opts[ks[0]][3]))
+    return out
+
+
 def item_name(key):
     """아이템 이름 — 'stone:<모습>'(메가스톤·구슬·울트라네크로Z) · 'soup'(다이수프) · 'cap'·'gcap'(은색·금색 병뚜껑)."""
     if key == 'soup':
         return L('다이수프', 'Max Soup')
     if key in ('cap', 'gcap'):
         return L('은색 병뚜껑', 'Bottle Cap') if key == 'cap' else L('금색 병뚜껑', 'Gold Bottle Cap')
+    if key == 'candy':
+        return L('이상한사탕', 'Rare Candy')
+    if key.startswith('fuse:'):
+        return L(*FUSE_ITEMS[int(key[5:])])
     p = int(key.split(':')[1])
     s, kind, _, letter, extra = SPECIALS.get(p, (0, '', 0, '', ''))
     if kind == 'primal':
@@ -1076,15 +1115,17 @@ def dex_summary(st, g):
     return out
 
 
-def use_candy(st, t, rng=random):
-    """이상한사탕 — 동료가 진화할 수 있는 모습이 있으면 경험치와 상관없이 바로 진화. 진화한 번호 · 못 쓰면 None."""
-    if st.get('candy', 0) <= 0 or st['partner'] is None:
+def use_candy(st, t, rng=random, i=None):
+    """이상한사탕 — 가방 i 번째(없으면 동료)가 진화할 수 있는 모습이 있으면 경험치와 상관없이 바로 진화. 진화한 번호 · 못 쓰면 None.
+    가방에서 아무 포켓몬에게나 쓴다(2026-11-05 — 가방이 아이템 화면이 되며)."""
+    i = st['partner'] if i is None else i
+    if st.get('candy', 0) <= 0 or i is None:
         return None
-    m = st['box'][st['partner']]
+    m = st['box'][i]
     if not evolutions(st, m['id'], m.get('shiny')):
         return None
     st['candy'] -= 1
-    return _evolve(st, t, rng)
+    return _evolve(st, t, rng, i)
 
 
 def evolve(st, t, rng=random):
@@ -1093,11 +1134,12 @@ def evolve(st, t, rng=random):
     return _evolve(st, t, rng)
 
 
-def _evolve(st, t, rng):
-    mon = st['box'][st['partner']]
+def _evolve(st, t, rng, i=None):
+    mon = st['box'][st['partner'] if i is None else i]
     research_bump(st, sp(mon['id']), 'e')  # 리전폼은 원래 종 연구에(배틀 승리·포획과 같이)
     mon['id'], mon['xp'] = rng.choice(evolutions(st, mon['id'], mon.get('shiny'))), 0  # 이로치는 이로치로 진화
-    st['base'] = t
+    if i is None or i == st['partner']:  # 동료의 진화 경험치는 새로 — 다른 포켓몬(사탕)은 동료 경험치를 건드리지 않는다
+        st['base'] = t
     st['evolved'] = st.get('evolved', 0) + 1
     bump(st, 'evolve')
     if mon['id'] in FORMS:  # 리전폼으로 진화 — 리전폼 목록에
@@ -1513,7 +1555,7 @@ def pick_list(st, query='', sort=1):
 def slot_rows(st, k, query='', sort=1):
     """팀 k 번째 자리 고르기 목록 — 후보들, 그 자리가 차 있고 찾는 중이 아니면 맨 끝에 None(비우기).
     비우기를 맨 위에 두었더니 이름을 치고 바로 Enter 하면 넣는 대신 빠졌다(2026-11-05)."""
-    filled = k < len([j for j in st.get('team', []) if j < len(st['box'])])
+    filled = k >= 0 and k < len([j for j in st.get('team', []) if j < len(st['box'])])  # k == -1 은 동료 고르기
     return pick_list(st, query, sort) + ([None] if filled and not query else [])
 
 
@@ -1959,9 +2001,10 @@ def main(scr):
     info = None  # 도감 상세로 보고 있는 번호
     gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None
     chg = None  # 변신 화면이 다루는 가방 번호
+    ukey, chg_from, chg_only = None, 'bag', []  # 가방에서 고른 아이템 · 바꾸기 화면에서 돌아갈 곳
     ball_pick = None  # 만남 화면에서 고른 볼(던지기 전까지는 고르기만)
     pslot, query, pick_sort = 0, '', 1  # 팀 칸 고르기: 몇 번째 자리 · 이름 찾기 · 정렬(처음은 레벨순)
-    order, bag_g, bag_sort, to_partner = [], None, _lang.get('bag_sort', 0) % len(SORTS), False  # 가방: 보이는 순서(가방 번호들) · 세대(None 전체) · 정렬 · 동료 줄로  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
+    order, bag_sort = [], _lang.get('bag_sort', 0) % len(SORTS)  # 교환: 보이는 순서(가방 번호들) · 정렬  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
     if not DEX or len(DEX[1]) < 9:  # 처음 열었거나 옛 형식(알에 쓸 베이비·부화 걸음 없음) — 도감을 받아 온다
@@ -2052,8 +2095,10 @@ def main(scr):
                 pic = mon_art(partner_id_of(st), y, w)
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
-                put(scr, y, px, (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n) + f'  Lv.{box_level(m)}',
-                    gold if m.get('shiny') else curses.A_BOLD)
+                plabel = (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n) + f'  Lv.{box_level(m)}'
+                put(scr, y, px, plabel, gold if m.get('shiny') else curses.A_BOLD)
+                btns.extend((y + r, 1, x0 - 2, 'partner_pick') for r in range(2))  # 동료를 누르면 동료 고르기(2026-11-05 사용자)
+                navbtns.append((y, px, px + memo_w(plabel), 'partner_pick', plabel))
                 ev = evo_status(st, t)
                 if ev[0] == 'final':
                     put(scr, y + 1, px, L('최종 진화', 'fully evolved'), curses.A_DIM)
@@ -2140,11 +2185,39 @@ def main(scr):
             bw = max(10, min(16, w // 4))
             box_button(scr, h - 4, max(1, w // 2 - bw - 1), bw, L('던지기', 'throw'), 'throw_sel', btns, navbtns)
             box_button(scr, h - 4, w // 2 + 1, bw, L('놓아주기', 'let go') if wd.get('raid') else L('도망', 'run'), 'run', btns, navbtns)
+        elif view == 'bag':  # 가방 = 아이템(2026-11-05 사용자) — 한 줄에 하나, U·Enter·클릭으로 쓸 포켓몬 고르기
+            rows = bag_items(st)
+            put(scr, 1, 1, msg or L('가방 — 아이템을 고르고 Enter 로 쓴다', 'Bag — pick an item, Enter to use it'), curses.A_DIM)
+            body = h - 4
+            sel = max(0, min(sel, len(rows) - 1))
+            top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
+            for k, (key, c) in enumerate(rows[top:top + body]):
+                text = item_name(key) + (L(f'  {c}개', f'  ×{c}') if c is not None else L('  (도구 — 재료 포켓몬이 사라진다)', '  (tool — uses up the partner Pokémon)'))
+                btns.append((2 + k, 1, w - 1, ('bagitem', top + k)))
+                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
+            if not rows:
+                para(scr, 2, L('아이템이 없다 — 연구 완료·레이드·배틀 타워·주간 과제에서 얻는다.', 'No items yet — research, raids, the Battle Tower and weekly tasks give them.'), w, curses.A_DIM)
+            button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')  # 쓰기는 Enter·클릭(2026-11-05 사용자 — U 버튼 없음)
+        elif view == 'use':  # 가방 → 아이템 → 쓸 포켓몬
+            rows = item_targets(st, ukey)
+            put(scr, 1, 1, msg or L(f'{item_name(ukey)} — 누구에게 쓸까 · Enter', f'{item_name(ukey)} — use on whom? · Enter'), curses.A_DIM)
+            body = h - 4
+            sel = max(0, min(sel, len(rows) - 1))
+            top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
+            for k, (i, ks, ok, why) in enumerate(rows[top:top + body]):
+                mm = st['box'][i]
+                text = (f'⚔ ' if i in st.get('team', []) else '★ ' if i == st['partner'] else '  ') + bag_text(mm, w - 6) + ('' if ok else f'  · {why}')
+                btns.append((2 + k, 1, w - 1, ('userow', top + k)))
+                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, (curses.A_REVERSE if top + k == sel else 0) | (0 if ok else curses.A_DIM))
+            if not rows:
+                para(scr, 2, L('이 아이템을 쓸 수 있는 포켓몬이 없다.', 'No Pokémon can use this item.'), w, curses.A_DIM)
+            x = button(h - 1, 1, L('쓰기', 'use'), 'use_sel')
+            button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'slotpick':  # 팀 칸 Enter — 이 자리에 넣을 포켓몬 고르기(이름 찾기 · Tab 정렬)
             team = [i for i in st.get('team', []) if i < len(st['box'])]
             rows = slot_rows(st, pslot, query, pick_sort)
-            put(scr, 1, 1, msg or L(f'팀 {pslot + 1}번 자리 — 찾기: {query}▏ · Tab 정렬 {SORTS[pick_sort][0]} · Esc 돌아가기',
-                                    f'Team slot {pslot + 1} — find: {query}▏ · Tab sort {SORTS[pick_sort][1]} · Esc back'), curses.A_DIM)
+            put(scr, 1, 1, msg or (L('동료', 'Partner') if pslot == -1 else L(f'팀 {pslot + 1}번 자리', f'Team slot {pslot + 1}'))
+                + L(f' — 찾기: {query}▏ · Tab 정렬 {SORTS[pick_sort][0]} · Esc 돌아가기', f' — find: {query}▏ · Tab sort {SORTS[pick_sort][1]} · Esc back'), curses.A_DIM)
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
@@ -2327,16 +2400,20 @@ def main(scr):
         elif view == 'change':  # 가방 F — 바꿀 모습 고르기(합체·메가진화·거다이맥스·원시회귀·울트라버스트)
             opts = change_options(st, chg) if chg is not None and chg < len(st['box']) else []
             base_m = st['box'][chg]
-            y = para(scr, 1, msg or L(f'기본 {name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — 레벨·개체값은 기본을 따르고 재료는 사라진다(되돌릴 수 없다)',
+            y = para(scr, 1, msg or L(f'{name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — 15로 만들 능력치를 고른다', f'{name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — pick the stat to raise to 15')
+                     if chg_from == 'use' and ukey in ('cap', 'gcap') else
+                     msg or L(f'기본 {name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — 레벨·개체값은 기본을 따르고 재료는 사라진다(되돌릴 수 없다)',
                                       f'Base {name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — keeps the base\'s level and IVs, uses up the material (can\'t be undone)'), w, curses.A_DIM)
-            sel = max(0, min(sel, len(opts) - 1))
-            for k, (f, (what, ref), ok, why) in enumerate(opts):
+            shown_k = chg_only if chg_from == 'use' else list(range(len(opts)))  # 가방에서 왔으면 그 아이템 칸만(메가 줄에 커서가 놓였다)
+            sel = max(0, min(sel, len(shown_k) - 1))
+            for row, k in enumerate(shown_k):
+                f, (what, ref), ok, why = opts[k]
                 cost = (L('재료 ', 'material ') + f'{name(st["box"][ref]["id"])} Lv{box_level(st["box"][ref])} · {iv_text(st["box"][ref])}' if what == 'mon'
                         else L(f'{item_name(ref)} {st.get("items", {}).get(ref, 0)}개', f'{item_name(ref)} ×{st.get("items", {}).get(ref, 0)}'))
                 text = f'{opt_name(f)} ← {cost}' + ('' if ok else f'  · {why}')
-                btns.append((y + 1 + k, 1, w - 1, ('chg', k)))
-                put(scr, y + 1 + k, 1, text.ljust(w - 2) if k == sel else text,
-                    (curses.A_REVERSE if k == sel else 0) | (0 if ok else curses.A_DIM))
+                btns.append((y + 1 + row, 1, w - 1, ('chg', k)))
+                put(scr, y + 1 + row, 1, text.ljust(w - 2) if row == sel else text,
+                    (curses.A_REVERSE if row == sel else 0) | (0 if ok else curses.A_DIM))
             x = button(h - 1, 1, L('바꾸기', 'change'), 'chg_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'balls':  # [교환] → [몬스터볼] — 한 단계 위 볼로
@@ -2347,9 +2424,6 @@ def main(scr):
                          f'{ball_name(src, cost)[1]} → {ball_name(dst, 1)[1]} · have {st[src]}')
                 btns.append((3 + k, 1, w - 1, ('swap', k)))
                 put(scr, 3 + k, 1, text.ljust(w - 2) if k == sel else text, curses.A_REVERSE if k == sel else 0)
-            own = [(k, c) for k, c in st.get('items', {}).items() if c > 0]
-            if own:
-                para(scr, 7 + len(TRADES), L('아이템: ', 'Items: ') + ' · '.join(f'{item_name(k)} {c}' for k, c in own) + L(' — 가방 F 로 쓴다', ' — use with F in the bag'), w)
             para(scr, 4 + len(TRADES), L(f'지금: 몬스터볼 {st["balls"]} · 슈퍼볼 {st["super"]} · 하이퍼볼 {st["hyper"]} · 마스터볼 {st["master"]}',
                                          f'Now: Poké {st["balls"]} · Great {st["super"]} · Ultra {st["hyper"]} · Master {st["master"]}'), w, curses.A_DIM)
             x = button(h - 1, 1, L('바꾸기', 'swap'), 'swap_sel')
@@ -2397,8 +2471,8 @@ def main(scr):
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ←→ 세대·특수 모습', '↑↓ move · Enter details · ←→ generation/special'), curses.A_DIM)
         else:
             open_gen = opened_gen(st)
-            if view in ('box', 'trade'):  # 보이는 순서(가방 번호들) — 키·버튼이 고른 줄도 이것으로 가방 번호를 찾는다
-                order = bag_order(st, bag_g if view == 'box' else None, bag_sort)
+            if view == 'trade':  # 보이는 순서(가방 번호들) — 키·버튼이 고른 줄도 이것으로 가방 번호를 찾는다
+                order = bag_order(st, None, bag_sort)
             rows = ([(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
                       + f'{n:04d} ' + (name(n) if n in st['seen'] else '???') + (' ★' if n in st.get('researched', []) else '')
                       + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in DEX if gen(n) == dg]
@@ -2415,23 +2489,14 @@ def main(scr):
             elif view == 'trade':
                 put(scr, 1, 1, msg or L(f'교환 · 정렬 {SORTS[bag_sort][0]} (Tab) — [박사에게] 한 마리 · [정리] 중복 한꺼번에 · [몬스터볼] 볼 바꾸기',
                                         f'Trade · sort {SORTS[bag_sort][1]} (Tab) — [send] one · [tidy] all duplicates · [balls] swap balls'), curses.A_DIM)
-            else:
-                page = L('전체', 'all') if bag_g is None else L(f'{bag_g}세대', f'Gen {bag_g}')
-                put(scr, 1, 1, msg or L(f'◀ {page} {len(order)}마리 ▶ 정렬 {SORTS[bag_sort][0]} — Enter 동료 · Space 팀 · Tab 정렬',
-                                        f'◀ {page} {len(order)} ▶ sort {SORTS[bag_sort][1]} — Enter partner · Space team · Tab sort'), curses.A_DIM)
             body = h - 4
-            if to_partner is not False:  # 가방을 열면 지금 동료 줄에서 시작 · 숫자면 그 가방 번호 줄로(합체·분리 뒤)
-                go = st['partner'] if to_partner is True else to_partner
-                sel, to_partner = order.index(go) if go in order else 0, False
             if rows:
                 sel = max(0, min(sel, len(rows) - 1))
                 top = min(max(top, sel - body + 1), sel)  # 커서가 화면 안에 있게
             top = max(0, min(top, len(rows) - body))
             for k, (key, text) in enumerate(rows[top:top + body]):
                 attr = 0
-                if view in ('box', 'trade'):
-                    if view == 'box':
-                        btns.append((2 + k, 1, w - 1, ('partner', key)))
+                if view == 'trade':
                     attr = (curses.A_BOLD if key == st['partner'] else 0) | (gold if st['box'][key].get('shiny') else 0)
                 else:
                     if key in st['seen']:
@@ -2443,16 +2508,7 @@ def main(scr):
                 put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.',
                                  f'Locked — complete the Gen {dg - 1} Pokédex to open it.') if view == 'dex'
                     else L('아직 잡은 포켓몬이 없습니다.', 'No Pokémon caught yet.'))
-            if view == 'box':
-                x = button(h - 1, 1, L('동료로', 'partner'), 'partner_sel')
-                x = button(h - 1, x, L('팀', 'team'), 'team')
-                pk = order[sel] if order else None  # 고른 줄이 바뀔 수 있는 모습(합체·메가진화·거다이맥스…)이 있으면 [변신]
-                if pk is not None and change_options(st, pk):
-                    caps = st.get('items', {}).get('cap', 0) + st.get('items', {}).get('gcap', 0)
-                    x = button(h - 1, x, L('변신·특훈 F', 'change/train F') if caps else L('변신 F', 'change F'), 'fuse')
-                x = button(h - 1, x, L(f'정렬: {SORTS[bag_sort][0]}', f'sort: {SORTS[bag_sort][1]}'), 'sort')
-                button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
-            elif view == 'trade':
+            if view == 'trade':
                 x = button(h - 1, 1, L('박사에게', 'send'), 'send')
                 x = button(h - 1, x, L('정리', 'tidy'), 'tidy')
                 x = button(h - 1, x, L('몬스터볼', 'balls'), 'balls')
@@ -2485,7 +2541,7 @@ def main(scr):
             if not fresh_st.get('_broken'):
                 st = fresh_st
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
-        lists = view in ('box', 'trade', 'balls', 'change', 'dex', 'badges', 'gyms', 'slotpick')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
+        lists = view in ('trade', 'balls', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
         if view == 'slotpick':  # 글자는 이름 찾기 — q 도 찾는 중이면 글자로(비어 있을 때만 돌아가기)
             if key in (curses.KEY_BACKSPACE, 127, 8):
                 query, sel, top, act = query[:-1], 0, 0, None
@@ -2493,13 +2549,9 @@ def main(scr):
                 pick_sort, sel, top = (pick_sort + 1) % len(SORTS), 0, 0
             elif key > 32 and key < 0x110000 and chr(key).isprintable() and not (key == ord('q') and not query):
                 query, sel, top, act = query + chr(key), 0, 0, None
-        if view in ('box', 'trade') and key == 9:  # Tab — 정렬 바꾸기
+        if view == 'trade' and key == 9:  # Tab — 정렬 바꾸기
             act = 'sort'
-        if view == 'box' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):  # 세대 넘기기: 전체 → 가방에 있는 세대들
-            pages = [None] + sorted({gen(m['id']) for m in st['box']})
-            bag_g = pages[(pages.index(bag_g) + (1 if key == curses.KEY_RIGHT else -1)) % len(pages)] if bag_g in pages else None
-            top, sel, msg = 0, 0, ''
-        elif view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
+        if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS + 1 + bool(SPECIALS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 뒤의 두 쪽은 리전폼 · 특수 모습
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             seen = [p for p in SPECIALS if p in st.get('specials', [])] if info in SPECIALS else \
@@ -2520,25 +2572,21 @@ def main(scr):
             elif view == 'dex':
                 n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
                 act = ('info', n) if n in st['seen'] else None
-            elif view == 'box':
-                act = 'partner_sel'  # 가방에서 Enter 는 동료로
             elif view == 'slotpick':
                 act = ('pickrow', sel)
+            elif view == 'bag':
+                act = ('bagitem', sel)
+            elif view == 'use':
+                act = ('userow', sel)
             elif view == 'fight':
                 act = 'back'  # 기록을 끝까지 → 한 번 더 누르면 나간다
             elif view != 'info':
                 act = focus
-        if view == 'box' and key == ord(' '):
-            act = 'team'  # Space 는 팀 넣기/빼기
-        if view == 'box' and key in (ord('f'), ord('F')):
-            act = 'fuse'  # F 는 변신(합체·메가진화·거다이맥스…) 화면 — 가방에선 방향키가 줄·세대라 아래 버튼까지 못 간다
-        picked = order[max(0, min(sel, len(order) - 1))] if order and view in ('box', 'trade') else None
+        picked = order[max(0, min(sel, len(order) - 1))] if order and view == 'trade' else None
         # 고른 줄에 하는 버튼 → 그 줄의 일로
         if act == 'swap_sel':
             act = ('swap', max(0, min(sel, len(TRADES) - 1)))
-        if act == 'partner_sel':
-            act = ('partner', picked) if picked is not None else None
-        elif act == 'pin_sel':
+        if act == 'pin_sel':
             act = ('pin', BADGES[max(0, min(sel, len(BADGES) - 1))][0])
         elif act in ('gym_sel', 'pin_gym'):
             rows = gym_rows(st)
@@ -2556,13 +2604,13 @@ def main(scr):
                     top += 3
             except curses.error:
                 pass
-        if act == 'sort' and view in ('box', 'trade'):
+        if act == 'sort' and view == 'trade':
             bag_sort, top, sel, msg = (bag_sort + 1) % len(SORTS), 0, 0, ''
             _lang.put('bag_sort', bag_sort)  # PC 설정에 — 다시 열어도 그 정렬
         if act == 'close':
             break
         if act == 'chg_sel' and view == 'change':
-            act = ('chg', sel)
+            act = ('chg', chg_only[sel] if chg_from == 'use' and 0 <= sel < len(chg_only) else sel)
         if isinstance(act, tuple) and act[0] == 'chg' and view == 'change':
             opts = change_options(st, chg) if chg is not None and chg < len(st['box']) else []
             k = act[1]
@@ -2572,7 +2620,8 @@ def main(scr):
                 msg = L(f'아직 못 바꾼다 — {opts[k][3]}', f'Not yet — {opts[k][3]}')
             elif confirm != ('chg', chg, k):  # 되돌릴 수 없으니 한 번 더 눌러야 바뀐다
                 confirm = ('chg', chg, k)
-                msg = L(f'{opt_name(opts[k][0])}(으)로 바꾼다 — 재료는 사라지고 되돌릴 수 없다. 한 번 더 누르면 바뀐다',
+                msg = L(f'{opt_name(opts[k][0])} — {item_name(opts[k][1][1])} 1개를 쓴다. 한 번 더 누르면 특훈한다', f'{opt_name(opts[k][0])} — uses a {item_name(opts[k][1][1])}. Press again') \
+                    if isinstance(opts[k][0], tuple) else L(f'{opt_name(opts[k][0])}(으)로 바꾼다 — 재료는 사라지고 되돌릴 수 없다. 한 번 더 누르면 바뀐다',
                         f'Change into {opt_name(opts[k][0])} — the material is used up and it can\'t be undone. Press again')
             else:
                 mon, before = st['box'][chg], name(st['box'][chg]['id'])
@@ -2580,8 +2629,7 @@ def main(scr):
                 save(st)
                 msg = L(f'특훈 완료! {before} — {iv_text(mon)}', f'Hyper Training done! {before} — {iv_text(mon)}') if isinstance(f, tuple) else \
                     L(f'오잉!? {before}의 모습이… {name(f)}(으)로 바뀌었다!', f'What? {before} became {name(f)}!')
-                view, confirm, rec = 'box', None, None
-                to_partner = next(j for j, m in enumerate(st['box']) if m is mon)  # 가방으로 돌아가면 커서는 그 포켓몬에
+                view, confirm, rec, sel, top = 'bag', None, None, 0, 0
             act = None
         if act in ('send', 'tidy') and view == 'trade' and picked is not None:
             i = picked
@@ -2603,7 +2651,7 @@ def main(scr):
                 save(st)
                 rec, confirm = None, None
                 msg = L(f'박사에게 {k}마리를 보냈다! 몬스터볼 +{balls}', f'Sent {k} to the Professor! Poké Balls +{balls}')
-        elif act is not None:
+        elif act is not None and not (isinstance(act, tuple) and act[0] == 'userow'):  # 가방 사용도 두 번 눌러야 — 그 확인은 지우지 않는다
             confirm = None
         if isinstance(act, tuple) and act[0] == 'swap':
             src, dst, cost = TRADES[act[1]]
@@ -2626,6 +2674,40 @@ def main(scr):
                     msg, act = L('배틀 데이터를 받지 못했다: ', 'Could not download battle data: ') + f'{type(e).__name__}: {e}', None
             if BATTLE is not None:
                 view, top, sel, msg = 'gyms', 0, 0, ''
+        if act == 'use_sel' and view == 'use':
+            act = ('userow', sel)
+        if isinstance(act, tuple) and act[0] == 'bagitem' and view == 'bag':
+            rows = bag_items(st)
+            if 0 <= act[1] < len(rows):
+                view, ukey, sel, top, msg, confirm = 'use', rows[act[1]][0], 0, 0, '', None
+            act = None
+        if isinstance(act, tuple) and act[0] == 'userow' and view == 'use':
+            rows = item_targets(st, ukey)
+            if 0 <= act[1] < len(rows):
+                i, ks, ok, why = rows[act[1]]
+                before = name(st['box'][i]['id'])
+                if not ok:
+                    msg = L(f'아직 못 쓴다 — {why}', f'Not yet — {why}')
+                elif ukey != 'candy' and len(ks) > 1:  # 고를 게 더 있다(병뚜껑 공·방·체, 합체 상대 둘) — 바꾸기 화면에서
+                    view, chg, chg_from, chg_only, sel, top, msg, confirm = 'change', i, 'use', ks, 0, 0, '', None
+                elif confirm != ('use', ukey, i):  # 되돌릴 수 없으니 한 번 더
+                    confirm = ('use', ukey, i)
+                    msg = L(f'{before}에게 {item_name(ukey)} — 한 번 더 누르면 쓴다(되돌릴 수 없다)', f'{item_name(ukey)} on {before} — press again (can\'t be undone)')
+                else:
+                    confirm = None
+                    if ukey == 'candy':
+                        n = use_candy(st, t, i=i)
+                        msg = L(f'오잉!? {before}의 모습이… {name(n)}(으)로 진화했다!', f'What? {before} evolved into {name(n)}!') if n else ''
+                    else:
+                        f = change(st, i, ks[0])
+                        msg = L(f'특훈 완료! {before} — {iv_text(st["box"][i])}', f'Hyper Training done! {before} — {iv_text(st["box"][i])}') if isinstance(f, tuple) else \
+                            L(f'오잉!? {before}의 모습이… {name(f)}(으)로 바뀌었다!', f'What? {before} became {name(f)}!')
+                    save(st)
+                    view, sel, top, rec = 'bag', 0, 0, None
+            act = None
+        if act == 'partner_pick' and view == 'main':
+            view, pslot, query, pick_sort, sel, top, msg = 'slotpick', -1, '', 1, 0, 0, ''
+            act = None
         if act == 'encounter' and view == 'main' and st['wild']:
             view, ball_pick, focus, msg = 'wild', default_ball(st, ball_pick), 'throw_sel', ''
         if view == 'wild' and isinstance(act, tuple) and act[0] == 'ball':
@@ -2648,19 +2730,16 @@ def main(scr):
             act = None
         if isinstance(act, tuple) and act[0] == 'pickrow' and view == 'slotpick':
             rows = slot_rows(st, pslot, query, pick_sort)
-            if 0 <= act[1] < len(rows):
+            if 0 <= act[1] < len(rows) and pslot == -1:  # 동료 고르기
+                set_partner(st, t, rows[act[1]])
+                msg = L(f'{name(st["box"][rows[act[1]]]["id"])}(을)를 데리고 다닙니다.', f'{name(st["box"][rows[act[1]]]["id"])} is now your partner.')
+                save(st)
+                view = 'main'
+            elif 0 <= act[1] < len(rows):
                 msg, rec = set_slot(st, pslot, rows[act[1]]), None
                 save(st)
                 view = 'main'
             act = None
-        if act == 'team' and view == 'box' and picked is not None:
-            msg = toggle_team(st, picked)
-            save(st)
-        if act == 'fuse' and view == 'box' and picked is not None:
-            if change_options(st, picked):
-                view, chg, top, sel, msg, confirm = 'change', picked, 0, 0, '', None
-            else:
-                msg = L('이 포켓몬은 바뀔 수 있는 모습이 없다.', 'This Pokémon has no other form to change into.')
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
@@ -2692,8 +2771,7 @@ def main(scr):
                 view, msg = 'fight', ''
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
         if act in ('dex', 'box', 'trade'):
-            view, top, dg, msg, sel = act, 0, opened_gen(st), '', 0
-            bag_g, to_partner = None, act == 'box'  # 가방은 전체·지금 동료 줄에서 시작
+            view, top, dg, msg, sel = 'bag' if act == 'box' else act, 0, opened_gen(st), '', 0  # 가방은 아이템 화면(2026-11-05)
         elif act == 'balls' and view == 'trade':
             view, top, sel, msg = 'balls', 0, 0, ''
         elif act == 'back' and view == 'fight' and battle_now['k'] < len(battle_now['ev']):
@@ -2703,7 +2781,7 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'balls': 'trade', 'change': 'box', 'slotpick': 'main'}.get(view, 'main')  # 한 단계 위로
+            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'balls': 'trade', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main'}.get(view, 'main')  # 한 단계 위로
         elif isinstance(act, tuple) and act[0] == 'gym':
             view, gsel, msg = 'gym', act[1], ''
         elif isinstance(act, tuple) and act[0] == 'pin':
@@ -2711,11 +2789,6 @@ def main(scr):
             save(st)
         elif isinstance(act, tuple) and act[0] == 'info':
             view, info = 'info', act[1]
-        elif isinstance(act, tuple):
-            set_partner(st, t, act[1])
-            save(st)
-            pn = name(st['box'][act[1]]['id'])
-            msg, view = L(f'{pn}(을)를 데리고 다닙니다.', f'{pn} is now your partner.'), 'main'
         elif view in ('main', 'wild') and act in ('explore', 'throw', 'super', 'hyper', 'master', 'run', 'evolve', 'candy'):
             if act == 'explore':
                 got = explore(st, t)
@@ -2933,6 +3006,14 @@ def selftest():
     assert catch_chance(cc, 'ball') == 0 and catch_chance(cc, 'hyper') == 0.4
     cc['wild'] = {'id': 19, 'balls': 3, 'alpha': True}
     assert catch_chance(cc, 'ball') == catch_rate(19) * 0.5
+    # 가방 = 아이템: 가진 것만 한 줄씩 · 아이템마다 쓸 수 있는 포켓몬 · 사탕은 아무 포켓몬에게(동료 경험치는 그대로)
+    bg = {**new_state(), 'box': [{'id': 25, 'xp': 0, 'iv': [1] * 3}, {'id': 10, 'xp': 0, 'iv': [15, 2, 3]}, {'id': 646, 'xp': 0, 'iv': [5] * 3},
+                                 {'id': 644, 'xp': 0, 'iv': [1] * 3}], 'partner': 0, 'candy': 1, 'items': {'cap': 1, 'soup': 0}, 'base': 77}
+    assert [k for k, _ in bag_items(bg)] == ['candy', 'cap', 'fuse:646'] and bag_items(bg)[-1][1] is None
+    assert {i for i, *_ in item_targets(bg, 'candy')} == {0, 1}  # 진화할 수 있는 피카츄·캐터피 — 큐레무·제크로무는 아니다
+    assert [(i, len(ks)) for i, ks, ok, _ in item_targets(bg, 'cap') if i == 1] == [(1, 2)]  # 캐터피는 방·체 두 칸 — 바꾸기 화면에서 고른다
+    assert [i for i, *_ in item_targets(bg, 'fuse:646')] == [2]
+    assert use_candy(bg, 999, i=1) == 11 and bg['box'][1]['id'] == 11 and bg['candy'] == 0 and bg['base'] == 77
     assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
