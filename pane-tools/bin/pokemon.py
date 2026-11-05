@@ -42,7 +42,7 @@
   이로치 메타몽도 변신한 모습은 보통 색 — 이로치인 것은 정체와 함께 드러난다.
   조로아·조로아크(히스이 포함, ZORUA)는 팀 마지막 포켓몬(없으면 동료)의 환영으로 나온다(illusion) — 같은 disguise 구조.
 - 이로치: 탐색마다 SHINY_RATE. 같은 종이라도 이로치와 기본 모습은 다른 포켓몬으로 친다(가방 1/10 · 진화 갈래 고르기 모두 따로). 이름은 금색.
-- 화면(2026-11-05 개편): 메인은 맨 위 장식(SHOWCASE_MAX) · 동료(그림·이름·진화 게이지, Enter 면 동료 고르기) · 팀 3×2 칸(TEAM_CELL_H,
+- 화면(2026-11-05 개편): 메인은 맨 위 장식(SHOWCASE_MAX) · 동료(그림·이름·진화 게이지, Enter 면 동료 고르기) · 팀 3×2 칸(크기는 패널에 맞춰 team_layout,
   Enter 면 그 자리 고르기 slotpick — 이름 찾기·Tab 정렬, set_slot) · 오른쪽 네모 버튼(side_buttons — 탐색·도감·가방·교환·훈장·체육관·닫기).
   풀숲 만남은 따로(view 'wild'): 가운데 포켓몬(big_art — Sixel 은 SIXEL_SCALE 배로 그려져 그만큼 당긴다) 위에 고른 볼의 포획 확률
   (catch_chance — throw 와 같은 식), 오른쪽 볼 고르기(ball_choices · default_ball — 마스터볼은 저절로 안 고른다), 아래 [던지기]·[도망].
@@ -1439,20 +1439,50 @@ def bag_text(m, room):
     return nm + '…' + tail
 
 
-def mon_art(n, y, w, x=1):
-    """메인 화면의 포켓몬 그림(동료·야생·팀 칸) — 그림 번호 n 을 (y, x) 에 2줄. Sixel 은 허브처럼 1.5줄 높이. 못 놓거나 좁으면 None."""
-    if n is None or w < 44 or not (SIXEL or KITTY):
+def mon_art(n, y, w, x=1, rows=2, max_cols=None):
+    """메인 화면의 포켓몬 그림(동료·팀 칸) — 그림 번호 n 을 (y, x) 에 화면에서 rows 줄로 보이게. Sixel 은 실제로
+    SIXEL_SCALE 배 크게 그려지니 그만큼 작게 요청한다. max_cols 칸을 넘으면 줄인다. 못 놓거나 좁으면 None."""
+    if n is None or w < 44 or rows < 1 or not (SIXEL or KITTY):
         return None
     cw_, ch_ = _gfx.cell_px()
     if SIXEL:
-        six = _pokedata.sprite_sixel(n, False, int(1.5 * ch_))
-        return six and ('six', y, x, ('mon', n, y, x), six[0], math.ceil(six[1] / cw_), 2)
+        six = _pokedata.sprite_sixel(n, False, max(ch_ // 2, int(rows * ch_ / SIXEL_SCALE)))
+        return six and ('six', y, x, ('mon', n, y, x, rows), six[0], math.ceil(six[1] / cw_), rows)
     png = _pokedata.sprite_png(n)  # 같은 포켓몬이 두 칸에 있어도 따로 놓이게 자리도 번호에
-    return png and ('kitty', y, x, 400000 + (_pokedata.img_id(n) * 2) % 100000 * 10 + (y * 7 + x) % 10, png[0], _gfx.kitty_cols(png[1], png[2], 2), 2)
+    if not png:
+        return None
+    cols = _gfx.kitty_cols(png[1], png[2], rows)
+    while max_cols and cols > max_cols and rows > 1:
+        rows -= 1
+        cols = _gfx.kitty_cols(png[1], png[2], rows)
+    return ('kitty', y, x, 400000 + (_pokedata.img_id(n) * 2) % 100000 * 10 + (y * 7 + x + rows) % 10, png[0], cols, rows)
 
 
 SIDE_W = 14  # 메인 화면 오른쪽 버튼 열 폭
-TEAM_CELL_H = 6  # 팀 칸 높이 — 그림 2줄이 실제론 더 크게 그려져 이름과 겹쳤다, 이름은 한 줄 더 아래(2026-11-05 사용자)
+TEAM_ART_MAX = 10  # 팀 칸 그림의 가장 큰 높이(줄) — 실제로는 칸 폭(mon_art 의 max_cols)이 먼저 막는다
+
+
+def wrap_widths(widths, w, start=1):
+    """버튼 폭들을 w 칸 패널에 줄 단위로 나눈다 — [[번호…], …]. 한 줄에 안 들어가면 다음 줄로(좁은 패널에서 잘리지 않게)."""
+    rows, x = [[]], start
+    for i, bw in enumerate(widths):
+        if rows[-1] and x + bw > w:
+            rows.append([])
+            x = start
+        rows[-1].append(i)
+        x += bw
+    return rows if rows[0] else []
+
+
+def team_layout(free, graphics=True, cap=TEAM_ART_MAX):
+    """메인 화면 팀 3×2 가 쓸 수 있는 줄 수 free → (칸 높이, 그림 줄 수). 칸 = 그림 + 이름 + 개체값 (+ 남으면 빈 줄 하나).
+    패널 크기에 맞춰 정한다(2026-11-05 사용자 — 고정 6줄이면 22줄 패널에서 아래 글이 잘렸다). 그림 놓을 자리가 없으면 글만 2줄.
+    cap: 칸 폭으로 그릴 수 있는 그림 높이 — 폭이 먼저 막히면 그만큼만 잡아 그림과 이름 사이가 벌어지지 않게."""
+    ch = free // 2
+    if not graphics or ch < 3:
+        return 2, 0
+    art = min(TEAM_ART_MAX, cap, ch - 2)
+    return min(ch, art + 3), art
 
 
 def memo_w(text):
@@ -2105,18 +2135,19 @@ def main(scr):
             x0 = w - SIDE_W if w >= 56 else w  # 오른쪽 버튼 열이 시작하는 칸 — 아주 좁으면 버튼 열 없이(아래 한 줄)
             lw = x0  # 왼쪽 글은 이 폭에서 접는다(para 는 lw - x - 1 칸)
             _, art = draw_showcase(scr, st, 1, x0)
-            y = 3
+            pr = 2 if h < 28 else 3 if h < 36 else 4  # 동료 그림 높이 — 큰 패널이면 키운다
             if st['partner'] is None:
-                para(scr, y, L('아직 동료가 없습니다. 풀숲을 탐색해 보세요.', 'No partner yet. Try exploring the tall grass.'), lw)
+                para(scr, 3, L('아직 동료가 없습니다. 풀숲을 탐색해 보세요.', 'No partner yet. Try exploring the tall grass.'), lw)
             else:
                 m = st['box'][st['partner']]
                 n = m['id']
-                pic = mon_art(partner_id_of(st), y, w)
+                pic = mon_art(partner_id_of(st), 3, w, 1, pr, max(8, x0 // 3))
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
+                y = 3 + (pr - 2) // 2  # 이름·게이지 두 줄은 그림 높이의 가운데에
                 plabel = (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n) + f'  Lv.{box_level(m)}'
                 put(scr, y, px, plabel, gold if m.get('shiny') else curses.A_BOLD)
-                btns.extend((y + r, 1, x0 - 2, 'partner_pick') for r in range(2))  # 동료를 누르면 동료 고르기(2026-11-05 사용자)
+                btns.extend((3 + r, 1, x0 - 2, 'partner_pick') for r in range(max(2, pr)))  # 동료를 누르면 동료 고르기(2026-11-05 사용자)
                 navbtns.append((y, px, px + memo_w(plabel), 'partner_pick', plabel))
                 ev = evo_status(st, t)
                 if ev[0] == 'final':
@@ -2129,51 +2160,69 @@ def main(scr):
                 else:
                     x = put(scr, y + 1, px, L('진화 ', 'Evolve '))
                     put(scr, y + 1, x, f'{bar(ev[1] / ev[2], max(6, min(16, x0 - x - 16)))} {fmt_tok(ev[1])}/{fmt_tok(ev[2])}')
-            y = 6
-            # ⑥ 팀 3×2 — 칸마다 그림 · 이름 레벨 · 개체값. 칸에서 Enter 면 그 자리에 넣을 포켓몬 고르기(slotpick)
-            cw3 = max(10, (x0 - 1) // 3)
-            team = [i for i in st.get('team', []) if i < len(st['box'])]
-            for k in range(_battle.TEAM_MAX):
-                cy, cx = y + (k // 3) * TEAM_CELL_H, 1 + (k % 3) * cw3  # 그림 2줄(실제론 더 크게 그려진다) · 빈 줄 · 이름 · 개체값
-                if k < len(team):
-                    mm = st['box'][team[k]]
-                    pic = mon_art(art_of(mm), cy, w, cx)
-                    art = join_art(art, pic)
-                    label = fit(name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
-                    pct = round(sum(iv_of(mm)) / 45 * 100)
-                    put(scr, cy + 4, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
-                else:
-                    label = L('(빈칸)', '(empty)')
-                btns.extend((cy + r, cx, cx + cw3 - 1, ('slot', k)) for r in range(TEAM_CELL_H - 1))
-                navbtns.append((cy + 3, cx, cx + memo_w(label), ('slot', k), label))
-                put(scr, cy + 3, cx, label, (gold if k < len(team) and st['box'][team[k]].get('shiny') else 0) | (0 if k < len(team) else curses.A_DIM))
-            y += 2 * TEAM_CELL_H
-            for text, frac, km in egg_lines(st, t):  # 알마다 2줄(그림이 칸보다 크게 그려진다)
-                pic = egg_art(km, y, w)
-                art = join_art(art, pic)
-                x = put(scr, y, pic[5] + 2 if pic else 1, ('' if pic else '🥚 ') + text + ' ')
-                put(scr, y, x, bar(frac, 10), curses.A_DIM)
-                y += 2 if pic else 1
+            y = 3 + pr + 1  # 팀은 동료 그림 아래 한 줄 띄고
+            # 아래 글(알 · 주간 과제 · 볼 · 메시지)이 차지할 줄을 먼저 세고, 남은 줄로 팀 칸 크기를 정한다 — 패널 크기에 맞춰
             today = datetime.now().astimezone().strftime('%Y-%m-%d')
             done = len(shipped().get(today, ()))
-            y = para(scr, y, weekly_text(st) + ' · ' + (L('오늘 슈퍼볼 ✔', 'Great Ball today ✔') if today in st['rewarded'] else
-                                                       L(f'오늘 push·PR·배포 {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}', f'push/PR/deploy today {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}'))
-                     + L(f' · 연속 {streak(st, today)}일', f' · {streak(st, today)}-day streak'), lw, curses.A_DIM)
-            y = para(scr, y, L(f'몬스터볼\xa0{st["balls"]} · 슈퍼볼\xa0{st["super"]} · 하이퍼볼\xa0{st["hyper"]} · 마스터볼\xa0{st["master"]}',
-                               f'Poké\xa0{st["balls"]} · Great\xa0{st["super"]} · Ultra\xa0{st["hyper"]} · Master\xa0{st["master"]}'), lw)  # 이름과 숫자는 붙여 접는다
-            para(scr, y, ('💬 ' + msg) if msg else '', lw)
+            weekly_line = weekly_text(st) + ' · ' + (L('오늘 슈퍼볼 ✔', 'Great Ball today ✔') if today in st['rewarded'] else
+                                                     L(f'오늘 push·PR·배포 {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}', f'push/PR/deploy today {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}')) \
+                + L(f' · 연속 {streak(st, today)}일', f' · {streak(st, today)}-day streak')
+            balls_line = L(f'몬스터볼\xa0{st["balls"]} · 슈퍼볼\xa0{st["super"]} · 하이퍼볼\xa0{st["hyper"]} · 마스터볼\xa0{st["master"]}',
+                           f'Poké\xa0{st["balls"]} · Great\xa0{st["super"]} · Ultra\xa0{st["hyper"]} · Master\xa0{st["master"]}')  # 이름과 숫자는 붙여 접는다
+            eggs = egg_lines(st, t)
+            egg_h = 2 if w >= 44 and (SIXEL or KITTY) else 1  # 알 그림이 있으면 한 알에 2줄
             k = tickets(st, t)  # ⑤ 오른쪽 네모 버튼 — 맨 위는 가장 자주 누르는 풀숲 탐색
             explore_label = L('앗! 야생', 'Wild!') if st['wild'] else (L(f'풀숲 탐색 {k}', f'Explore {k}') if k < 10 else L(f'탐색 {k}', f'Explore {k}')) if k > 0 else \
                 L(f'다음 {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}', f'next {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}')
             # 이름을 explore 라 하면 탐색 함수를 가려 눌렀을 때 꺼졌다(2026-11-05)
             side = [(explore_label, 'encounter' if st['wild'] else 'explore'), (L('도감', 'dex'), 'dex'), (L('가방', 'bag'), 'box'), (L('교환', 'trade'), 'trade'),
                     (L('훈장', 'medals'), 'badges'), (L('체육관', 'gyms'), 'gyms'), (L('닫기 q', 'close q'), 'close')]
+            bw = lambda lb: memo_w(f'[{lb.removesuffix(" q") if w < 50 else lb}]') + 1 if tight else memo_w(f'[ {lb} ]') + 2  # noqa: E731 — button() 과 같은 폭
+            btn_rows = wrap_widths([bw(lb) for lb, _ in side], w) if x0 >= w else []
+            below = len(btn_rows) + len(eggs) * egg_h + sum(len(fold(s, max(10, lw - 2))) for s in (weekly_line, balls_line, ('💬 ' + msg) if msg else '') if s)
+            cw3 = max(10, (x0 - 1) // 3)
+            graphics = w >= 44 and (SIXEL or KITTY)
+            cw_, ch_ = _gfx.cell_px() if graphics else (1, 2)
+            cell_h, art_rows = team_layout(h - y - below, graphics, max(1, int((cw3 - 1) * cw_ / ch_)))  # 그림은 대개 정사각형
+            # ⑥ 팀 3×2 — 칸마다 그림 · 이름 레벨 · 개체값. 칸에서 Enter 면 그 자리에 넣을 포켓몬 고르기(slotpick)
+            team = [i for i in st.get('team', []) if i < len(st['box'])]
+            for k in range(_battle.TEAM_MAX):
+                cy, cx = y + (k // 3) * cell_h, 1 + (k % 3) * cw3
+                ly = cy + art_rows  # 이름 줄 — 그림 바로 아래
+                if k < len(team):
+                    mm = st['box'][team[k]]
+                    pic = mon_art(art_of(mm), cy, w, cx, art_rows, cw3 - 1)
+                    art = join_art(art, pic)
+                    label = fit(name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
+                    pct = round(sum(iv_of(mm)) / 45 * 100)
+                    put(scr, ly + 1, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
+                else:
+                    label = L('(빈칸)', '(empty)')
+                btns.extend((cy + r, cx, cx + cw3 - 1, ('slot', k)) for r in range(art_rows + 2))
+                navbtns.append((ly, cx, cx + memo_w(label), ('slot', k), label))
+                put(scr, ly, cx, label, (gold if k < len(team) and st['box'][team[k]].get('shiny') else 0) | (0 if k < len(team) else curses.A_DIM))
+            y += 2 * cell_h
+            for text, frac, km in eggs:
+                pic = egg_art(km, y, w)
+                art = join_art(art, pic)
+                x = put(scr, y, pic[5] + 2 if pic else 1, ('' if pic else '🥚 ') + text + ' ')
+                put(scr, y, x, bar(frac, 10), curses.A_DIM)
+                y += egg_h
+            stop = h - len(btn_rows)  # 아래 글은 버튼 줄 위에서 멈춘다 — 모자라면 볼·메시지를 먼저, 주간 과제는 남는 만큼
+            for text, attr in ((balls_line, 0), (('💬 ' + msg) if msg else '', 0), (weekly_line, curses.A_DIM)) if h - y < below - len(btn_rows) \
+                    else ((weekly_line, curses.A_DIM), (balls_line, 0), (('💬 ' + msg) if msg else '', 0)):
+                for line in fold(text, max(10, lw - 2)) if text else []:
+                    if y >= stop:
+                        break
+                    put(scr, y, 1, line, attr)
+                    y += 1
             if x0 < w:
                 side_buttons(scr, side, x0, 2, h, btns, navbtns)
-            else:
-                x = 1
-                for label, a in side:
-                    x = button(h - 1, x, label, a)
+            else:  # 좁으면 버튼을 맨 아래에 — 한 줄에 안 들어가면 여러 줄로(위에서 그 줄 수만큼 비워 두었다)
+                for r, row in enumerate(btn_rows):
+                    x = 1
+                    for i in row:
+                        x = button(h - len(btn_rows) + r, x, side[i][0], side[i][1])
         elif view == 'wild':  # 풀숲 만남(2026-11-05 사용자 설계) — ① 가운데 포켓몬 · ② 오른쪽 볼 고르기 · ③ 던지기 · ④ 도망
             wd = st['wild']
             sw = 18 if w >= 60 else 14  # 볼 버튼 열 — '몬스터볼 120' 이 들어가게
@@ -2185,14 +2234,16 @@ def main(scr):
             if wd.get('alpha'):
                 y = para(scr, y, L(f'볼 {ALPHA_TRIES - wd.get("tries", 0)}번 안에 못 잡으면 도망친다', f'Flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws'), x0, curses.A_DIM)
             # ① 그림은 패널 한가운데, 폭의 ⅓ 쯤(실제로 보일 크기 기준) · ② 볼은 오른쪽 열 · ③④ 는 아래 가운데에 나란히
-            art = big_art(art_of({'id': shown(wd), 'shiny': sh}), h // 2, w // 2, max(3, min(5, (h - 12) // 2)), max(12, w // 3 + 2))
+            # 높이는 패널에 맞춰(위아래 글·버튼 12줄을 뺀 절반), 폭은 ⅓ 쯤 — 단 오른쪽 볼 열을 넘지 않게
+            art = big_art(art_of({'id': shown(wd), 'shiny': sh}), h // 2, w // 2, max(3, (h - 12) // 2), max(6, min(w // 3 + 2, 2 * (x0 - w // 2) - 2)))
             if not art:
                 put(scr, h // 2, max(1, (w - memo_w(name(shown(wd)))) // 2), name(shown(wd)), gold if sh else curses.A_BOLD)
             ball_pick = default_ball(st, ball_pick)
             if ball_pick:  # 그림 바로 위에 고른 볼의 포획 확률 — 어떤 볼을 던질지 고르기 쉽게(2026-11-05 사용자)
                 bname = L('레이드볼', 'Raid Ball') if wd.get('raid') else next(L(b[1], b[2]) for b in BALL_ORDER if b[0] == ball_pick)
                 odds = L(f'{bname}로 잡을 확률 {catch_chance(st, ball_pick):.0%}', f'{bname}: {catch_chance(st, ball_pick):.0%} to catch')
-                put(scr, max(2, (art[1] if art else h // 2) - 1), max(1, w // 2 - memo_w(odds) // 2), odds, curses.A_BOLD)
+                odds = fit(odds, x0 - 2)  # 볼 열에 붙거나 가리지 않게 — 가운데에 두되 볼 열 앞에서 멈춘다
+                put(scr, max(2, (art[1] if art else h // 2) - 1), max(1, min(w // 2 - memo_w(odds) // 2, x0 - 1 - memo_w(odds))), odds, curses.A_BOLD)
             side = []
             for kind, k, can in ball_choices(st):
                 ko, en = (('레이드볼', 'Raid') if wd.get('raid') else next((b[1], b[2]) for b in BALL_ORDER if b[0] == kind))
@@ -3593,6 +3644,13 @@ def selftest():
     # 줄 접기: 폭 안에서 빈칸·쉼표 뒤에서 접고, '·' 는 앞 낱말에 붙인다(한글은 2칸)
     assert fold('가나다 · 라마 · 바사', 12) == ['가나다 ·', '라마 · 바사'] and fold('a, b, c', 3) == ['a,', 'b,', 'c'] and fold('a, b, c', 4) == ['a,', 'b, c']
     assert all(sum(map(memo.cw, x)) <= 20 for x in fold('내 팀 메가니움 Lv39, 블레이범 Lv39, 장크로다일 Lv39, 토게틱 Lv27', 20))
+    # 팀 칸은 남은 줄에 맞춘다 — 22줄 패널(아래 글 5줄)이면 칸 5줄·그림 3줄, 크면 그림 10줄까지(폭이 먼저 막는다), 좁으면 글만
+    assert team_layout(22 - 6 - 5) == (5, 3) and team_layout(40) == (13, 10) and team_layout(5) == (2, 0)
+    assert team_layout(30, graphics=False) == (2, 0) and team_layout(6) == (3, 1) and team_layout(40, cap=5) == (8, 5)
+    assert wrap_widths([5, 5, 5], 12) == [[0, 1], [2]] and wrap_widths([3, 3, 3], 12) == [[0, 1, 2]] and wrap_widths([4, 4, 4], 9) == [[0, 1], [2]] and wrap_widths([], 9) == []
+    for free in range(0, 40):  # 어떤 크기든 팀 2줄이 남은 줄을 넘지 않는다(글만 2줄이 최소)
+        c, a = team_layout(free)
+        assert (2 * c <= free or c == 2) and a + 2 <= c
     print('pokemon selftest ok')
 
 
