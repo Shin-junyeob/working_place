@@ -1444,25 +1444,35 @@ def default_ball(st, now=None):
     return next((kind for kind in ok if kind != 'master'), None)
 
 
-def big_art(n, y, x, wcols, room):
-    """만남 화면 ① 큰 그림 — wcols 칸 · room 줄 안에 원본 도트를 정수 배로, 가운데에. 칸 크기를 잘못 알아 두 배로 그려져도
-    바깥 터미널 아래를 넘지 않게 남은 줄의 절반까지(draw_info 와 같은 까닭). 못 놓으면 None."""
+SIXEL_SCALE = 1.6  # 이 터미널은 Sixel 을 알려 준 칸보다 이만큼 크게 그린다 — 8줄로 놓은 가이오가가 13줄로 보였다(2026-11-05 스크린샷)
+
+
+def big_art(n, cy, cx, rows, max_cols=None):
+    """만남 화면 ① 그림 — 화면에 실제로 보일 크기의 가운데가 (cy, cx) 에 오게, rows 줄 높이로 요청해 놓는다.
+    Sixel 은 실제로 SIXEL_SCALE 배 크게 그려지니 그만큼 왼쪽·위로 당긴다. 옆으로 넓은 포켓몬(가이오가)이 실제로 max_cols 칸을
+    넘으면 높이를 줄인다. 못 놓으면 None."""
     if n is None or not (SIXEL or KITTY):
         return None
     cw_, ch_ = _gfx.cell_px()
     if SIXEL:
-        below = _gfx.rows_below(y)
-        room = max(0, min(room, (below - 1) // 2 if below else room))
-        six = room >= 2 and _pokedata.sprite_sixel_fit(n, False, int(wcols * cw_), int(room * ch_))
+        six = _pokedata.sprite_sixel(n, False, int(rows * ch_))
         if not six:
             return None
         cols = math.ceil(six[1] / cw_)
-        return ('six', y, x + max(0, (wcols - cols) // 2), ('big', n, y, x), six[0], cols, room)
+        if max_cols and cols * SIXEL_SCALE > max_cols:
+            px = max(ch_, int(rows * ch_ * max_cols / (cols * SIXEL_SCALE)))
+            six, rows = _pokedata.sprite_sixel(n, False, px), px / ch_
+            cols = math.ceil(six[1] / cw_)
+        y, x = max(2, round(cy - rows * SIXEL_SCALE / 2)), max(1, round(cx - cols * SIXEL_SCALE / 2))
+        return ('six', y, x, ('big', n, y, x, rows), six[0], cols, math.ceil(rows))
     png = _pokedata.sprite_png(n)
     if not png:
         return None
-    cols = _gfx.kitty_cols(png[1], png[2], room)
-    return ('kitty', y, x + max(0, (wcols - cols) // 2), 500000 + _pokedata.img_id(n) % 100000, png[0], cols, room)
+    cols = _gfx.kitty_cols(png[1], png[2], rows)
+    if max_cols and cols > max_cols:
+        rows = max(1, rows * max_cols // cols)
+        cols = _gfx.kitty_cols(png[1], png[2], rows)
+    return ('kitty', max(2, cy - rows // 2), max(1, cx - cols // 2), 500000 + _pokedata.img_id(n) % 100000, png[0], cols, rows)
 
 
 def move_geo(btns, focus, key):
@@ -2097,25 +2107,22 @@ def main(scr):
                      + (L('✨이로치 ', '✨shiny ') if sh else '') + name(shown(wd)) + L('(이)가 나타났다!', ' appeared!'), x0, gold | curses.A_BOLD if sh else curses.A_BOLD)
             if wd.get('alpha'):
                 y = para(scr, y, L(f'볼 {ALPHA_TRIES - wd.get("tries", 0)}번 안에 못 잡으면 도망친다', f'Flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws'), x0, curses.A_DIM)
-            room = max(3, (h - y - 6) // 2)  # 그림은 칸보다 크게 그려질 수 있어 남은 줄의 절반
-            art = big_art(art_of({'id': shown(wd), 'shiny': sh}), y + 1, 1, x0 - 2, room)
+            # ① 그림은 패널 한가운데, 폭의 ⅓ 쯤(실제로 보일 크기 기준) · ② 볼은 오른쪽 열 · ③④ 는 아래 가운데에 나란히
+            art = big_art(art_of({'id': shown(wd), 'shiny': sh}), h // 2, w // 2, max(3, min(5, (h - 12) // 2)), max(12, w // 3 + 2))
             if not art:
-                put(scr, y + room, max(1, (x0 - memo_w(name(shown(wd)))) // 2), name(shown(wd)), gold if sh else curses.A_BOLD)
-            para(scr, h - 6, msg, x0)
+                put(scr, h // 2, max(1, (w - memo_w(name(shown(wd)))) // 2), name(shown(wd)), gold if sh else curses.A_BOLD)
             ball_pick = default_ball(st, ball_pick)
-            choices = ball_choices(st)
             side = []
-            for kind, k, can in choices:
+            for kind, k, can in ball_choices(st):
                 ko, en = (('레이드볼', 'Raid') if wd.get('raid') else next((b[1], b[2]) for b in BALL_ORDER if b[0] == kind))
                 side.append((('● ' if kind == ball_pick else '') + L(f'{ko} {k}', f'{en} {k}'), ('ball', kind),
                              curses.A_BOLD | (curses.A_UNDERLINE if kind == ball_pick else 0) if can else curses.A_DIM))
-            side_buttons(scr, side, x0, 1, h - 1, btns, navbtns, sw + 1)
-            if not ball_pick:
-                para(scr, h - 5, L('던질 수 있는 볼이 없다 — [교환] → [몬스터볼]에서 바꿔 오거나 도망치자.',
-                                   'No ball you can throw — swap in [trade] → [balls], or run.'), x0, curses.A_DIM)
-            bw = max(10, min(16, (x0 - 4) // 2))
-            box_button(scr, h - 4, max(1, x0 // 2 - bw - 1), bw, L('던지기', 'throw'), 'throw_sel', btns, navbtns)
-            box_button(scr, h - 4, x0 // 2 + 1, bw, L('놓아주기', 'let go') if wd.get('raid') else L('도망', 'run'), 'run', btns, navbtns)
+            side_buttons(scr, side, x0, 2, h - 6, btns, navbtns, sw + 1)
+            note = msg or ('' if ball_pick else L('던질 수 있는 볼이 없다 — [교환]에서 바꿔 오거나 도망치자.', 'No ball to throw — swap in [trade], or run.'))
+            put(scr, h - 5, max(1, (w - memo_w(fit(note, w - 2))) // 2), fit(note, w - 2), curses.A_DIM if not msg else 0)  # 한 줄 — 버튼과 겹치지 않게
+            bw = max(10, min(16, w // 4))
+            box_button(scr, h - 4, max(1, w // 2 - bw - 1), bw, L('던지기', 'throw'), 'throw_sel', btns, navbtns)
+            box_button(scr, h - 4, w // 2 + 1, bw, L('놓아주기', 'let go') if wd.get('raid') else L('도망', 'run'), 'run', btns, navbtns)
         elif view == 'slotpick':  # 팀 칸 Enter — 이 자리에 넣을 포켓몬 고르기(이름 찾기 · Tab 정렬)
             team = [i for i in st.get('team', []) if i < len(st['box'])]
             rows = slot_rows(st, pslot, query, pick_sort)
