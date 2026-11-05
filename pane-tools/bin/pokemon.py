@@ -1593,6 +1593,12 @@ def move_geo(btns, focus, key):
     return min(cands, key=lambda b: (abs(b[0] - y), abs(b[1] - x)))[3] if cands else cur[3]
 
 
+def typed_char(key):
+    """getkey 값이 검색어에 넣을 글자인가 — 방향키·Enter 같은 curses 특수키(KEY_MIN~KEY_MAX)와 제어 문자는 아니다.
+    전엔 방향키(259 = 'ă')도 '출력 가능한 글자'로 판정돼 검색어에 들어갔다(2026-11-05)."""
+    return 32 < key < 0x110000 and not curses.KEY_MIN <= key <= curses.KEY_MAX and chr(key).isprintable()
+
+
 def pick_list(st, query='', sort=1):
     """팀 칸에 넣을 후보 가방 번호들 — 이름에 query 가 든 것, SORTS[sort] 순(처음은 레벨 높은 것부터)."""
     q = query.lower()
@@ -2054,6 +2060,7 @@ def main(scr):
     ukey, chg_from, chg_only = None, 'bag', []  # 가방에서 고른 아이템 · 바꾸기 화면에서 돌아갈 곳
     ball_pick = None  # 만남 화면에서 고른 볼(던지기 전까지는 고르기만)
     pslot, query, pick_sort = 0, '', 1  # 팀 칸 고르기: 몇 번째 자리 · 이름 찾기 · 정렬(처음은 레벨순)
+    searching = False  # 이름 찾기 입력 중인가 — F 로 켜고 Enter(검색어 유지)·Esc(지움)로 끈다(2026-11-05 사용자)
     order, bag_sort = [], _lang.get('bag_sort', 0) % len(SORTS)  # 교환: 보이는 순서(가방 번호들) · 정렬  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
@@ -2307,7 +2314,10 @@ def main(scr):
             team = [i for i in st.get('team', []) if i < len(st['box'])]
             rows = slot_rows(st, pslot, query, pick_sort)
             put(scr, 1, 1, msg or (L('동료', 'Partner') if pslot == -1 else L(f'팀 {pslot + 1}번 자리', f'Team slot {pslot + 1}'))
-                + L(f' — 찾기: {query}▏ · Tab 정렬 {SORTS[pick_sort][0]} · Esc 돌아가기', f' — find: {query}▏ · Tab sort {SORTS[pick_sort][1]} · Esc back'), curses.A_DIM)
+                + (L(f' — 찾기: {query}▏ · Enter 확정 · Esc 지우기', f' — find: {query}▏ · Enter keep · Esc clear') if searching else
+                   L(f' — F 찾기{f" ({query})" if query else ""} · Tab 정렬 {SORTS[pick_sort][0]} · Enter 넣기 · q 돌아가기',
+                     f' — F find{f" ({query})" if query else ""} · Tab sort {SORTS[pick_sort][1]} · Enter put · q back')),
+                curses.A_BOLD if searching else curses.A_DIM)
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
@@ -2632,13 +2642,20 @@ def main(scr):
                 st = fresh_st
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
         lists = view in ('trade', 'balls', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
-        if view == 'slotpick':  # 글자는 이름 찾기 — q 도 찾는 중이면 글자로(비어 있을 때만 돌아가기)
-            if key in (curses.KEY_BACKSPACE, 127, 8):
+        if view == 'slotpick' and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
+            if key == 27:  # Esc — 검색어를 지우고 찾기 끝
+                query, searching, sel, top, act, key = '', False, 0, 0, None, -1
+            elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):  # Enter — 검색어는 두고 찾기 끝(넣기는 다음 Enter)
+                searching, act, key = False, None, -1
+            elif key in (curses.KEY_BACKSPACE, 127, 8):
                 query, sel, top, act = query[:-1], 0, 0, None
+            elif typed_char(key):  # 방향키 같은 curses 특수키(KEY_MIN~KEY_MAX)는 글자가 아니다 — 전엔 검색어로 들어갔다
+                query, sel, top, act = query + chr(key), 0, 0, None
+        elif view == 'slotpick':  # 평소 — 방향키 줄 이동 · Enter 넣기 · F 찾기 · Tab 정렬 · q/Esc 돌아가기
+            if key in (ord('f'), ord('F')):
+                searching, act, key = True, None, -1
             elif key == 9:
                 pick_sort, sel, top = (pick_sort + 1) % len(SORTS), 0, 0
-            elif key > 32 and key < 0x110000 and chr(key).isprintable() and not (key == ord('q') and not query):
-                query, sel, top, act = query + chr(key), 0, 0, None
         if view == 'trade' and key == 9:  # Tab — 정렬 바꾸기
             act = 'sort'
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
@@ -2796,7 +2813,7 @@ def main(scr):
                     view, sel, top, rec = 'bag', 0, 0, None
             act = None
         if act == 'partner_pick' and view == 'main':
-            view, pslot, query, pick_sort, sel, top, msg = 'slotpick', -1, '', 1, 0, 0, ''
+            view, pslot, query, pick_sort, sel, top, msg, searching = 'slotpick', -1, '', 1, 0, 0, '', False
             act = None
         if act == 'encounter' and view == 'main' and st['wild']:
             view, ball_pick, focus, msg = 'wild', default_ball(st, ball_pick), 'throw_sel', ''
@@ -2816,7 +2833,7 @@ def main(scr):
         if act == 'pick_sel' and view == 'slotpick':
             act = ('pickrow', sel)
         if isinstance(act, tuple) and act[0] == 'slot' and view == 'main':
-            view, pslot, query, pick_sort, sel, top, msg = 'slotpick', act[1], '', 1, 0, 0, ''
+            view, pslot, query, pick_sort, sel, top, msg, searching = 'slotpick', act[1], '', 1, 0, 0, '', False
             act = None
         if isinstance(act, tuple) and act[0] == 'pickrow' and view == 'slotpick':
             rows = slot_rows(st, pslot, query, pick_sort)
@@ -3671,6 +3688,9 @@ def selftest():
     for free in range(0, 40):  # 어떤 크기든 팀 2줄이 남은 줄을 넘지 않는다(글만 2줄이 최소)
         c, a = team_layout(free)
         assert (2 * c <= free or c == 2) and a + 2 <= c
+    # 검색어 글자 판정 — 방향키·Enter·Tab·Esc 는 글자가 아니고, 영문·한글·숫자는 글자
+    assert not any(typed_char(k) for k in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_ENTER, 9, 10, 13, 27, -1))
+    assert all(typed_char(ord(c)) for c in 'aZ9가ㄱ.')
     print('pokemon selftest ok')
 
 
