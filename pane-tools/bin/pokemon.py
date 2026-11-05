@@ -451,6 +451,9 @@ def load(root=ROOT):
         inbag = {m['id'] for m in st['box']}
         st['box'] += [{'id': p, 'xp': 0} for p in st.get('forms', []) if p in FORMS and p not in inbag]
         st['forms_boxed'] = True
+    for b in FUSE_ITEMS:  # 합체 도구를 연구 상으로 바꾸기 전(2026-11-05)에 이미 연구를 끝냈으면 — 한 번 챙겨 준다
+        if b in st.get('researched', []) and not st.get('items', {}).get(f'fuse:{b}'):
+            st.setdefault('items', {})[f'fuse:{b}'] = 1
     if not st['research']:  # 연구를 넣기 전(2026-10-30)에 잡은 것 — 가방 마릿수를 잡은 횟수로(상은 주지 않는다)
         for m in st['box']:
             if m['id'] in DEX:
@@ -903,8 +906,7 @@ def bag_items(st):
         [(k, items[k]) for k in ('gcap', 'cap') if items.get(k)] + \
         sorted(((k, c) for k, c in items.items() if c > 0 and k.startswith('stone:')), key=lambda kc: int(kc[0].split(':')[1])) + \
         ([('soup', items['soup'])] if items.get('soup') else [])
-    have = {m['id'] for m in st['box']}
-    return out + [(f'fuse:{b}', None) for b in FUSE_ITEMS if b in have]
+    return out + [(f'fuse:{b}', None) for b in FUSE_ITEMS if items.get(f'fuse:{b}')]  # 합체 도구 — 개수 대신 '도구'로
 
 
 def item_targets(st, key):
@@ -953,6 +955,14 @@ def give_item(st, key, k=1):
     st.setdefault('items', {})[key] = st['items'].get(key, 0) + k
 
 
+def give_fuse_tool(st, n):
+    """n 이 합체 기본 포켓몬(FUSE_ITEMS)이면 합체 도구 하나 — 이미 있으면 그만(쓰고 나서도 남는 도구라 하나면 된다, 2026-11-05 사용자)."""
+    key = f'fuse:{n}'
+    if n in FUSE_ITEMS and not st.get('items', {}).get(key):
+        give_item(st, key)
+        tell(st, 'item', key)
+
+
 def give_stones(st, n):
     """그 종의 메가스톤들(X·Y 는 따로)과, 네크로즈마면 울트라네크로Z — 쓰는 건 그 세대가 열린 뒤(change_options)."""
     keys = [f'stone:{p}' for p, (s, kind, *_) in SPECIALS.items() if s == n and kind in ('mega', 'ultra')]
@@ -986,6 +996,7 @@ def research_bump(st, n, key):
         st[RESEARCH_PRIZE[0]] += RESEARCH_PRIZE[1]
         tell(st, 'research', str(n))
         give_stones(st, n)  # 첫 메가스톤
+        give_fuse_tool(st, n)  # 큐레무·네크로즈마·버드렉스 — 합체 도구(한 번, 쓴 뒤에도 남는다)
     elif key == 'c' and n in DEX and n in st['researched'] and (r['c'] - research_goals(n)['c']) % RESEARCH_CATCH == 0:
         give_stones(st, n)  # 연구를 끝낸 뒤엔 RESEARCH_CATCH 마리 더 잡을 때마다 하나 더 — 전설(목표 1)도 매번이 아니라 5마리마다
 
@@ -1694,8 +1705,11 @@ def change_options(st, i):
     """가방 i 번째가 바뀔 수 있는 모습들 [(모습, 재료, 할 수 있나, 못 하는 까닭)] — 재료는 ('mon', 가방 번호)(합체 상대) 또는
     ('item', 키). 모두 되돌릴 수 없다: 합체 상대·아이템은 사라지고, 레벨·경험치·개체값은 그대로 이어진다."""
     m, out = st['box'][i], []
-    for f, j in fuse_options(st, i):
-        out.append((f, ('mon', j), True, ''))
+    tool_key = f'fuse:{m["id"]}'
+    tool, tool_name = st.get('items', {}).get(tool_key, 0) > 0, item_name(tool_key) if m['id'] in FUSE_ITEMS else ''
+    for f, j in fuse_options(st, i):  # 합체 도구가 있어야 — 그 기본 포켓몬 연구를 끝내면 받는다
+        out.append((f, ('mon', j), tool, '' if tool else L(f'{tool_name} 없음 — {name(m["id"])} 연구를 끝내면 받는다',
+                                                           f'no {tool_name} — finish {name(m["id"])}\'s research')))
     for p, (s, kind, g, *_) in SPECIALS.items():
         if (m['id'] not in ULTRA_BASE) if kind == 'ultra' else m['id'] != s:
             continue
@@ -3008,7 +3022,7 @@ def selftest():
     assert catch_chance(cc, 'ball') == catch_rate(19) * 0.5
     # 가방 = 아이템: 가진 것만 한 줄씩 · 아이템마다 쓸 수 있는 포켓몬 · 사탕은 아무 포켓몬에게(동료 경험치는 그대로)
     bg = {**new_state(), 'box': [{'id': 25, 'xp': 0, 'iv': [1] * 3}, {'id': 10, 'xp': 0, 'iv': [15, 2, 3]}, {'id': 646, 'xp': 0, 'iv': [5] * 3},
-                                 {'id': 644, 'xp': 0, 'iv': [1] * 3}], 'partner': 0, 'candy': 1, 'items': {'cap': 1, 'soup': 0}, 'base': 77}
+                                 {'id': 644, 'xp': 0, 'iv': [1] * 3}], 'partner': 0, 'candy': 1, 'items': {'cap': 1, 'soup': 0, 'fuse:646': 1}, 'base': 77}
     assert [k for k, _ in bag_items(bg)] == ['candy', 'cap', 'fuse:646'] and bag_items(bg)[-1][1] is None
     assert {i for i, *_ in item_targets(bg, 'candy')} == {0, 1}  # 진화할 수 있는 피카츄·캐터피 — 큐레무·제크로무는 아니다
     assert [(i, len(ks)) for i, ks, ok, _ in item_targets(bg, 'cap') if i == 1] == [(1, 2)]  # 캐터피는 방·체 두 칸 — 바꾸기 화면에서 고른다
@@ -3460,6 +3474,10 @@ def selftest():
     fu['box'] = [{'id': 25, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 646, 'xp': 5, 'bxp': 120, 'iv': [9, 9, 9]},
                  {'id': 644, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 644, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 643, 'xp': 0, 'iv': [2, 2, 2]}]
     fu['partner'], fu['team'] = 4, [1, 3]
+    assert change_options(fu, 1)[0][2] is False and L('연구', 'research') in change_options(fu, 1)[0][3]  # 도구가 없으면 못 한다
+    for key in 'c' + 'www':  # 큐레무 연구를 끝내면 유전자쐐기
+        research_bump(fu, 646, key)
+    assert fu['items'].get('fuse:646') == 1 and [k for k, _ in bag_items(fu)][-1] == 'fuse:646'
     assert fuse_options(fu, 0) == [] and fuse_options(fu, 1) == [(10022, 2)]  # 레시라무(4)는 동료라 못 쓰고, 재료는 팀 밖·개체값 낮은 것
     assert change_options(fu, 1) == [(10022, ('mon', 2), True, '')] and change(fu, 1, 0) == 10022
     assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1] and fu['box'][1]['iv'] == [9, 9, 9]
@@ -3489,9 +3507,9 @@ def selftest():
         mw = new_state()  # 전설(잡기 목표 1)도 연구 뒤엔 5마리마다 — 매번이 아니라
         for key in 'c' + 'www' + 'c' * (RESEARCH_CATCH - 1):
             research_bump(mw, 800, key)
-        assert mw['items'] == {'stone:10157': 1}
+        assert mw['items'] == {'stone:10157': 1, 'fuse:800': 1}  # 네크로즈마 — 울트라네크로Z 와 네크로플러스
         research_bump(mw, 800, 'c')
-        assert mw['items'] == {'stone:10157': 2}
+        assert mw['items'] == {'stone:10157': 2, 'fuse:800': 1}  # 도구는 하나면 된다
         assert change(mg, 0, 0) is None  # 6세대가 아직 안 열렸다
         mg['league'] = {str(g): '2026-10-30' for g in range(1, 6)}  # 5세대까지 사천왕 → 6세대 열림
         assert change(mg, 0, 0) == 10034 and mg['box'][0]['id'] == 10034 and mg['items']['stone:10034'] == 1
