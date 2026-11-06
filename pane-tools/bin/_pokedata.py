@@ -496,28 +496,31 @@ def sprite(n, max_h=6, max_w=8):
     return _sprites[key]
 
 
-def sprite_png(n, gray=False):
-    """Kitty 그래픽용 (PNG, 가로 픽셀, 세로 픽셀) — 여백을 잘라 내 칸에 꽉 차게. 아직 없으면 None."""
-    key = ('png', n, gray)
+def sprite_png(n, gray=False, flip=False):
+    """Kitty 그래픽용 (PNG, 가로 픽셀, 세로 픽셀) — 여백을 잘라 내 칸에 꽉 차게. flip 이면 좌우를 뒤집는다(배틀의 내 쪽).
+    아직 없으면 None."""
+    key = ('png', n, gray, flip)
     if key not in _sprites:
         path = _local(n)
         if not path:
             return None
         with open(path, 'rb') as f:
             px = crop(decode_png(f.read()), gray)
+        px = [r[::-1] for r in px] if flip else px
         _sprites[key] = (encode_png(px), len(px[0]), len(px)) if px else None
     return _sprites[key]
 
 
-def sprite_sixel(n, gray, height):
-    """Sixel 용 (문자열, 가로 픽셀, 세로 픽셀) — 여백을 잘라 height 픽셀 높이로. 아직 그림을 안 받았으면 None."""
-    key = ('sixel', n, gray, height)
+def sprite_sixel(n, gray, height, flip=False):
+    """Sixel 용 (문자열, 가로 픽셀, 세로 픽셀) — 여백을 잘라 height 픽셀 높이로(flip 이면 좌우 뒤집어). 아직 그림을 안 받았으면 None."""
+    key = ('sixel', n, gray, height, flip)
     if key not in _sprites:
         path = _local(n)
         if not path:
             return None
         with open(path, 'rb') as f:
             px = crop(decode_png(f.read()), gray)
+        px = [r[::-1] for r in px] if flip else px
         _sprites[key] = encode_sixel(px, height) if px else None
     return _sprites[key]
 
