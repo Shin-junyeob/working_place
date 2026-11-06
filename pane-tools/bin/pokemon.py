@@ -1456,23 +1456,23 @@ def bag_text(m, room):
     return nm + '…' + tail
 
 
-def mon_art(n, y, w, x=1, rows=2, max_cols=None):
+def mon_art(n, y, w, x=1, rows=2, max_cols=None, flip=False):
     """메인 화면의 포켓몬 그림(동료·팀 칸) — 그림 번호 n 을 (y, x) 에 화면에서 rows 줄로 보이게. Sixel 은 실제로
     SIXEL_SCALE 배 크게 그려지니 그만큼 작게 요청한다. max_cols 칸을 넘으면 줄인다. 못 놓거나 좁으면 None."""
     if n is None or w < 44 or rows < 1 or not (SIXEL or KITTY):
         return None
     cw_, ch_ = _gfx.cell_px()
     if SIXEL:
-        six = _pokedata.sprite_sixel(n, False, max(ch_ // 2, int(rows * ch_ / SIXEL_SCALE)))
-        return six and ('six', y, x, ('mon', n, y, x, rows), six[0], math.ceil(six[1] / cw_), rows)
-    png = _pokedata.sprite_png(n)  # 같은 포켓몬이 두 칸에 있어도 따로 놓이게 자리도 번호에
+        six = _pokedata.sprite_sixel(n, False, max(ch_ // 2, int(rows * ch_ / SIXEL_SCALE)), flip)
+        return six and ('six', y, x, ('mon', n, y, x, rows, flip), six[0], math.ceil(six[1] / cw_), rows)
+    png = _pokedata.sprite_png(n, flip=flip)  # 같은 포켓몬이 두 칸에 있어도 따로 놓이게 자리도 번호에
     if not png:
         return None
     cols = _gfx.kitty_cols(png[1], png[2], rows)
     while max_cols and cols > max_cols and rows > 1:
         rows -= 1
         cols = _gfx.kitty_cols(png[1], png[2], rows)
-    return ('kitty', y, x, 400000 + (_pokedata.img_id(n) * 2) % 100000 * 10 + (y * 7 + x + rows) % 10, png[0], cols, rows)
+    return ('kitty', y, x, 400000 + (_pokedata.img_id(n) * 2 + flip) % 100000 * 10 + (y * 7 + x + rows) % 10, png[0], cols, rows)
 
 
 SIDE_W = 14  # 메인 화면 오른쪽 버튼 열 폭
@@ -2112,6 +2112,32 @@ def bar(frac, width):
     return '█' * f + '░' * (width - f)
 
 
+def frame(scr, y, x, hh, ww, attr=curses.A_DIM):
+    """(y, x) 에 hh×ww 둥근 테두리 — 안은 비워 둔다."""
+    put(scr, y, x, '╭' + '─' * (ww - 2) + '╮', attr)
+    for r in range(y + 1, y + hh - 1):
+        put(scr, r, x, '│', attr)
+        put(scr, r, x + ww - 1, '│', attr)
+    put(scr, y + hh - 1, x, '╰' + '─' * (ww - 2) + '╯', attr)
+
+
+def hp_box(scr, y, x, ww, n, lv, hp, top, mine):
+    """배틀 상태 상자 — 이름·레벨, HP 막대(반 넘으면 녹색 · 5분의 1 넘으면 노랑 · 그 밑 빨강), 내 쪽만 숫자(원작처럼). 차지한 줄 수."""
+    hh = 5 if mine else 4
+    frame(scr, y, x, hh, ww)
+    lvt = f'Lv{lv}'
+    put(scr, y + 1, x + 2, fit(name(n), ww - 5 - len(lvt)), curses.A_BOLD)
+    put(scr, y + 1, x + ww - 2 - len(lvt), lvt)
+    frac = hp / top if top else 0
+    color = curses.color_pair(1 if frac > 0.5 else 2 if frac > 0.2 else 3)
+    x2 = put(scr, y + 2, x + 2, 'HP ', curses.A_BOLD)
+    put(scr, y + 2, x2, bar(frac, x + ww - 2 - x2), color | curses.A_BOLD)
+    if mine:
+        num = f'{hp}/{top}'
+        put(scr, y + 3, x + ww - 2 - len(num), num)
+    return hh
+
+
 def main(scr):
     curses.curs_set(0)
     scr.keypad(True)
@@ -2554,34 +2580,33 @@ def main(scr):
             x = button(h - 1, x, L('적용', 'apply'), 'apply')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'fight':
+            # 원작 배틀 화면처럼(2026-11-06 사용자) — 위: 상대 상태 상자(왼쪽)·상대 그림(오른쪽), 아래: 내 그림(왼쪽, 상대를 보게 좌우
+            # 뒤집어)·내 상태 상자(오른쪽), 맨 아래: 대사 상자(마지막 기록 두 줄, 끝나면 결과). 그림은 Kitty·Sixel 일 때만.
             ev, k = battle_now['ev'], battle_now['k']
             now = fight_state(ev, k)
-            y = 1
-            for side, label in (('foe', L('상대', 'Foe ')), ('me', L('나  ', 'Me  '))):
-                if side in now:
-                    n, hp, top_, lv_ = now[side]
-                    top_ = top_ or _battle.Mon(BATTLE, n, lv_).st[0]
-                    hp = top_ if hp is None else hp
-                    x = put(scr, y, 1, f'{label} {name(n)} Lv{lv_} ')
-                    put(scr, y, x, f'{bar(hp / top_, 16)} {hp}/{top_}')
-                y += 1
-            if 'me' in now and 'foe' in now and (SIXEL or KITTY):
-                # 2줄 높이로 — 5줄은 너무 컸고, 터미널이 칸 크기를 다르게 그려 실제로는 더 커져 기록과 겹쳤다(2026-10-21).
-                # 그래서 그림 아래 자리를 그림 높이의 두 배만큼 비워 둔다.
-                below = _gfx.rows_below(y + 1)
-                rows_ = 2 if (below is None or below >= 6) and h >= 16 else 0
-                if rows_:
-                    cw_, ch_ = _gfx.cell_px()
-                    ids = [art_of(now['me'][0]), art_of(now['foe'][0])]  # 리전폼은 'form:번호' 그림
-                    img = _pokedata.strip_image(ids, int(rows_ * ch_), 'six' if SIXEL else 'png')
-                    if img:
-                        cols = math.ceil(img[1] / cw_)
-                        art = ('six', y + 1, 2, ('fight', tuple(ids), rows_), img[0], cols, rows_) if SIXEL else \
-                            ('kitty', y + 1, 2, 200000 + zlib.crc32(repr(ids).encode()) % 100000, img[0], cols, rows_)
-                    y += rows_ * 2 + 1
-            lines = [(part, j == k - 1) for j, e in enumerate(ev[:k]) for part in fold(fight_line(e), max(10, w - 2))][-(h - y - 4):]  # 결과 줄 두 줄 자리를 남긴다
-            for j, (line, last) in enumerate(lines):  # 긴 줄은 접는다 — 마지막 기록(접힌 줄 모두)은 굵게
-                put(scr, y + 1 + j, 1, line, curses.A_BOLD if last else 0)
+            mb = h - 5  # 대사 상자 첫 줄 — 테두리 2 + 글 2줄, 맨 아래 줄은 버튼
+            half = (mb - 1) // 2  # 1 ~ half: 상대 쪽 · half+1 ~ mb-1: 내 쪽
+            bw = max(18, min(28, w // 2 - 1))
+            spots = {'foe': (1, 1), 'me': (mb - 5, w - 1 - bw)}
+            pics = []
+            for side in ('foe', 'me'):
+                if side not in now:
+                    continue
+                n, hp, top_, lv_ = now[side]
+                top_ = top_ or _battle.Mon(BATTLE, n, lv_).st[0]
+                hp_box(scr, *spots[side], bw, n, lv_, top_ if hp is None else hp, top_, side == 'me')
+                # 그림 자리 — 상대는 상자 오른쪽 빈 곳 가운데, 나는 상자 왼쪽 빈 곳 가운데
+                x0, x1 = (bw + 2, w - 1) if side == 'foe' else (1, w - 2 - bw)
+                y0, rows_ = (1, half - 1) if side == 'foe' else (half + 1, mb - half - 2)
+                a = mon_art(art_of(n), y0, w, x0, max(1, rows_), x1 - x0, flip=side == 'me') if rows_ >= 2 else None
+                if a:
+                    wide = a[5] * (SIXEL_SCALE if a[0] == 'six' else 1)  # Sixel 은 알려 준 칸보다 크게 그려진다
+                    pics.append((a[0], a[1], max(x0, round((x0 + x1 - wide) / 2)), *a[3:]))
+            if pics:
+                one = pics[0]
+                rest = tuple((p[1], p[2], p[4]) if p[0] == 'six' else p[1:] for p in pics[1:])
+                art = (*one[:3], tuple(p[3] for p in pics) if one[0] == 'six' else one[3], *one[4:], rest)
+            talk = [(part, j == k - 1) for j, e in enumerate(ev[:k]) for part in fold(fight_line(e), max(10, w - 4))][-2:]
             if k >= len(ev):
                 ups = battle_now.get('ups', [])  # 받은 경험치와 레벨업을 결과 줄에 — 쌓이는 게 보이게
                 gain = L(f' 경험치 +{battle_now.get("xp", 0)}', f' XP +{battle_now.get("xp", 0)}') + (
@@ -2595,8 +2620,10 @@ def main(scr):
                     (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]을 받았다!' if battle_now['key'].startswith('champ') else f'[{badge_name(battle_now["key"])}]를 받았다!',
                                                   f'Got the [{badge_name(battle_now["key"])}]!') if battle_now['first'] else '') + gain) \
                     if battle_now['won'] else L('패배…', 'Defeat…') + gain
-                for j, line in enumerate(fold(res, max(10, w - 2))[:2]):  # 길면 두 줄로(Lv↑ 이름이 잘렸다)
-                    put(scr, h - 3 + j, 1, line, curses.A_BOLD)
+                talk = [(line, True) for line in fold(res, max(10, w - 4))[:2]]  # 길면 두 줄로(Lv↑ 이름이 잘렸다)
+            frame(scr, mb, 0, 4, w)
+            for j, (line, strong) in enumerate(talk):  # 마지막 기록(접힌 줄 모두)은 굵게
+                put(scr, mb + 1 + j, 2, line, curses.A_BOLD if strong else 0)
             x = button(h - 1, 1, (L('다음 상대 q', 'next q') if battle_now['won'] and battle_now.get('tower') else
                                   L('허브로 q', 'to hub q') if battle_now['won'] else L('다시 준비 q', 'retry q'))
                        if k >= len(ev) else L('돌아가기 q', 'back q'), 'back')
