@@ -37,7 +37,7 @@
   이기고 못 만난 보스는 월요일이 지나도 한 번 나온다(raid_state 의 late) — 레이드 야생은 자기 주(week)를 들고 다닌다(raid_done).
 - 배틀 타워(챔피언 뒤, 체육관 목록의 'T' 줄): 팀 앞 TOWER_SIZE 마리, 시작할 때만 탐색 TOWER_COST 번, 지기 전까지 연승
   (tower_state · tower_opp — 상대는 7연승마다 레벨 +TOWER_LV_STEP·개체값 +1, 상한 없음). TOWER_PRIZES 마다 볼과 병뚜껑.
-  병뚜껑(cap 은색 · gcap 금색)은 가방에서 쓰는 특훈 — 개체값 하나 / 셋 다 15로(change_options 의 ('iv', k)).
+  병뚜껑(cap 은색 · gcap 금색)은 가방에서 쓰는 특훈 — 고른 개체값 하나 +1 / 15로(change_options 의 ('iv', k) · ('ivmax', k)).
 - 메타몽(DITTO): 야생에선 다른 일반 포켓몬으로 변신해 나오고(disguises · wild['disguise'] · shown), 잡아야 정체가 드러난다.
   이로치 메타몽도 변신한 모습은 보통 색 — 이로치인 것은 정체와 함께 드러난다.
   조로아·조로아크(히스이 포함, ZORUA)는 팀 마지막 포켓몬(없으면 동료)의 환영으로 나온다(illusion) — 같은 disguise 구조.
@@ -101,7 +101,7 @@ RAID_HP, RAID_BALLS, RAID_COST = 48, 3, 2
 # 배틀 타워(챔피언 뒤): 팀 앞 TOWER_SIZE 마리로 지기 전까지 연승. 시작할 때만 탐색 TOWER_COST 번. 상대는 7연승마다 한 단계 —
 # 레벨 TOWER_LV0 + 단계 × TOWER_LV_STEP(상한 없이 — 다 키운 팀도 언젠가 진다), 개체값 6 + 단계(15까지). 7번째·49번째는 강한 상대.
 TOWER_SIZE, TOWER_COST, TOWER_LV0, TOWER_LV_STEP = 3, 2, 45, 6  # 2026-11-04 측정: 기대 연승 다 키운 팀 58 · Lv79 사용자 팀 44 · Lv60 팀 27
-TOWER_PRIZES = [(7, [('super', 3)]), (21, [('hyper', 2), ('cap', 1)]), (49, [('master', 1), ('gcap', 1)])]  # n 연승마다
+TOWER_PRIZES = [(7, [('super', 3), ('cap', 1)]), (21, [('hyper', 2)]), (49, [('master', 1), ('gcap', 1)])]  # n 연승마다 — 은색 7개 ≈ 금색 1개
 RESEARCH_CATCH, RESEARCH_WIN, RESEARCH_PRIZE = 5, 3, ('super', 2)  # 연구: 잡기 5(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 3
 IV_FLOOR = 10  # 알·전설·환상은 개체값이 최소 이만큼(포켓몬고처럼)
 OLD_LEGEND_WEIGHT = 0.1  # 이전 세대 탐색에서 전설·환상은 다른 종의 1/10 — 빼지는 않되 꼬렛만큼 흔하지 않게(2026-10-30)
@@ -1790,17 +1790,17 @@ def change_options(st, i):
         why = L(f'{g}세대가 열리면', f'opens with Gen {g}') if opened_gen(st) < g else \
             '' if st.get('items', {}).get(key, 0) > 0 else L('재료 없음', 'no material')
         out.append((p, ('item', key), not why, why))
-    iv, items = iv_of(m), st.get('items', {})  # 병뚜껑(배틀 타워 상) — 특훈: 은색은 하나를, 금색은 셋 다 15로
-    out += [(('iv', k), ('item', 'cap'), True, '') for k in range(3) if iv[k] < 15 and items.get('cap', 0) > 0]
-    if min(iv) < 15 and items.get('gcap', 0) > 0:
-        out.append((('iv', 3), ('item', 'gcap'), True, ''))
+    iv, items = iv_of(m), st.get('items', {})  # 병뚜껑(배틀 타워 상) — 특훈: 은색은 고른 하나 +1, 금색은 고른 하나를 15로(2026-11-06 사용자)
+    for kind, key in (('iv', 'cap'), ('ivmax', 'gcap')):
+        out += [((kind, k), ('item', key), True, '') for k in range(3) if iv[k] < 15 and items.get(key, 0) > 0]
     return out
 
 
 def opt_name(f):
-    """바꾸기 화면 한 칸의 이름 — 모습 번호면 그 이름, ('iv', k) 면 특훈('공 15로' · 셋 다 15로)."""
+    """바꾸기 화면 한 칸의 이름 — 모습 번호면 그 이름, ('iv', k) 면 은색 특훈('공 +1'), ('ivmax', k) 면 금색('공 15로')."""
     if isinstance(f, tuple):
-        return L(['공 15로', '방 15로', '체 15로', '공·방·체 모두 15로'][f[1]], ['Attack to 15', 'Defense to 15', 'HP to 15', 'all IVs to 15'][f[1]])
+        ko, en = ['공', '방', '체'][f[1]], ['Attack', 'Defense', 'HP'][f[1]]
+        return L(f'{ko} +1', f'{en} +1') if f[0] == 'iv' else L(f'{ko} 15로', f'{en} to 15')
     return name(f)
 
 
@@ -1813,7 +1813,7 @@ def change(st, i, k):
     if isinstance(f, tuple):  # 특훈 — 모습은 그대로, 개체값만
         st['items'][ref] -= 1
         m = st['box'][i]
-        m['iv'] = [15] * 3 if f[1] == 3 else [15 if j == f[1] else v for j, v in enumerate(iv_of(m))]
+        m['iv'] = [(min(15, v + 1) if f[0] == 'iv' else 15) if j == f[1] else v for j, v in enumerate(iv_of(m))]
         return f
     if what == 'mon':
         i = _drop(st, {ref})[i]  # 합체 상대는 사라진다(2026-10-30 — 분리 없음, 다른 모습은 재료를 다시 모아서)
@@ -2522,7 +2522,7 @@ def main(scr):
                          L(f'  (승률\xa0{rec[2]:.0%})\xa0—\xa0[적용]', f'  ({rec[2]:.0%})\xa0—\xa0[apply]'), w)
             cost = LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
             if i == 'T':
-                y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3 · 21연승마다 하이퍼볼 2·은색 병뚜껑 · 49연승마다 마스터볼·금색 병뚜껑. 시작할 때만 탐색 {TOWER_COST}회',
+                y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3·은색 병뚜껑 · 21연승마다 하이퍼볼 2 · 49연승마다 마스터볼·금색 병뚜껑. 시작할 때만 탐색 {TOWER_COST}회',
                                    f'Keep going until you lose — every 7: 3 Great · every 21: 2 Ultra + Bottle Cap · every 49: Master + Gold Bottle Cap. {TOWER_COST} explores to start'), w, curses.A_DIM)
             if i == 'R':
                 y = para(scr, y, L(f'이기면 레이드볼 {RAID_BALLS}개로 잡을 기회 — 가진 볼은 못 쓴다', f'Win for {RAID_BALLS} Raid Balls to catch it — your own balls don\'t work'), w, curses.A_DIM)
@@ -3242,11 +3242,13 @@ def selftest():
     used1 = tw_['used']
     fight(tw_, 40 * ENCOUNTER_EVERY, gdt, 0, 'T', random.Random(10))
     assert tw_['used'] == used1 + TOWER_COST  # 다시 시작하면 또 탐색 2번
-    # 병뚜껑 특훈: 은색은 고른 하나를, 금색은 셋 다 15로 — 이미 15인 칸은 안 나온다
-    cp = {**new_state(), 'box': [{'id': 19, 'xp': 0, 'iv': [15, 3, 7]}], 'items': {'cap': 1, 'gcap': 1}}
-    assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('iv', 2), ('iv', 3)]
-    assert change(cp, 0, 1) == ('iv', 2) and cp['box'][0]['iv'] == [15, 3, 15] and cp['items']['cap'] == 0
-    assert change(cp, 0, 0) == ('iv', 3) and cp['box'][0]['iv'] == [15] * 3 and change_options(cp, 0) == []
+    # 병뚜껑 특훈: 은색은 고른 하나 +1, 금색은 고른 하나를 15로 — 이미 15인 칸은 안 나온다
+    cp = {**new_state(), 'box': [{'id': 19, 'xp': 0, 'iv': [15, 3, 14]}], 'items': {'cap': 2, 'gcap': 1}}
+    assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('iv', 2), ('ivmax', 1), ('ivmax', 2)]
+    assert change(cp, 0, 1) == ('iv', 2) and cp['box'][0]['iv'] == [15, 3, 15] and cp['items']['cap'] == 1
+    assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('ivmax', 1)] and opt_name(('iv', 1)) == L('방 +1', 'Defense +1')
+    assert change(cp, 0, 0) == ('iv', 1) and cp['box'][0]['iv'] == [15, 4, 15]
+    assert change(cp, 0, 0) == ('ivmax', 1) and cp['box'][0]['iv'] == [15] * 3 and change_options(cp, 0) == []
     eg2 = {**new_state(), 'eggs': [{'id': 1, 'base': 0, 'need': 125_000}, {'id': 4, 'base': 50_000, 'need': 75_000}]}
     assert [(round(f, 2), km) for _, f, km in egg_lines(eg2, 100_000)] == [(0.8, 7), (0.67, 5)] and len(egg_lines(eg2, 0)) == 2  # 알마다 따로, 빠른 순
     assert [egg_km({'need': k * EGG_STEP}) for k in (10, 15, 20, 25, 40, 120)] == [2, 5, 5, 7, 10, 12]
