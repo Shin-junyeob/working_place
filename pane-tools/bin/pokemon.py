@@ -2571,7 +2571,7 @@ def main(scr):
                 if rkey not in wr_cache:
                     wr_cache[rkey] = gym_rate(BATTLE, fighters(st, rteam), g, i, st)
                 y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(name(n) for _, n, _ in rteam) +
-                         L(f'  (승률\xa0{wr_cache[rkey]:.0%})\xa0—\xa0[적용]', f'  ({wr_cache[rkey]:.0%})\xa0—\xa0[apply]'), w)
+                         L(f'  (승률\xa0{wr_cache[rkey]:.0%})', f'  ({wr_cache[rkey]:.0%})'), w)  # 눌리지 않는 '[적용]' 글자는 뺐다 — 아래 버튼으로(2026-11-07 사용자)
             cost = LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
             if i == 'T':
                 y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3·은색 병뚜껑 2 · 21연승마다 하이퍼볼 2 · 49연승마다 마스터볼·금색 병뚜껑 2. 시작할 때만 탐색 {TOWER_COST}회',
