@@ -928,12 +928,14 @@ def bag_items(st):
     return out + [(f'fuse:{b}', None) for b in FUSE_ITEMS if items.get(f'fuse:{b}')]  # 합체 도구 — 개수 대신 '도구'로
 
 
-def item_targets(st, key):
+def item_targets(st, key, query=''):
     """그 아이템을 쓸 수 있는 포켓몬 [(가방 번호, 바꾸기 화면의 칸 번호들, 지금 쓸 수 있나, 못 쓰는 까닭)] — 레벨 높은 것부터.
     이상한사탕은 진화할 수 있는 포켓몬, 합체 도구는 합체 상대가 가방에 있는 기본 포켓몬, 그 밖엔 change_options 에 그 아이템 칸이 있는 포켓몬."""
-    out = []
+    out, q = [], query.lower()
     for i in bag_order(st, None, 1):
         m = st['box'][i]
+        if q not in name(m['id']).lower():  # 이름 찾기
+            continue
         if key == 'candy':
             if evolutions(st, m['id'], m.get('shiny')):
                 out.append((i, [], True, ''))
@@ -2363,9 +2365,11 @@ def main(scr):
             if not rows:
                 para(scr, 2, L('아이템이 없다 — 연구 완료·레이드·배틀 타워·주간 과제에서 얻는다.', 'No items yet — research, raids, the Battle Tower and weekly tasks give them.'), w, curses.A_DIM)
             button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')  # 쓰기는 Enter·클릭(2026-11-05 사용자 — U 버튼 없음)
-        elif view == 'use':  # 가방 → 아이템 → 쓸 포켓몬
-            rows = item_targets(st, ukey)
-            put(scr, 1, 1, msg or L(f'{item_name(ukey)} — 누구에게 쓸까 · Enter', f'{item_name(ukey)} — use on whom? · Enter'), curses.A_DIM)
+        elif view == 'use':  # 가방 → 아이템 → 쓸 포켓몬(F 이름 찾기 — 자리 고르기와 같게, 2026-11-06 사용자)
+            rows = item_targets(st, ukey, query)
+            put(scr, 1, 1, msg or item_name(ukey) + (L(f' — 찾기: {query}▏ · Enter 확정 · Esc 지우기', f' — find: {query}▏ · Enter keep · Esc clear') if searching else
+                                                    L(f' — 누구에게 쓸까 · F 찾기{f" ({query})" if query else ""} · Enter', f' — use on whom? · F find{f" ({query})" if query else ""} · Enter')),
+                curses.A_BOLD if searching else curses.A_DIM)
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
@@ -2762,7 +2766,7 @@ def main(scr):
                 st = fresh_st
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
         lists = view in ('trade', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
-        if view == 'slotpick' and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
+        if view in ('slotpick', 'use') and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
             if key == 27:  # Esc — 검색어를 지우고 찾기 끝
                 query, searching, sel, top, act, key = '', False, 0, 0, None, -1
             elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):  # Enter — 검색어는 두고 찾기 끝(넣기는 다음 Enter)
@@ -2771,10 +2775,10 @@ def main(scr):
                 query, sel, top, act = query[:-1], 0, 0, None
             elif typed_char(key):  # 방향키 같은 curses 특수키(KEY_MIN~KEY_MAX)는 글자가 아니다 — 전엔 검색어로 들어갔다
                 query, sel, top, act = query + chr(key), 0, 0, None
-        elif view == 'slotpick':  # 평소 — 방향키 줄 이동 · Enter 넣기 · F 찾기 · Tab 정렬 · q/Esc 돌아가기
-            if key in (ord('f'), ord('F')):
-                searching, act, key = True, None, -1
-            elif key == 9:
+        elif view in ('slotpick', 'use') and key in (ord('f'), ord('F')):  # F 찾기
+            searching, act, key = True, None, -1
+        elif view == 'slotpick':  # 평소 — 방향키 줄 이동 · Enter 넣기 · Tab 정렬 · q/Esc 돌아가기
+            if key == 9:
                 pick_sort, sel, top = (pick_sort + 1) % len(SORTS), 0, 0
         if view == 'gyms':  # 두 열 — ←→ 로 열을 오가고, 오른쪽에선 ↑↓ 가 관을 고른다. q·Esc 는 오른쪽이면 왼쪽으로
             left = gym_left(st)
@@ -2972,10 +2976,10 @@ def main(scr):
         if isinstance(act, tuple) and act[0] == 'bagitem' and view == 'bag':
             rows = bag_items(st)
             if 0 <= act[1] < len(rows):
-                view, ukey, sel, top, msg, confirm = 'use', rows[act[1]][0], 0, 0, '', None
+                view, ukey, sel, top, msg, confirm, query, searching = 'use', rows[act[1]][0], 0, 0, '', None, '', False
             act = None
         if isinstance(act, tuple) and act[0] == 'userow' and view == 'use':
-            rows = item_targets(st, ukey)
+            rows = item_targets(st, ukey, query)
             if 0 <= act[1] < len(rows):
                 i, ks, ok, why = rows[act[1]]
                 before = name(st['box'][i]['id'])
@@ -3319,7 +3323,8 @@ def selftest():
                                  {'id': 644, 'xp': 0, 'iv': [1] * 6}], 'partner': 0, 'candy': 1, 'items': {'cap': 1, 'soup': 0, 'fuse:646': 1}, 'base': 77}
     assert [k for k, _ in bag_items(bg)] == ['candy', 'cap', 'fuse:646'] and bag_items(bg)[-1][1] is None
     assert {i for i, *_ in item_targets(bg, 'candy')} == {0, 1}  # 진화할 수 있는 피카츄·캐터피 — 큐레무·제크로무는 아니다
-    assert [(i, len(ks)) for i, ks, ok, _ in item_targets(bg, 'cap') if i == 1] == [(1, 2)]  # 캐터피는 방·체 두 칸 — 바꾸기 화면에서 고른다
+    assert [(i, len(ks)) for i, ks, ok, _ in item_targets(bg, 'cap') if i == 1] == [(1, 2)]  # 캐터피는 공·방 두 칸 — 바꾸기 화면에서 고른다
+    assert [i for i, *_ in item_targets(bg, 'candy', name(10)[:2])] == [1] and item_targets(bg, 'cap', '없는이름') == []  # 이름 찾기
     assert [i for i, *_ in item_targets(bg, 'fuse:646')] == [2]
     assert use_candy(bg, 999, i=1) == 11 and bg['box'][1]['id'] == 11 and bg['candy'] == 0 and bg['base'] == 77
     assert iv_text({'iv': [15] * 6}).endswith('(100%) ★') and iv_text({'iv': [0] * 6}).endswith('(0%)')
