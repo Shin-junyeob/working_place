@@ -2554,7 +2554,8 @@ def main(scr):
                                                     L('(비었다 — [추천] → [적용])', '(empty — [pick] → [apply])')), w)
             put(scr, y, 1, L(f'팀 앞 {TOWER_SIZE}마리 · 모든 세대 출전', f'First {TOWER_SIZE} of the team · any generation') if i == 'T' else
                 L('모든 세대 포켓몬 출전', 'Any generation may enter') if i == 'R' else L(f'{g}세대 포켓몬만 출전', f'Gen {g} Pokémon only'), curses.A_DIM)
-            wkey = (tuple(fighters(st, team)), g, i, repr(opp) if i == 'T' else '')  # 타워는 판마다 상대가 바뀐다
+            okey = repr(opp) if i == 'T' else ''  # 타워는 판마다 상대가 바뀐다
+            wkey = (tuple(fighters(st, team)), g, i, okey)
             if wkey not in wr_cache:
                 if i == 'L' and team:
                     put(scr, y + 1, 1, L('승률 계산 중…', 'Working out the odds…'), curses.A_DIM)
@@ -2562,10 +2563,15 @@ def main(scr):
                 wr_cache[wkey] = gym_rate(BATTLE, fighters(st, team), g, i, st)
             put(scr, y + 1, 1, L(f'승률 {wr_cache[wkey]:.0%}', f'Win rate {wr_cache[wkey]:.0%}'), curses.A_BOLD)
             y += 2
-            if rec and rec[0] == (g, i):
-                rteam = [(st['box'][k]['id'], box_level(st['box'][k])) for k in rec[1]]
-                y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(name(n) for n, _ in rteam) +
-                         L(f'  (승률\xa0{rec[2]:.0%})\xa0—\xa0[적용]', f'  ({rec[2]:.0%})\xa0—\xa0[apply]'), w)
+            if rec and rec[0] == (g, i) and rec[2] == okey and all(k < len(st['box']) for k in rec[1]):
+                # 추천은 그 상대에게만 — 타워에서 지난 판 추천이 새 상대 앞에 옛 승률로 남아 있었다(2026-11-07 사용자).
+                # 승률도 저장해 둔 값이 아니라 적용될 순서 그대로 지금 계산(캐시) — 타워는 앞 순서가 배틀에 영향을 준다.
+                rteam = [(k, st['box'][k]['id'], box_level(st['box'][k])) for k in rec[1]]
+                rkey = (tuple(fighters(st, rteam)), g, i, okey)
+                if rkey not in wr_cache:
+                    wr_cache[rkey] = gym_rate(BATTLE, fighters(st, rteam), g, i, st)
+                y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(name(n) for _, n, _ in rteam) +
+                         L(f'  (승률\xa0{wr_cache[rkey]:.0%})\xa0—\xa0[적용]', f'  ({wr_cache[rkey]:.0%})\xa0—\xa0[apply]'), w)
             cost = LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
             if i == 'T':
                 y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3·은색 병뚜껑 2 · 21연승마다 하이퍼볼 2 · 49연승마다 마스터볼·금색 병뚜껑 2. 시작할 때만 탐색 {TOWER_COST}회',
@@ -3075,9 +3081,10 @@ def main(scr):
                 pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
             else:
                 pick = _battle.recommend(BATTLE, cands, opp, size=TOWER_SIZE if gsel[1] == 'T' else _battle.TEAM_MAX)
-            rec = (gsel, pick, gym_rate(BATTLE, [c[1:] for c in cands if c[0] in pick], *gsel, st))
+            rec = (gsel, pick, repr(opp) if gsel[1] == 'T' else '')  # 승률은 화면이 그 순서로 계산한다
             msg = ''
-        if act == 'apply' and view == 'gym' and rec and rec[0] == gsel:
+        if act == 'apply' and view == 'gym' and rec and rec[0] == gsel and \
+                rec[2] == (repr(gym_opp(BATTLE, *gsel, st)) if gsel[1] == 'T' else '') and all(k < len(st['box']) for k in rec[1]):
             st['team'] = list(rec[1])
             save(st)
             msg = L('추천 팀을 적용했다.', 'Applied the suggested team.')
