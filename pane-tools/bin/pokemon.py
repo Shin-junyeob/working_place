@@ -2223,7 +2223,7 @@ def main(scr):
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
                 y = 3 + (pr - 2) // 2  # 이름·게이지 두 줄은 그림 높이의 가운데에
-                plabel = (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + name(n) + f'  Lv.{box_level(m)}'
+                plabel = (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + ('◆' if m.get('alpha') else '') + name(n) + f'  Lv.{box_level(m)}'
                 put(scr, y, px, plabel, gold if m.get('shiny') else curses.A_BOLD)
                 btns.extend((3 + r, 1, x0 - 2, 'partner_pick') for r in range(max(2, pr)))  # 동료를 누르면 동료 고르기(2026-11-05 사용자)
                 navbtns.append((y, px, px + memo_w(plabel), 'partner_pick', plabel))
@@ -2271,7 +2271,7 @@ def main(scr):
                     mm = st['box'][team[k]]
                     pic = mon_art(art_of(mm), cy, w, cx, art_rows, cw3 - 1)
                     art = join_art(art, pic)
-                    label = fit(name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
+                    label = fit(('◆' if mm.get('alpha') else '') + name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
                     pct = round(sum(iv_of(mm)) / 45 * 100)
                     put(scr, ly + 1, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
                 else:
@@ -2354,7 +2354,7 @@ def main(scr):
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             for k, (i, ks, ok, why) in enumerate(rows[top:top + body]):
                 mm = st['box'][i]
-                text = (f'⚔ ' if i in st.get('team', []) else '★ ' if i == st['partner'] else '  ') + bag_text(mm, w - 6) + ('' if ok else f'  · {why}')
+                text = (f'⚔ ' if i in st.get('team', []) else '♥ ' if i == st['partner'] else '  ') + ('◆' if mm.get('alpha') else '') + bag_text(mm, w - 7) + ('' if ok else f'  · {why}')
                 btns.append((2 + k, 1, w - 1, ('userow', top + k)))
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, (curses.A_REVERSE if top + k == sel else 0) | (0 if ok else curses.A_DIM))
             if not rows:
@@ -2377,8 +2377,8 @@ def main(scr):
                     text, attr = L('— 이 자리 비우기 —', '— empty this slot —'), curses.A_DIM
                 else:
                     mm = st['box'][i]
-                    mark = (f'⚔{team.index(i) + 1} ' if i in team else '   ') + ('✨' if mm.get('shiny') else '')
-                    text, attr = mark + bag_text(mm, w - 10), gold if mm.get('shiny') else 0
+                    mark = (f'⚔{team.index(i) + 1} ' if i in team else '   ') + ('✨' if mm.get('shiny') else '') + ('◆' if mm.get('alpha') else '')
+                    text, attr = mark + bag_text(mm, w - 11), gold if mm.get('shiny') else 0
                 btns.append((2 + k, 1, w - 1, ('pickrow', top + k)))
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, attr | (curses.A_REVERSE if top + k == sel else 0))
             if not rows:
@@ -2619,7 +2619,7 @@ def main(scr):
                 put(scr, 2 + k, 1, text.ljust(lw) if cur and not tcol else text, (curses.A_REVERSE if not tcol else curses.A_BOLD) if cur else 0)
                 btns.append((2 + k, 1, lw, ('tradeleft', k)))
             if tm == 0:  # 가방 전체 — 한 마리씩 박사에게(동료·팀·이로치·만든 모습은 못 보낸다)
-                rows = [(i, ('★' if i == st['partner'] else '⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '') + ('◆' if m.get('alpha') else '')
+                rows = [(i, ('♥' if i == st['partner'] else '⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '') + ('◆' if m.get('alpha') else '')
                          + bag_text(m, rw - 3)) for i, m in ((i, st['box'][i]) for i in order)]
                 sel = max(0, min(sel, len(rows) - 1))
                 top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
