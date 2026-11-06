@@ -69,7 +69,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Research** — every species has research tasks: catch 5 (legendaries 1), evolve once (if it evolves) and win 3 battles with it on the team. Finishing them stars the species in the Pokédex (★, with the count per generation in the header) and gives 2 Great Balls; the detail screen shows the progress. Pokémon caught before research existed count toward the catch task. Regional forms count toward their base species (catches, evolutions and wins alike).
 
-**Alphas** — about one explore in a hundred meets a red-eyed alpha (◆ in the bag): half the catch rate and only three throws before it flees, but its IVs start at 12.
+**Alphas** — about one explore in a hundred meets a red-eyed alpha (◆ in the bag): half the catch rate and only three throws before it flees, but its IVs start at 12, it fights with 10% higher stats, and it is never sent to the Professor (one by one or Tidy).
 
 **Raids** — each week (from Monday) one legendary from an opened generation sits at the top of the gym list. Beat it (any generation may enter — the place for the teams you maxed out earlier; 48× HP, two explores per try) to get three Raid Balls — your own balls don't work — and one chance to catch it; caught or missed, the raid ends for the week. If you are mid-encounter when you win, the boss waits until that one is over — even past Monday, and letting it go then doesn't close the new week's raid. **pick** draws from the whole bag here, and a win gives the team battle XP and research credit like a gym win.
 
