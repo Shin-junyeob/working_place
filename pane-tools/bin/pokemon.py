@@ -2977,6 +2977,7 @@ def main(scr):
             rows = bag_items(st)
             if 0 <= act[1] < len(rows):
                 view, ukey, sel, top, msg, confirm, query, searching = 'use', rows[act[1]][0], 0, 0, '', None, '', False
+                focus = 'use_sel'  # 가방의 [돌아가기] 강조가 넘어와 Enter 가 나갈 것처럼 보였다(2026-11-06 사용자) — Enter 는 늘 쓰기
             act = None
         if isinstance(act, tuple) and act[0] == 'userow' and view == 'use':
             rows = item_targets(st, ukey, query)
