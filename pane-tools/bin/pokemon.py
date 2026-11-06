@@ -555,14 +555,15 @@ def explore(st, t, rng=random):
         n = rng.choices(old, weights=[OLD_LEGEND_WEIGHT if n in DEX and DEX[n][5] else 1 for n in old])[0]
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
-    if n in FORMS:  # 리전폼 — 이로치 없음, 다른 종처럼 이미 있어도 만나서 잡는다(개체값·박사)
+    shiny = rng.random() < shiny_rate(st, n)  # 리전폼도 이로치·우두머리(2026-11-06 사용자 — 전엔 따로 모으던 시절 규칙으로 없었다)
+    alpha = not DEX[sp(n)][5] and rng.random() < ALPHA_RATE
+    if n in FORMS:  # 리전폼 — 다른 종처럼 이미 있어도 만나서 잡는다(개체값·박사)
         ill = illusion(st) if FORMS[n][0] in ZORUA else None  # 히스이 조로아·조로아크도 환영으로
         if not ill:
             _mark(st, 'forms_seen', n)
-        st['wild'] = {'id': FORMS[n][0], 'form': n, 'balls': BALLS, **({'disguise': ill} if ill else {})}
+        st['wild'] = {'id': FORMS[n][0], 'form': n, 'balls': BALLS, **({'shiny': True} if shiny else {}),
+                      **({'alpha': True, 'tries': 0} if alpha else {}), **({'disguise': ill} if ill else {})}
         return ill or n, 0
-    shiny = rng.random() < shiny_rate(st, n)
-    alpha = not DEX[n][5] and rng.random() < ALPHA_RATE
     # 메타몽은 다른 포켓몬으로 변신해, 조로아·조로아크는 내 포켓몬의 환영으로 나온다 — 잡아야 정체가 드러난다
     disguise = rng.choice(disguises(st)) if n == DITTO else illusion(st) if n in ZORUA else None
     if not (n in ZORUA and disguise):  # 환영은 내 포켓몬 모습이라 새로 본 것이 없다
@@ -1280,10 +1281,10 @@ def partner_id_of(st):
 
 def art_of(m):
     """가방 항목(또는 번호) → 그림 번호: 이로치면 이로치 그림, 리전폼·합체·특수 모습이면 'form:번호'(번호가 이로치 자리와 겹쳐서) —
-    이로치 합체·특수 모습은 'form:shiny/번호'(PokeAPI 에 이로치 그림이 있다)."""
+    이로치 리전폼·합체·특수 모습은 'form:shiny/번호'(PokeAPI 에 이로치 그림이 있다)."""
     n, shiny = (m['id'], m.get('shiny')) if isinstance(m, dict) else (m, False)
     if n in FORMS or n in FUSIONS or n in SPECIALS:
-        return f'form:shiny/{n}' if shiny and n not in FORMS else f'form:{n}'
+        return f'form:shiny/{n}' if shiny else f'form:{n}'
     return n + (_pokedata.SHINY if shiny else 0)
 
 
@@ -3734,8 +3735,10 @@ def selftest():
             def choices(self, seq, weights=None): return [self.choice(seq)]
         fm = new_state(); fm['league'] = {'1': True}; fm['balls'] = 0
         assert explore(fm, ENCOUNTER_EVERY, Pick(10091)) == (10091, 0)
-        assert fm['wild'] == {'id': 19, 'form': 10091, 'balls': BALLS} and fm['forms_seen'] == [10091]
+        # (난수 0 이라 이로치·우두머리도 — 리전폼도 같은 판정, 2026-11-06)
+        assert fm['wild'] == {'id': 19, 'form': 10091, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0} and fm['forms_seen'] == [10091]
         assert throw(fm, ENCOUNTER_EVERY, Pick(10091)) == 'caught'
+        assert fm['box'][0]['shiny'] and fm['box'][0]['alpha'] and art_of(fm['box'][0]) == 'form:shiny/10091'
         assert [m['id'] for m in fm['box']] == [10091] and fm['forms'] == [10091] and fm['caught'] == [] and fm['partner'] == 0
         assert 'form1' in check_badges(fm) and 'form_all' not in fm['badges']
         assert explore(fm, 2 * ENCOUNTER_EVERY, Pick(10091)) == (10091, 0) and fm['wild']['form'] == 10091
@@ -3754,8 +3757,8 @@ def selftest():
         fm['team'] = [0]
         assert team_of(fm, 1) == [(0, 10092, box_level(fm['box'][0]))]  # 배틀엔 폼 번호 — 종족값·타입은 그 모습 것
         # 그림 번호: 리전폼은 'form:번호', Kitty 이미지 번호는 정수
-        assert art_of(fm['box'][0]) == 'form:10092' and art_of({'id': 25, 'shiny': True}) == 25 + _pokedata.SHINY
-        assert partner_id_of(fm) == 'form:10092' and _pokedata.img_id('form:10092') >= 300000 and _pokedata.img_id(25) == 25
+        assert art_of(fm['box'][0]) == 'form:shiny/10092' and art_of({'id': 25, 'shiny': True}) == 25 + _pokedata.SHINY
+        assert partner_id_of(fm) == 'form:shiny/10092' and _pokedata.img_id('form:10092') >= 300000 and _pokedata.img_id(25) == 25
         # 가방에 들어가기 전에 잡은 폼은 한 번만 가방으로(박사에게 보낸 뒤 되살아나지 않게)
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
