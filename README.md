@@ -85,7 +85,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 ### Gyms, Elite Four and Champion
 
-Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six from the main screen's team grid or let the gym screen suggest one (**pick**, then **apply**): it shortlists twelve by type matchup × actual stats (so level and IVs count), then adds one at a time whichever raises the simulated win rate most. That is near-best rather than every combination tried; when nothing wins at all, the shortlist order decides. **Only that generation's Pokémon can enter** a generation's gyms and Elite Four (others on the team sit out), so each region needs a team of its own.
+Eight gyms per opened generation, in the original type order (Alola uses its trial types). Build a team of up to six from the main screen's team grid or let the gym screen suggest one (**pick**, then **apply**): it shortlists twelve by type matchup × actual stats (so level and IVs count), then adds one at a time whichever raises the simulated win rate most. The suggestion shows its own win rate (worked out in the order **apply** will use) and holds only for the opponent it was made for — in the Battle Tower it disappears when the next opponent comes up. That is near-best rather than every combination tried; when nothing wins at all, the shortlist order decides. **Only that generation's Pokémon can enter** a generation's gyms and Elite Four (others on the team sit out), so each region needs a team of its own.
 
 ![Gym list with real gym badges](docs/images/gyms.png)
 
