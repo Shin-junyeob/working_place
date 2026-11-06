@@ -2376,6 +2376,8 @@ def main(scr):
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, (curses.A_REVERSE if top + k == sel else 0) | (0 if ok else curses.A_DIM))
             if not rows:
                 para(scr, 2, L('이 아이템을 쓸 수 있는 포켓몬이 없다.', 'No Pokémon can use this item.'), w, curses.A_DIM)
+            else:
+                put(scr, h - 2, 1, fit(iv_text(st['box'][rows[sel][0]]), w - 2), curses.A_DIM)
             x = button(h - 1, 1, L('쓰기', 'use'), 'use_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'slotpick':  # 팀 칸 Enter — 이 자리에 넣을 포켓몬 고르기(이름 찾기 · Tab 정렬)
@@ -2400,6 +2402,8 @@ def main(scr):
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, attr | (curses.A_REVERSE if top + k == sel else 0))
             if not rows:
                 put(scr, 2, 1, L('찾는 이름이 없다.', 'No match.'), curses.A_DIM)
+            elif rows[sel] is not None:  # 고른 줄의 개체값 여섯 — 목록은 %만(2026-11-06 사용자)
+                put(scr, h - 2, 1, fit(iv_text(st['box'][rows[sel]]), w - 2), curses.A_DIM)
             x = button(h - 1, 1, L('넣기', 'put'), 'pick_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'badges':  # 2026-11-05 사용자: 체육관처럼 두 열 — 왼쪽 장식 중·분류, 오른쪽 그 분류의 훈장
@@ -2647,6 +2651,8 @@ def main(scr):
                     btns.append((2 + k, rx, w - 1, ('trrow', top + k)))
                 if not rows:
                     put(scr, 2, rx, L('아직 잡은 포켓몬이 없다.', 'No Pokémon caught yet.'), curses.A_DIM)
+                elif tcol:
+                    put(scr, h - 2, rx, fit(iv_text(st['box'][rows[sel][0]]), rw), curses.A_DIM)
             elif tm == 1:  # 보낼 것 미리보기 — 같은 종이 둘 이상이면 개체값·배틀 경험치·진화 경험치가 가장 좋은 것만 남긴다
                 y = para(scr, 2, L(f'같은 종 중 가장 좋은 것만 남기고 {len(tidy)}마리를 보낸다 — Enter 두 번',
                                    f'Keeps the best of each species and sends {len(tidy)} — Enter twice') if tidy else
