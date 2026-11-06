@@ -123,8 +123,8 @@ def matchup(d, me, foe):
 
 
 class Mon:
-    def __init__(self, d, n, lv, iv=(0, 0, 0), hp_x=1):
-        self.n, self.lv, self.st = n, lv, calc(d['stats'][n], lv, iv)
+    def __init__(self, d, n, lv, iv=(0, 0, 0), hp_x=1, boost=1):
+        self.n, self.lv, self.st = n, lv, [int(s * boost) for s in calc(d['stats'][n], lv, iv)]  # boost: 우두머리 능력치 배수
         self.st[0] *= hp_x  # 레이드 보스는 HP 가 몇 배
         self.hp = self.st[0]
 
@@ -271,6 +271,8 @@ def selftest():
     d = json.loads(json.dumps(d))  # 파일로 쓰고 읽은 것과 같게(키가 글자)
     d = {'stats': {int(k): v for k, v in d['stats'].items()}, 'types': {int(k): v for k, v in d['types'].items()},
          'eff': d['eff'], 'tnames': {int(k): v for k, v in d['tnames'].items()}}
+    # 우두머리 배수(boost)는 모든 능력치에, HP 배수(hp_x)는 그 위에
+    assert Mon(d, 1, 50, (0, 0, 0), 1, 1.1).st == [int(x * 1.1) for x in Mon(d, 1, 50).st]
     assert d['types'][1] == [11] and d['stats'][2] == [50] * 6 and d['tnames'][11] == ['물', 'Water']
     f = build([{'pokemon_id': '10091', 'stat_id': '1', 'base_stat': '40'}], [{'id': '10091', 'species_id': '19', 'is_default': '0'}],
               [{'pokemon_id': '10091', 'type_id': '17', 'slot': '1'}], [], [])

@@ -8,7 +8,7 @@
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
 - 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나온다(BOXED_WEIGHT). 나오면 똑같이 잡을 수 있다 — 같은 종이라도 개체값(공·방·체
   0~15, roll_iv)이 달라 골라 키운다. 남는 것은 [박사에게] 보내면 급에 따라 몬스터볼 1~5개(dupe_balls) — [정리]는 같은 종 중
-  개체값·경험치가 가장 좋은 것만 남기고 한꺼번에. 동료·팀·이로치와 재료로 만든 모습(made — 합체·메가 등)은 보내지 않는다(send_away).
+  개체값·경험치가 가장 좋은 것만 남기고 한꺼번에. 동료·팀·이로치·우두머리와 재료로 만든 모습(made — 합체·메가 등)은 보내지 않는다(send_away).
 - 동료는 한 마리. 데리고 있는 동안 쌓인 토큰이 경험치 — STAGE_XP 를 넘으면 진화. 아직 안 열린 세대로의 진화는 그 세대가 열린 뒤.
   갈래가 여럿이면 아직 가방에 없는 모습을 먼저 고른다.
 - 체육관·사천왕은 그 세대 포켓몬만 나간다(팀의 다른 세대는 빠진다) — 세대마다 팀을 새로 키운다. 상대는 레벨
@@ -32,7 +32,7 @@
   연구는 그 모습 도감에 따로(만들기 1 · 배틀 승리). 메가 지가르데는 도트 그림이 없어 HOME 그림(_pokedata._fetch).
 - 연구 레벨: 종마다 잡기 RESEARCH_CATCH(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 RESEARCH_WIN 을 채우면 도감 ★ 와
   RESEARCH_PRIZE(research_bump). 우두머리: 탐색의 ALPHA_RATE 로 붉은 눈의 큰 개체 — 포획률 절반, 볼 ALPHA_TRIES 번 안에 못 잡으면
-  도망, 잡으면 개체값 최소 ALPHA_IV. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 모든 세대 팀으로 HP
+  도망, 잡으면 개체값 최소 ALPHA_IV · 배틀 능력치 ×ALPHA_BOOST(alpha_x) · 박사에게·정리로 안 보낸다. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 모든 세대 팀으로 HP
   ×RAID_HP 보스를 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다), 잡든 놓치든 그 주는 끝.
   이기고 못 만난 보스는 월요일이 지나도 한 번 나온다(raid_state 의 late) — 레이드 야생은 자기 주(week)를 들고 다닌다(raid_done).
 - 배틀 타워(챔피언 뒤, 체육관 목록의 'T' 줄): 팀 앞 TOWER_SIZE 마리, 시작할 때만 탐색 TOWER_COST 번, 지기 전까지 연승
@@ -94,6 +94,7 @@ SHIP = re.compile(r'(?<![a-z])PRs?(?![a-z])|병합|배포|(?<![a-z])(merge|deplo
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
 STREAK_DAYS = 3  # 보상받은 날이 며칠 연속이면 하이퍼볼(3·6·9일째) — 2026-10-23 알에서 바꿈(알은 포획 때 EGG_CATCH)
 ALPHA_RATE, ALPHA_IV, ALPHA_TRIES = 0.01, 12, 3  # 우두머리: 탐색 100번에 1번 · 개체값 최소 12 · 볼 3번 안에 못 잡으면 도망
+ALPHA_BOOST = 1.1  # 우두머리 배틀 능력치 배수(2026-11-06 사용자)
 # 레이드 보스 HP 배수 · 레이드볼 · 도전 1번에 쓰는 탐색. 레이드는 모든 세대가 나간다 — 모든 세대 최종 진화형 중 고른 팀을 보스 레벨에 맞춰
 # 1~3세대 전설 17마리로 잰 승률(2026-10-30): ×40 개체값 7 49%·15 57%, ×48 40%·49%, ×56 28%·28%
 RAID_HP, RAID_BALLS, RAID_COST = 48, 3, 2
@@ -1751,8 +1752,13 @@ def bag_order(st, g=None, sort=0):
 
 
 def fighters(st, team):
-    """team_of 결과 → 배틀에 넣을 [(종, 레벨, 개체값)]."""
-    return [(n, lv, iv_of(st['box'][k])) for k, n, lv in team]
+    """team_of 결과 → 배틀에 넣을 [(종, 레벨, 개체값[, HP 배수, 능력치 배수])] — 우두머리는 ALPHA_BOOST."""
+    return [(n, lv, iv_of(st['box'][k])) + alpha_x(st['box'][k]) for k, n, lv in team]
+
+
+def alpha_x(m):
+    """배틀 튜플 꼬리 — 우두머리면 (HP 배수 1, ALPHA_BOOST), 아니면 ()."""
+    return (1, ALPHA_BOOST) if m.get('alpha') else ()
 
 
 def _drop(st, gone):
@@ -1842,11 +1848,11 @@ def made(m):
 
 
 def send_away(st, idxs):
-    """가방의 idxs 번째들을 박사에게 — 동료·팀·이로치는 빼고. 하나마다 dupe_balls 만큼 몬스터볼.
+    """가방의 idxs 번째들을 박사에게 — 동료·팀·이로치·우두머리는 빼고. 하나마다 dupe_balls 만큼 몬스터볼.
     가방 번호가 당겨지니 동료·팀 번호도 맞춰 옮긴다. (보낸 마릿수, 받은 볼)."""
     keep = {st['partner']} | set(st.get('team', []))
     gone = {i for i in idxs if 0 <= i < len(st['box']) and i not in keep and not st['box'][i].get('shiny')
-            and not made(st['box'][i])}
+            and not st['box'][i].get('alpha') and not made(st['box'][i])}
     if not gone:
         return 0, 0
     k = sum(dupe_balls(st['box'][i]['id']) for i in gone)
@@ -1861,7 +1867,7 @@ def tidy_targets(st):
     진화 경험치가 가장 많은 것만 남긴다(동료·팀은 send_away 가 지킨다)."""
     groups = {}
     for i, m in enumerate(st['box']):
-        if not m.get('shiny') and not made(m):
+        if not m.get('shiny') and not m.get('alpha') and not made(m):
             groups.setdefault(m['id'], []).append(i)
     out = []
     for ids in groups.values():
@@ -2618,7 +2624,7 @@ def main(scr):
                 text = ('▶ ' if cur else '  ') + fit(label, lw - 3)
                 put(scr, 2 + k, 1, text.ljust(lw) if cur and not tcol else text, (curses.A_REVERSE if not tcol else curses.A_BOLD) if cur else 0)
                 btns.append((2 + k, 1, lw, ('tradeleft', k)))
-            if tm == 0:  # 가방 전체 — 한 마리씩 박사에게(동료·팀·이로치·만든 모습은 못 보낸다)
+            if tm == 0:  # 가방 전체 — 한 마리씩 박사에게(동료·팀·이로치·우두머리·만든 모습은 못 보낸다)
                 rows = [(i, ('♥' if i == st['partner'] else '⚔' if i in st.get('team', []) else ' ') + ('✨' if m.get('shiny') else '') + ('◆' if m.get('alpha') else '')
                          + bag_text(m, rw - 3)) for i, m in ((i, st['box'][i]) for i in order)]
                 sel = max(0, min(sel, len(rows) - 1))
@@ -2905,9 +2911,9 @@ def main(scr):
             idxs = [i] if act == 'send' else tidy_targets(st)
             what = (act, tuple(idxs))
             m = st['box'][i]
-            if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny') or made(m)):
-                msg, confirm = L('동료·팀·이로치와 재료로 만든 모습(합체·메가 등)은 박사에게 보내지 않는다.',
-                                 "Partner, team, shiny and changed (fused, Mega …) Pokémon can't be sent."), None
+            if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny') or m.get('alpha') or made(m)):
+                msg, confirm = L('동료·팀·이로치·우두머리와 재료로 만든 모습(합체·메가 등)은 박사에게 보내지 않는다.',
+                                 "Partner, team, shiny, alpha and changed (fused, Mega …) Pokémon can't be sent."), None
             elif not idxs:
                 msg, confirm = L('정리할 것이 없다 — 같은 종이 둘 이상일 때 가장 좋은 것만 남긴다.', 'Nothing to tidy — only duplicates are sent.'), None
             elif confirm != what:  # 되돌릴 수 없으니 한 번 더 눌러야 보낸다
@@ -3013,7 +3019,7 @@ def main(scr):
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
-            cands = [(k, m['id'], box_level(m), iv_of(m)) for k, m in enumerate(st['box']) if gsel[1] in ('R', 'T') or gen(m['id']) == gsel[0]]
+            cands = [(k, m['id'], box_level(m), iv_of(m)) + alpha_x(m) for k, m in enumerate(st['box']) if gsel[1] in ('R', 'T') or gen(m['id']) == gsel[0]]
             opp = gym_opp(BATTLE, *gsel, st)
             if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률로(가볍게 40번씩)
                 pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
@@ -3818,6 +3824,11 @@ def selftest():
     al['wild'], al['balls'] = {'id': 19, 'balls': BALLS, 'alpha': True, 'tries': 0}, 10
     never2 = type('R', (), {'random': lambda s: 0.99})()
     assert [throw(al, 0, never2) for _ in range(3)] == ['missed', 'missed', 'fled'] and al['wild'] is None
+    # 잡은 우두머리는 박사에게·정리로 안 보내고, 배틀에는 능력치 ×ALPHA_BOOST 로
+    al['box'] = [{'id': 1, 'xp': 0, 'iv': [15] * 3}, {'id': 19, 'xp': 0, 'iv': [12] * 3, 'alpha': True},
+                 {'id': 19, 'xp': 0, 'iv': [15] * 3, 'bxp': 9999}]
+    assert tidy_targets(al) == [] and send_away(al, [1]) == (0, 0) and len(al['box']) == 3
+    assert alpha_x(al['box'][1]) == (1, ALPHA_BOOST) and alpha_x(al['box'][2]) == ()
     # 레이드: 이번 주 보스(열린 세대의 전설) · 목록 맨 위 · 이기면 레이드볼 3개로만 · 놓치면 이번 주 끝
     rd = new_state()
     g_r, boss = raid_boss(rd)
