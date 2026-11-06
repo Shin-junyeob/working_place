@@ -37,7 +37,7 @@
   이기고 못 만난 보스는 월요일이 지나도 한 번 나온다(raid_state 의 late) — 레이드 야생은 자기 주(week)를 들고 다닌다(raid_done).
 - 배틀 타워(챔피언 뒤, 체육관 목록의 'T' 줄): 팀 앞 TOWER_SIZE 마리, 시작할 때만 탐색 TOWER_COST 번, 지기 전까지 연승
   (tower_state · tower_opp — 상대는 7연승마다 레벨 +TOWER_LV_STEP·개체값 +1, 상한 없음). TOWER_PRIZES 마다 볼과 병뚜껑.
-  병뚜껑(cap 은색 · gcap 금색)은 가방에서 쓰는 특훈 — 고른 개체값 하나 +1 / 15로(change_options 의 ('iv', k) · ('ivmax', k)).
+  병뚜껑(cap 은색 · gcap 금색)은 가방에서 쓰는 특훈 — 고른 개체값(여섯 중) 하나 +1 / 15로(change_options 의 ('iv', k) · ('ivmax', k)).
 - 메타몽(DITTO): 야생에선 다른 일반 포켓몬으로 변신해 나오고(disguises · wild['disguise'] · shown), 잡아야 정체가 드러난다.
   이로치 메타몽도 변신한 모습은 보통 색 — 이로치인 것은 정체와 함께 드러난다.
   조로아·조로아크(히스이 포함, ZORUA)는 팀 마지막 포켓몬(없으면 동료)의 환영으로 나온다(illusion) — 같은 disguise 구조.
@@ -101,7 +101,7 @@ RAID_HP, RAID_BALLS, RAID_COST = 48, 3, 2
 # 배틀 타워(챔피언 뒤): 팀 앞 TOWER_SIZE 마리로 지기 전까지 연승. 시작할 때만 탐색 TOWER_COST 번. 상대는 7연승마다 한 단계 —
 # 레벨 TOWER_LV0 + 단계 × TOWER_LV_STEP(상한 없이 — 다 키운 팀도 언젠가 진다), 개체값 6 + 단계(15까지). 7번째·49번째는 강한 상대.
 TOWER_SIZE, TOWER_COST, TOWER_LV0, TOWER_LV_STEP = 3, 2, 45, 6  # 2026-11-04 측정: 기대 연승 다 키운 팀 58 · Lv79 사용자 팀 44 · Lv60 팀 27
-TOWER_PRIZES = [(7, [('super', 3), ('cap', 1)]), (21, [('hyper', 2)]), (49, [('master', 1), ('gcap', 1)])]  # n 연승마다 — 은색 7개 ≈ 금색 1개
+TOWER_PRIZES = [(7, [('super', 3), ('cap', 2)]), (21, [('hyper', 2)]), (49, [('master', 1), ('gcap', 2)])]  # n 연승마다 — 은색 7개 ≈ 금색 1개, 개체값 6칸이라 둘씩
 RESEARCH_CATCH, RESEARCH_WIN, RESEARCH_PRIZE = 5, 3, ('super', 2)  # 연구: 잡기 5(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 3
 IV_FLOOR = 10  # 알·전설·환상은 개체값이 최소 이만큼(포켓몬고처럼)
 OLD_LEGEND_WEIGHT = 0.1  # 이전 세대 탐색에서 전설·환상은 다른 종의 1/10 — 빼지는 않되 꼬렛만큼 흔하지 않게(2026-10-30)
@@ -383,20 +383,28 @@ def evo_wild(n):
     return bool(pre) and gen(pre) < gen(n)
 
 
-def roll_iv(rng=random, floor=0):
-    """개체값 [공, 방, 체] 0~15 — 배틀 능력치에 더해진다(_battle.calc)."""
-    return [floor + int(rng.random() * (16 - floor)) for _ in range(3)]
+STAT_KO, STAT_EN = ('체', '공', '방', '특공', '특방', '스'), ('HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe')  # 개체값 순서 = _battle.calc 능력치 순서
+
+
+def roll_iv(rng=random, floor=0, n=6):
+    """개체값 [HP, 공, 방, 특공, 특방, 스피드] 0~15 — 배틀 능력치에 더해진다(_battle.calc). 2026-11-06 공·방·체 셋에서 여섯으로."""
+    return [floor + int(rng.random() * (16 - floor)) for _ in range(n)]
 
 
 def iv_of(m):
-    return tuple(m.get('iv', (0, 0, 0)))
+    return tuple(m.get('iv', (0,) * 6))
 
 
-def iv_text(m):
-    """'공13 방15 체14 (93%)' — 15/15/15 는 ★."""
-    a, d, h = iv_of(m)
-    pct = round((a + d + h) / 45 * 100)
-    return L(f'공{a} 방{d} 체{h}', f'A{a} D{d} H{h}') + f' ({pct}%)' + (' ★' if pct == 100 else '')
+def iv_pct(m):
+    return round(sum(iv_of(m)) / 90 * 100)
+
+
+def iv_text(m, full=True):
+    """full: '체13 공15 방14 특공8 특방3 스10 (70%)', 아니면 '개체값 70%'(목록 — 2026-11-06 사용자). 모두 15 면 ★."""
+    pct = iv_pct(m)
+    head = ' '.join(L(f'{k}{v}', f'{e}{v}') for k, e, v in zip(STAT_KO, STAT_EN, iv_of(m))) + f' ({pct}%)' if full else \
+        L(f'개체값 {pct}%', f'IV {pct}%')
+    return head + (' ★' if pct == 100 else '')
 
 
 def name(n):
@@ -467,8 +475,12 @@ def load(root=ROOT):
                 r = st['research'].setdefault(str(m['id']), {})
                 r['c'] = r.get('c', 0) + 1
     for i, m in enumerate(st['box']):  # 개체값을 넣기 전(2026-10-28)에 잡은 것 — 저장될 때까지 같은 값이 나오게 자리·종으로 고정
+        floor = max(IV_FLOOR if DEX[sp(m['id'])][5] else 0, ALPHA_IV if m.get('alpha') else 0)
         if 'iv' not in m:
-            m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'), IV_FLOOR if DEX[sp(m['id'])][5] else 0)
+            m['iv'] = roll_iv(random.Random(f'{i}:{m["id"]}'), floor)
+        elif len(m['iv']) == 3:  # 2026-11-06 [공, 방, 체] → [HP, 공, 방] + 새로 뽑은 특공·특방·스피드
+            a, d, h = m['iv']
+            m['iv'] = [h, a, d] + roll_iv(random.Random(f'iv6:{i}:{m["id"]}'), floor, 3)
     return st
 
 
@@ -1433,7 +1445,7 @@ def bag_text(m, room):
     room 칸보다 길면 이름 끝을 '…'로 줄여 개체값이 늘 보이게 — 팔데아 켄타로스(블레이즈종)에서 잘렸다."""
     cw = lambda t: sum(map(memo.cw, t))  # noqa: E731
     nm = name(m['id'])
-    tail = f' Lv{box_level(m)} · {iv_text(m)}'
+    tail = f' Lv{box_level(m)} · {iv_text(m, False)}'
     if cw(nm + tail) <= room:
         return nm + tail
     while nm and cw(nm + '…' + tail) > room:
@@ -1792,14 +1804,14 @@ def change_options(st, i):
         out.append((p, ('item', key), not why, why))
     iv, items = iv_of(m), st.get('items', {})  # 병뚜껑(배틀 타워 상) — 특훈: 은색은 고른 하나 +1, 금색은 고른 하나를 15로(2026-11-06 사용자)
     for kind, key in (('iv', 'cap'), ('ivmax', 'gcap')):
-        out += [((kind, k), ('item', key), True, '') for k in range(3) if iv[k] < 15 and items.get(key, 0) > 0]
+        out += [((kind, k), ('item', key), True, '') for k in range(6) if iv[k] < 15 and items.get(key, 0) > 0]
     return out
 
 
 def opt_name(f):
     """바꾸기 화면 한 칸의 이름 — 모습 번호면 그 이름, ('iv', k) 면 은색 특훈('공 +1'), ('ivmax', k) 면 금색('공 15로')."""
     if isinstance(f, tuple):
-        ko, en = ['공', '방', '체'][f[1]], ['Attack', 'Defense', 'HP'][f[1]]
+        ko, en = ('HP', '공격', '방어', '특공', '특방', '스피드')[f[1]], ('HP', 'Attack', 'Defense', 'Sp. Atk', 'Sp. Def', 'Speed')[f[1]]
         return L(f'{ko} +1', f'{en} +1') if f[0] == 'iv' else L(f'{ko} 15로', f'{en} to 15')
     return name(f)
 
@@ -1912,7 +1924,7 @@ def tower_opp(st, s=None):
     if s % 49 == 48:
         team[-1] = rng.choice(sorted(n for n in DEX if DEX[n][5] == 1 and gen(n) <= g) or pool)
     lv = TOWER_LV0 + tier * TOWER_LV_STEP + (3 if s % 7 == 6 else 0)
-    return [(n, lv, (min(15, 6 + tier),) * 3) for n in team]
+    return [(n, lv, (min(15, 6 + tier),) * 6) for n in team]
 
 
 def gym_opp(d, g, i, st=None):
@@ -1921,7 +1933,7 @@ def gym_opp(d, g, i, st=None):
     if i == 'T':
         return tower_opp(st)
     if i == 'R':
-        return [(raid_boss(st)[1], 12 + 7 * 7 + (g - 1) * 5 + _battle.OPP_LV_BONUS + 2, (15,) * 3, RAID_HP)]
+        return [(raid_boss(st)[1], 12 + 7 * 7 + (g - 1) * 5 + _battle.OPP_LV_BONUS + 2, (15,) * 6, RAID_HP)]
     gen_of, final = {n: gen(n) for n in DEX if not DEX[n][5]}, {n for n in DEX if n not in CHILDREN}
     return _battle.league_teams(d, g, gen_of, final) if i == 'L' else _battle.gym_team(d, g, i, gen_of, final)
 
@@ -2278,8 +2290,7 @@ def main(scr):
                     pic = mon_art(art_of(mm), cy, w, cx, art_rows, cw3 - 1)
                     art = join_art(art, pic)
                     label = fit(('◆' if mm.get('alpha') else '') + name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
-                    pct = round(sum(iv_of(mm)) / 45 * 100)
-                    put(scr, ly + 1, cx, L(f'개체값 {pct}%', f'IV {pct}%') + (' ★' if pct == 100 else ''), curses.A_DIM)
+                    put(scr, ly + 1, cx, iv_text(mm, False), curses.A_DIM)
                 else:
                     label = L('(빈칸)', '(empty)')
                 btns.extend((cy + r, cx, cx + cw3 - 1, ('slot', k)) for r in range(art_rows + 2))
@@ -2522,8 +2533,8 @@ def main(scr):
                          L(f'  (승률\xa0{rec[2]:.0%})\xa0—\xa0[적용]', f'  ({rec[2]:.0%})\xa0—\xa0[apply]'), w)
             cost = LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
             if i == 'T':
-                y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3·은색 병뚜껑 · 21연승마다 하이퍼볼 2 · 49연승마다 마스터볼·금색 병뚜껑. 시작할 때만 탐색 {TOWER_COST}회',
-                                   f'Keep going until you lose — every 7: 3 Great · every 21: 2 Ultra + Bottle Cap · every 49: Master + Gold Bottle Cap. {TOWER_COST} explores to start'), w, curses.A_DIM)
+                y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3·은색 병뚜껑 2 · 21연승마다 하이퍼볼 2 · 49연승마다 마스터볼·금색 병뚜껑 2. 시작할 때만 탐색 {TOWER_COST}회',
+                                   f'Keep going until you lose — every 7: 3 Great + 2 Bottle Caps · every 21: 2 Ultra · every 49: Master + 2 Gold Bottle Caps. {TOWER_COST} explores to start'), w, curses.A_DIM)
             if i == 'R':
                 y = para(scr, y, L(f'이기면 레이드볼 {RAID_BALLS}개로 잡을 기회 — 가진 볼은 못 쓴다', f'Win for {RAID_BALLS} Raid Balls to catch it — your own balls don\'t work'), w, curses.A_DIM)
             y = para(scr, y + 1, msg, w)
@@ -2591,7 +2602,7 @@ def main(scr):
         elif view == 'change':  # 가방 F — 바꿀 모습 고르기(합체·메가진화·거다이맥스·원시회귀·울트라버스트)
             opts = change_options(st, chg) if chg is not None and chg < len(st['box']) else []
             base_m = st['box'][chg]
-            y = para(scr, 1, msg or L(f'{name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — 15로 만들 능력치를 고른다', f'{name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — pick the stat to raise to 15')
+            y = para(scr, 1, msg or L(f'{name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — 특훈할 능력치를 고른다', f'{name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — pick the stat to train')
                      if chg_from == 'use' and ukey in ('cap', 'gcap') else
                      msg or L(f'기본 {name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — 레벨·개체값은 기본을 따르고 재료는 사라진다(되돌릴 수 없다)',
                                       f'Base {name(base_m["id"])} Lv{box_level(base_m)} · {iv_text(base_m)} — keeps the base\'s level and IVs, uses up the material (can\'t be undone)'), w, curses.A_DIM)
@@ -3183,16 +3194,19 @@ def selftest():
     pick = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.5})()
     assert explore(dup, ENCOUNTER_EVERY, pick) == (25, 0) and dup['wild']['id'] == 25  # 같은 종도 만나서 잡는다
     assert throw(dup, ENCOUNTER_EVERY, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and [m['id'] for m in dup['box']] == [25, 25]
-    assert dup['box'][1]['iv'] == [0, 0, 0] and len(dup['box'][0].get('iv', [])) == 0  # 개체값은 잡을 때(가짜 난수 0 → 0)
+    assert dup['box'][1]['iv'] == [0] * 6 and len(dup['box'][0].get('iv', [])) == 0  # 개체값은 잡을 때(가짜 난수 0 → 0)
     # 개체값: 0~15, 바닥값, 불러올 때 옛 포켓몬에 고정된 값
     assert all(0 <= v <= 15 for _ in range(200) for v in roll_iv()) and min(min(roll_iv(floor=IV_FLOOR)) for _ in range(200)) >= IV_FLOOR
     lr = tempfile.mkdtemp()
-    save({**new_state(), 'box': [{'id': 25, 'xp': 0}, {'id': 150, 'xp': 0}]}, lr)
-    assert load(lr)['box'][0]['iv'] == load(lr)['box'][0]['iv'] and len(load(lr)['box'][0]['iv']) == 3
+    save({**new_state(), 'box': [{'id': 25, 'xp': 0}, {'id': 150, 'xp': 0}, {'id': 19, 'xp': 0, 'iv': [15, 3, 7], 'alpha': True}]}, lr)
+    assert load(lr)['box'][0]['iv'] == load(lr)['box'][0]['iv'] and len(load(lr)['box'][0]['iv']) == 6
+    # 2026-11-06 옛 [공, 방, 체] → [HP, 공, 방] + 새 특공·특방·스피드(우두머리 바닥값, 불러올 때마다 같은 값)
+    m6 = load(lr)['box'][2]['iv']
+    assert m6[:3] == [7, 15, 3] and min(m6[3:]) >= ALPHA_IV and m6 == load(lr)['box'][2]['iv']
     assert min(load(lr)['box'][1]['iv']) >= IV_FLOOR  # 옛 전설도 바닥값부터
     if FORMS:  # 긴 이름도 개체값(%)은 늘 보인다 — 이름 끝을 줄인다
-        bt = bag_text({'id': 10251, 'xp': 0, 'iv': [14, 15, 13]}, 40)
-        assert bt.endswith('(93%)') and '…' in bt and sum(map(memo.cw, bt)) <= 40
+        bt = bag_text({'id': 10251, 'xp': 0, 'iv': [14, 15, 13, 14, 14, 14]}, 40)
+        assert bt.endswith('93%') and '…' in bt and sum(map(memo.cw, bt)) <= 40
     class DittoRng:  # 메타몽을 뽑고, 피카츄로 변신, 이로치·우두머리는 아님
         def random(self): return 0.5
         def choices(self, seq, weights=None): return [DITTO]
@@ -3211,7 +3225,7 @@ def selftest():
         def random(self): return 0.5
         def choices(self, seq, weights=None): return [571]
         def choice(self, seq): return seq[0]
-    zr = {**new_state(), 'box': [{'id': 1, 'xp': 0, 'iv': [1] * 3}, {'id': 25, 'xp': 0, 'iv': [1] * 3}], 'partner': 0, 'team': [0, 1]}
+    zr = {**new_state(), 'box': [{'id': 1, 'xp': 0, 'iv': [1] * 6}, {'id': 25, 'xp': 0, 'iv': [1] * 6}], 'partner': 0, 'team': [0, 1]}
     zr['league'] = {str(g): True for g in range(1, 5)}  # 5세대 열림
     assert explore(zr, ENCOUNTER_EVERY, ZoroRng()) == (25, 0) and zr['wild']['id'] == 571 and 571 not in zr['seen']  # 팀 마지막(피카츄)의 환영
     assert throw(zr, ENCOUNTER_EVERY, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and zr['box'][-1]['id'] == 571 and 571 in zr['seen']
@@ -3221,13 +3235,13 @@ def selftest():
     tw_ = {**new_state(), 'league': {'1': True}}
     assert (0, 'T') in gym_rows(tw_)[:2] and not any(r[1] == 'T' for r in gym_rows(new_state()))
     o0, o6, o48 = tower_opp(tw_, 0), tower_opp(tw_, 6), tower_opp(tw_, 48)
-    assert len(o0) == TOWER_SIZE and o0 == tower_opp(tw_, 0) and o0[0][1] == TOWER_LV0 and o0[0][2] == (6,) * 3
-    assert o6[0][1] == TOWER_LV0 + 3 and o48[0][1] == TOWER_LV0 + 6 * TOWER_LV_STEP + 3 and o48[0][2] == (12,) * 3 and DEX[o48[-1][0]][5] == 1
+    assert len(o0) == TOWER_SIZE and o0 == tower_opp(tw_, 0) and o0[0][1] == TOWER_LV0 and o0[0][2] == (6,) * 6
+    assert o6[0][1] == TOWER_LV0 + 3 and o48[0][1] == TOWER_LV0 + 6 * TOWER_LV_STEP + 3 and o48[0][2] == (12,) * 6 and DEX[o48[-1][0]][5] == 1
     assert all(n not in CHILDREN and gen(n) <= opened_gen(tw_) for n, *_ in o0)
     class Stats(dict):  # 타워 상대는 아무 종이나 — 없는 종은 약하게
         def __init__(self, base, weak): super().__init__(base); self.weak = weak
         def __missing__(self, k): return self.weak
-    tw_['box'] = [{'id': 6, 'xp': 0, 'bxp': 2000, 'iv': [15] * 3} for _ in range(4)]
+    tw_['box'] = [{'id': 6, 'xp': 0, 'bxp': 2000, 'iv': [15] * 6} for _ in range(4)]
     tw_['team'] = [0, 1, 2, 3]
     gdt = {'stats': Stats({6: [250] * 6}, [5] * 6), 'types': Stats({6: [10]}, [1]), 'eff': {}, 'tnames': {}}
     used0 = tw_['used']
@@ -3242,13 +3256,13 @@ def selftest():
     used1 = tw_['used']
     fight(tw_, 40 * ENCOUNTER_EVERY, gdt, 0, 'T', random.Random(10))
     assert tw_['used'] == used1 + TOWER_COST  # 다시 시작하면 또 탐색 2번
-    # 병뚜껑 특훈: 은색은 고른 하나 +1, 금색은 고른 하나를 15로 — 이미 15인 칸은 안 나온다
-    cp = {**new_state(), 'box': [{'id': 19, 'xp': 0, 'iv': [15, 3, 14]}], 'items': {'cap': 2, 'gcap': 1}}
+    # 병뚜껑 특훈(여섯 칸): 은색은 고른 하나 +1, 금색은 고른 하나를 15로 — 이미 15인 칸은 안 나온다
+    cp = {**new_state(), 'box': [{'id': 19, 'xp': 0, 'iv': [15, 3, 14, 15, 15, 15]}], 'items': {'cap': 2, 'gcap': 1}}
     assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('iv', 2), ('ivmax', 1), ('ivmax', 2)]
-    assert change(cp, 0, 1) == ('iv', 2) and cp['box'][0]['iv'] == [15, 3, 15] and cp['items']['cap'] == 1
-    assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('ivmax', 1)] and opt_name(('iv', 1)) == L('방 +1', 'Defense +1')
-    assert change(cp, 0, 0) == ('iv', 1) and cp['box'][0]['iv'] == [15, 4, 15]
-    assert change(cp, 0, 0) == ('ivmax', 1) and cp['box'][0]['iv'] == [15] * 3 and change_options(cp, 0) == []
+    assert change(cp, 0, 1) == ('iv', 2) and cp['box'][0]['iv'] == [15, 3, 15, 15, 15, 15] and cp['items']['cap'] == 1
+    assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('ivmax', 1)] and opt_name(('iv', 1)) == L('공격 +1', 'Attack +1')
+    assert change(cp, 0, 0) == ('iv', 1) and cp['box'][0]['iv'] == [15, 4, 15, 15, 15, 15]
+    assert change(cp, 0, 0) == ('ivmax', 1) and cp['box'][0]['iv'] == [15] * 6 and change_options(cp, 0) == []
     eg2 = {**new_state(), 'eggs': [{'id': 1, 'base': 0, 'need': 125_000}, {'id': 4, 'base': 50_000, 'need': 75_000}]}
     assert [(round(f, 2), km) for _, f, km in egg_lines(eg2, 100_000)] == [(0.8, 7), (0.67, 5)] and len(egg_lines(eg2, 0)) == 2  # 알마다 따로, 빠른 순
     assert [egg_km({'need': k * EGG_STEP}) for k in (10, 15, 20, 25, 40, 120)] == [2, 5, 5, 7, 10, 12]
@@ -3260,7 +3274,7 @@ def selftest():
     assert ek['news'][-1]['arg'] == '123|balls:1,super:1' and L('몬스터볼 1개 + 슈퍼볼 1개', '1 Poké Ball + 1 Great Ball') in said[0]
     assert all(len(_pokedata.egg_px(km)) == 16 for km in _pokedata.EGG_KM) and set(_pokedata.EGG_KM) == {2, 5, 7, 10, 12}
     # 팀 칸: 빈칸이면 채우고, 이미 팀이면 자리 맞바꾸기, None 이면 비우기 · 후보는 이름으로 찾는다
-    ts = {**new_state(), 'box': [{'id': n, 'xp': 0, 'iv': [5] * 3} for n in (1, 4, 7, 25)], 'team': [0, 1]}
+    ts = {**new_state(), 'box': [{'id': n, 'xp': 0, 'iv': [5] * 6} for n in (1, 4, 7, 25)], 'team': [0, 1]}
     set_slot(ts, 2, 3)
     assert ts['team'] == [0, 1, 3]
     set_slot(ts, 0, 3)
@@ -3295,29 +3309,29 @@ def selftest():
     cc['wild'] = {'id': 19, 'balls': 3, 'alpha': True}
     assert catch_chance(cc, 'ball') == catch_rate(19) * 0.5
     # 가방 = 아이템: 가진 것만 한 줄씩 · 아이템마다 쓸 수 있는 포켓몬 · 사탕은 아무 포켓몬에게(동료 경험치는 그대로)
-    bg = {**new_state(), 'box': [{'id': 25, 'xp': 0, 'iv': [1] * 3}, {'id': 10, 'xp': 0, 'iv': [15, 2, 3]}, {'id': 646, 'xp': 0, 'iv': [5] * 3},
-                                 {'id': 644, 'xp': 0, 'iv': [1] * 3}], 'partner': 0, 'candy': 1, 'items': {'cap': 1, 'soup': 0, 'fuse:646': 1}, 'base': 77}
+    bg = {**new_state(), 'box': [{'id': 25, 'xp': 0, 'iv': [1] * 6}, {'id': 10, 'xp': 0, 'iv': [15, 2, 3, 15, 15, 15]}, {'id': 646, 'xp': 0, 'iv': [5] * 6},
+                                 {'id': 644, 'xp': 0, 'iv': [1] * 6}], 'partner': 0, 'candy': 1, 'items': {'cap': 1, 'soup': 0, 'fuse:646': 1}, 'base': 77}
     assert [k for k, _ in bag_items(bg)] == ['candy', 'cap', 'fuse:646'] and bag_items(bg)[-1][1] is None
     assert {i for i, *_ in item_targets(bg, 'candy')} == {0, 1}  # 진화할 수 있는 피카츄·캐터피 — 큐레무·제크로무는 아니다
     assert [(i, len(ks)) for i, ks, ok, _ in item_targets(bg, 'cap') if i == 1] == [(1, 2)]  # 캐터피는 방·체 두 칸 — 바꾸기 화면에서 고른다
     assert [i for i, *_ in item_targets(bg, 'fuse:646')] == [2]
     assert use_candy(bg, 999, i=1) == 11 and bg['box'][1]['id'] == 11 and bg['candy'] == 0 and bg['base'] == 77
-    assert iv_text({'iv': [15, 15, 15]}).endswith('(100%) ★') and iv_text({'iv': [0, 0, 0]}).endswith('(0%)')
+    assert iv_text({'iv': [15] * 6}).endswith('(100%) ★') and iv_text({'iv': [0] * 6}).endswith('(0%)')
     # 박사에게: 동료·팀·이로치는 남고, 번호가 당겨져도 동료·팀이 같은 포켓몬을 가리킨다, 볼은 dupe_balls 만큼
     ps = new_state()
-    ps['box'] = [{'id': 10, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 10, 'xp': 0, 'iv': [9, 9, 9]}, {'id': 10, 'xp': 0, 'iv': [5, 5, 5], 'shiny': True},
-                 {'id': 25, 'xp': 0, 'iv': [2, 2, 2], 'bxp': 900}, {'id': 25, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 25, 'xp': 0, 'iv': [3, 3, 3]},
-                 {'id': 1, 'xp': 0, 'iv': [0, 0, 0]}]
+    ps['box'] = [{'id': 10, 'xp': 0, 'iv': [1] * 6}, {'id': 10, 'xp': 0, 'iv': [9] * 6}, {'id': 10, 'xp': 0, 'iv': [5] * 6, 'shiny': True},
+                 {'id': 25, 'xp': 0, 'iv': [2] * 6, 'bxp': 900}, {'id': 25, 'xp': 0, 'iv': [15] * 6}, {'id': 25, 'xp': 0, 'iv': [3] * 6},
+                 {'id': 1, 'xp': 0, 'iv': [0] * 6}]
     ps['partner'], ps['team'] = 6, [5]
     assert sorted(tidy_targets(ps)) == [0]  # 캐터피 하나 · 피카츄: 최고 개체·경험치는 남고 남은 하나는 팀
     assert send_away(ps, [6, 5, 2]) == (0, 0)  # 동료·팀·이로치는 못 보낸다
     assert send_away(ps, [0, 3]) == (2, dupe_balls(10) + dupe_balls(25)) and ps['balls'] == dupe_balls(10) + dupe_balls(25)
     assert [m['id'] for m in ps['box']] == [10, 10, 25, 25, 1] and ps['box'][ps['partner']]['id'] == 1
-    assert ps['team'] == [3] and ps['box'][3]['iv'] == [3, 3, 3] and ps['sent'] == 2
+    assert ps['team'] == [3] and ps['box'][3]['iv'] == [3] * 6 and ps['sent'] == 2
     # 가방 정렬·세대: 도감번호(기본) · 레벨 높은 순 · 개체값 높은 순 · 이름(한글 ㄱㄴㄷ) — 같으면 도감번호
     bo = new_state()
-    bo['box'] = [{'id': 152, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 25, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 3, 'xp': 0, 'iv': [5, 5, 5], 'bxp': 500},
-                 {'id': 1, 'xp': 0, 'iv': [9, 9, 9]}]
+    bo['box'] = [{'id': 152, 'xp': 0, 'iv': [1] * 6}, {'id': 25, 'xp': 0, 'iv': [15] * 6}, {'id': 3, 'xp': 0, 'iv': [5] * 6, 'bxp': 500},
+                 {'id': 1, 'xp': 0, 'iv': [9] * 6}]
     ids = lambda srt, g=None: [bo['box'][i]['id'] for i in bag_order(bo, g, srt)]  # noqa: E731
     assert ids(0) == [1, 3, 25, 152] and ids(1)[0] == 3 and ids(2) == [25, 1, 3, 152] and ids(0, 2) == [152]
     if L('ko', 'en') == 'ko':
@@ -3394,7 +3408,7 @@ def selftest():
     lucky = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.0})()
     # (난수 0 이면 우두머리도 함께 — 개체값은 우두머리 바닥 ALPHA_IV 부터)
     assert explore(sh, ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild'] == {'id': 25, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0}
-    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'iv': [ALPHA_IV] * 3, 'shiny': True, 'alpha': True}
+    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'iv': [ALPHA_IV] * 6, 'shiny': True, 'alpha': True}
     assert sh['shiny'] == [25]
     assert explore(sh, 2 * ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild']
     sh['wild'] = None
@@ -3535,7 +3549,7 @@ def selftest():
     other = type('R', (), {'choices': lambda s, xs, weights: [xs[3] if isinstance(xs[0], tuple) else 175],
                            'random': lambda s: 0.0})()
     assert hatch(eg, 1000 + 10 * EGG_STEP, other) == [(172, True)]
-    assert eg['box'][-1] == {'id': 172, 'xp': 0, 'iv': [IV_FLOOR] * 3, 'shiny': True}
+    assert eg['box'][-1] == {'id': 172, 'xp': 0, 'iv': [IV_FLOOR] * 6, 'shiny': True}
     assert 172 in eg['caught'] and 172 in eg['shiny'] and not eg['eggs'] and eg['news'][-1]['kind'] == 'hatch'
     assert eg['super'] == 1 and eg['news'][-1]['arg'] == '172*|super:1'  # 포켓몬과 함께 덤 볼 하나
     assert sum(w for _, _, w in EGG_BONUS) == 100 and ball_name('balls', '2') == ('몬스터볼 2개', '2 Poké Balls')
@@ -3641,7 +3655,7 @@ def selftest():
     gs['team'] = [0]
     assert fight(gs, ENCOUNTER_EVERY, gd, 1, 0)[0] is None and gs['used'] == 0  # 탐색 기회 1번뿐
     assert fight(gs, 4 * ENCOUNTER_EVERY, gd, 2, 0)[0] is None and gs['used'] == 0  # 꼬부기(1세대)만 있는 팀은 2세대 체육관에 못 나간다
-    assert team_of(gs, 2) == [] and team_of(gs, 1)[0][1] == 7 and fighters(gs, team_of(gs, 1))[0][2] == (0, 0, 0)
+    assert team_of(gs, 2) == [] and team_of(gs, 1)[0][1] == 7 and fighters(gs, team_of(gs, 1))[0][2] == (0,) * 6
     won, ev, first = fight(gs, 4 * ENCOUNTER_EVERY, gd, 1, 0, random.Random(1), today='2026-10-21')
     assert won and first and gs['gym'] == {'gym:1-0': '2026-10-21'} and gs['hyper'] == 1 and gs['used'] == GYM_COST
     assert gs['box'][0]['bxp'] == 3000 + GYM_WIN_XP and ev[0][0] == 'send' and fight_line(ev[-1])
@@ -3745,8 +3759,8 @@ def selftest():
         FORMS.update(real_forms)
     # 합체: 큐레무(가방 1) + 제크로무·레시라무 — 동료인 상대는 못 쓰고, 개체값 좋은 상대를, 아직 없는 모습을 먼저
     fu = new_state()
-    fu['box'] = [{'id': 25, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 646, 'xp': 5, 'bxp': 120, 'iv': [9, 9, 9]},
-                 {'id': 644, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 644, 'xp': 0, 'iv': [15, 15, 15]}, {'id': 643, 'xp': 0, 'iv': [2, 2, 2]}]
+    fu['box'] = [{'id': 25, 'xp': 0, 'iv': [1] * 6}, {'id': 646, 'xp': 5, 'bxp': 120, 'iv': [9] * 6},
+                 {'id': 644, 'xp': 0, 'iv': [1] * 6}, {'id': 644, 'xp': 0, 'iv': [15] * 6}, {'id': 643, 'xp': 0, 'iv': [2] * 6}]
     fu['partner'], fu['team'] = 4, [1, 3]
     assert change_options(fu, 1)[0][2] is False and L('연구', 'research') in change_options(fu, 1)[0][3]  # 도구가 없으면 못 한다
     for key in 'c' + 'www':  # 큐레무 연구를 끝내면 유전자쐐기
@@ -3754,12 +3768,12 @@ def selftest():
     assert fu['items'].get('fuse:646') == 1 and [k for k, _ in bag_items(fu)][-1] == 'fuse:646'
     assert fuse_options(fu, 0) == [] and fuse_options(fu, 1) == [(10022, 2)]  # 레시라무(4)는 동료라 못 쓰고, 재료는 팀 밖·개체값 낮은 것
     assert change_options(fu, 1) == [(10022, ('mon', 2), True, '')] and change(fu, 1, 0) == 10022
-    assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1] and fu['box'][1]['iv'] == [9, 9, 9]
-    assert fu['box'][2]['iv'] == [15, 15, 15]  # 좋은 제크로무는 남는다 · 개체값은 기본(큐레무) 것
+    assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1] and fu['box'][1]['iv'] == [9] * 6
+    assert fu['box'][2]['iv'] == [15] * 6  # 좋은 제크로무는 남는다 · 개체값은 기본(큐레무) 것
     assert fu['partner'] == 3 and fu['team'] == [1, 2] and fu['box'][1]['bxp'] == 120  # 번호 당김 · 본체 경험치 유지
     assert name(10022) == L('블랙큐레무', 'Black Kyurem') and gen(10022) == 5 and evo_next(10022) == [] and art_of(fu['box'][1]) == 'form:10022'
     assert 'fuse1' in check_badges(fu) and send_away(fu, [1]) == (0, 0)  # 합체한 것은 박사에게 안 간다
-    fu2 = {**new_state(), 'box': [{'id': 10022, 'xp': 0, 'iv': [1, 1, 1]}, {'id': 10022, 'xp': 0, 'iv': [9, 9, 9]}]}
+    fu2 = {**new_state(), 'box': [{'id': 10022, 'xp': 0, 'iv': [1] * 6}, {'id': 10022, 'xp': 0, 'iv': [9] * 6}]}
     assert send_away(fu2, [0]) == (0, 0) and tidy_targets(fu2) == []  # 팀 밖이어도, 둘이어도 — 재료까지 잃는다
     assert change_options(fu, 1) == [] and fuse_options(fu, 2) == []  # 합체한 것은 다시 못 바꾼다
     # 특수 모습: 연구 완료 → 메가스톤(X·Y), 그 뒤 5마리 더 잡을 때마다 또 · 쓰는 건 그 세대가 열린 뒤 · 되돌릴 수 없다
@@ -3769,7 +3783,7 @@ def selftest():
                      10078: (383, 'primal', 6, '', ''), 10157: (800, 'ultra', 7, '', '')})
     try:
         mg = new_state()
-        mg['box'], mg['partner'] = [{'id': 6, 'xp': 0, 'iv': [5, 5, 5], 'bxp': 300}], 0
+        mg['box'], mg['partner'] = [{'id': 6, 'xp': 0, 'iv': [5] * 6, 'bxp': 300}], 0
         lv0 = box_level(mg['box'][0])
         assert [(f, ok) for f, _, ok, _ in change_options(mg, 0)] == [(10034, False), (10035, False), (10196, False)]
         for key in 'ccccc' + 'www':
@@ -3827,15 +3841,15 @@ def selftest():
     never2 = type('R', (), {'random': lambda s: 0.99})()
     assert [throw(al, 0, never2) for _ in range(3)] == ['missed', 'missed', 'fled'] and al['wild'] is None
     # 잡은 우두머리는 박사에게·정리로 안 보내고, 배틀에는 능력치 ×ALPHA_BOOST 로
-    al['box'] = [{'id': 1, 'xp': 0, 'iv': [15] * 3}, {'id': 19, 'xp': 0, 'iv': [12] * 3, 'alpha': True},
-                 {'id': 19, 'xp': 0, 'iv': [15] * 3, 'bxp': 9999}]
+    al['box'] = [{'id': 1, 'xp': 0, 'iv': [15] * 6}, {'id': 19, 'xp': 0, 'iv': [12] * 6, 'alpha': True},
+                 {'id': 19, 'xp': 0, 'iv': [15] * 6, 'bxp': 9999}]
     assert tidy_targets(al) == [] and send_away(al, [1]) == (0, 0) and len(al['box']) == 3
     assert alpha_x(al['box'][1]) == (1, ALPHA_BOOST) and alpha_x(al['box'][2]) == ()
     # 레이드: 이번 주 보스(열린 세대의 전설) · 목록 맨 위 · 이기면 레이드볼 3개로만 · 놓치면 이번 주 끝
     rd = new_state()
     g_r, boss = raid_boss(rd)
     assert g_r == 1 and DEX[boss][5] == 1 and raid_boss(new_state()) == (g_r, boss) and gym_rows(rd)[0] == (1, 'R')
-    rd['box'], rd['team'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 3}, {'id': 152, 'xp': 0, 'iv': [0] * 3}], [1, 0]
+    rd['box'], rd['team'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 6}, {'id': 152, 'xp': 0, 'iv': [0] * 6}], [1, 0]
     assert [n for _, n, _ in team_of(rd)] == [152, 7]  # 레이드엔 다른 세대(치코리타)도 나간다
     gd2 = {'stats': {boss: [1] * 6, 7: [200] * 6, 152: [200] * 6}, 'types': {boss: [11], 7: [11], 152: [12]}, 'eff': {}, 'tnames': {}}
     won, ev, first = fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R', random.Random(1))
@@ -3847,7 +3861,7 @@ def selftest():
     assert [throw(rd, 0, never2) for _ in range(RAID_BALLS)] == ['missed', 'missed', 'fled'] and rd['wild'] is None
     assert rd['raid']['done'] and gym_rows(rd)[0] != (1, 'R')
     rc = new_state()
-    rc['box'], rc['team'], rc['wild'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 3}], [0], {'id': 19, 'balls': BALLS}
+    rc['box'], rc['team'], rc['wild'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 6}], [0], {'id': 19, 'balls': BALLS}
     assert fight(rc, 4 * ENCOUNTER_EVERY, gd2, 1, 'R', random.Random(1))[0] and rc['raid']['pending'] and rc['wild']['id'] == 19
     rc['wild'] = None  # 하던 야생이 끝나면 레이드 보스가 나온다
     raid_release(rc)

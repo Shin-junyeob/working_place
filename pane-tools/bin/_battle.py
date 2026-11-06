@@ -96,11 +96,10 @@ def level(stage, bxp):
     return 15 + stage * 12 + min(XP_LEVEL_CAP, bxp // XP_PER_LEVEL)
 
 
-def calc(base, lv, iv=(0, 0, 0)):
-    """원작 공식을 줄인 능력치 — [HP, 공, 방, 특공, 특방, 스피드]. 개체값 iv=(공, 방, 체) 0~15(포켓몬고 방식)는
-    원작 개체값 자리에 — 공은 공·특공, 방은 방·특방, 체는 HP 에. 15 면 Lv79 에서 능력치 +12, 레벨 몇 단계만큼."""
-    a, df, hp = iv
-    plus = [hp, a, df, a, df, 0]
+def calc(base, lv, iv=(0,) * 6):
+    """원작 공식을 줄인 능력치 — [HP, 공, 방, 특공, 특방, 스피드]. 개체값 iv 도 같은 순서 여섯 개, 0~15
+    (원작 0~31 의 절반 — 2026-11-06 공·방·체 셋에서 여섯으로). 15 면 Lv79 에서 능력치 +12, 레벨 몇 단계만큼."""
+    plus = list(iv)
     return [(2 * base[0] + plus[0]) * lv // 100 + lv + 10] + [(2 * b + k) * lv // 100 + 5 for b, k in zip(base[1:], plus[1:])]
 
 
@@ -123,7 +122,7 @@ def matchup(d, me, foe):
 
 
 class Mon:
-    def __init__(self, d, n, lv, iv=(0, 0, 0), hp_x=1, boost=1):
+    def __init__(self, d, n, lv, iv=(0,) * 6, hp_x=1, boost=1):
         self.n, self.lv, self.st = n, lv, [int(s * boost) for s in calc(d['stats'][n], lv, iv)]  # boost: 우두머리 능력치 배수
         self.st[0] *= hp_x  # 레이드 보스는 HP 가 몇 배
         self.hp = self.st[0]
@@ -193,10 +192,10 @@ def league_teams(d, g, gen_of, final):
         rng = random.Random(g * 1000 + k)
         pool = [n for n in ok if t in d['types'][n]] or ok
         ends = [n for n in pool if n in final] or pool
-        teams.append([(rng.choice(ends if j == ELITE_COUNT - 1 else pool), top + 2 * k + OPP_LV_BONUS, (14,) * 3) for j in range(ELITE_COUNT)])
+        teams.append([(rng.choice(ends if j == ELITE_COUNT - 1 else pool), top + 2 * k + OPP_LV_BONUS, (14,) * 6) for j in range(ELITE_COUNT)])
     strong = sorted((n for n in ok if n in final), key=lambda n: -sum(d['stats'][n]))[:30] or ok
     rng = random.Random(g * 1000 + 9)
-    teams.append([(n, top + 8 + OPP_LV_BONUS, (15,) * 3) for n in rng.sample(strong, min(CHAMP_COUNT, len(strong)))])
+    teams.append([(n, top + 8 + OPP_LV_BONUS, (15,) * 6) for n in rng.sample(strong, min(CHAMP_COUNT, len(strong)))])
     return teams
 
 
@@ -234,7 +233,7 @@ def gym_team(d, g, i, gen_of, final):
     k, lv = OPP_COUNT[i], 12 + i * 7 + (g - 1) * 5
     ends = [n for n in pool if n in final] or pool
     picks = [rng.choice(pool) for _ in range(k - 1)] + [rng.choice(ends)]
-    return [(n, lv + OPP_LV_BONUS + (2 if j == k - 1 else 0), (7 + i,) * 3) for j, n in enumerate(picks)]  # 개체값 1관 7 ~ 8관 14
+    return [(n, lv + OPP_LV_BONUS + (2 if j == k - 1 else 0), (7 + i,) * 6) for j, n in enumerate(picks)]  # 개체값 1관 7 ~ 8관 14
 
 
 def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=60, seed=11, rate=None):
@@ -272,7 +271,7 @@ def selftest():
     d = {'stats': {int(k): v for k, v in d['stats'].items()}, 'types': {int(k): v for k, v in d['types'].items()},
          'eff': d['eff'], 'tnames': {int(k): v for k, v in d['tnames'].items()}}
     # 우두머리 배수(boost)는 모든 능력치에, HP 배수(hp_x)는 그 위에
-    assert Mon(d, 1, 50, (0, 0, 0), 1, 1.1).st == [int(x * 1.1) for x in Mon(d, 1, 50).st]
+    assert Mon(d, 1, 50, (0,) * 6, 1, 1.1).st == [int(x * 1.1) for x in Mon(d, 1, 50).st]
     assert d['types'][1] == [11] and d['stats'][2] == [50] * 6 and d['tnames'][11] == ['물', 'Water']
     f = build([{'pokemon_id': '10091', 'stat_id': '1', 'base_stat': '40'}], [{'id': '10091', 'species_id': '19', 'is_default': '0'}],
               [{'pokemon_id': '10091', 'type_id': '17', 'slot': '1'}], [], [])
@@ -298,7 +297,7 @@ def selftest():
     LEAGUE[99] = [10, 10, 10, 10]
     lt = league_teams(d, 99, gen_of, final={2})
     assert lt == league_teams(d, 99, gen_of, final={2}) and [len(x) for x in lt] == [4, 4, 4, 4, min(CHAMP_COUNT, 1)]
-    assert lt[0][0][1] == 12 + 7 * 7 + 98 * 5 - 13 + OPP_LV_BONUS and lt[0][0][2] == (14,) * 3 and lt[4][0][2] == (15,) * 3 and lt[3][0][1] == lt[0][0][1] + 6 and lt[4][0][1] == lt[0][0][1] + 8
+    assert lt[0][0][1] == 12 + 7 * 7 + 98 * 5 - 13 + OPP_LV_BONUS and lt[0][0][2] == (14,) * 6 and lt[4][0][2] == (15,) * 6 and lt[3][0][1] == lt[0][0][1] + 6 and lt[4][0][1] == lt[0][0][1] + 8
     del LEAGUE[99]
     won, ev = gauntlet(d, [(1, 100)], [[(2, 10)], [(2, 10)]], random.Random(2))
     assert won and [e for e in ev if e[0] == 'trainer'] == [('trainer', 0), ('trainer', 1)]
