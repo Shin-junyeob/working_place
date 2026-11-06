@@ -1097,8 +1097,8 @@ def weekly_text(st):
     _, goal, ko, en = next(x for x in WEEKLY if x[0] == w['kind'])
     prize = ' · '.join(L(*ball_name(b, c)) for b, c in WEEKLY_PRIZE)
     if w['done']:
-        return L(f'주간 과제 완료 ✔ — {ko.format(n=goal)} (상: {prize})', f'Weekly done ✔ — {en.format(n=goal)} (prize: {prize})')
-    return L(f'주간 과제: {ko.format(n=goal)} {min(w["n"], goal)}/{goal} — 상: {prize}', f'Weekly: {en.format(n=goal)} {min(w["n"], goal)}/{goal} — prize: {prize}')
+        return L(f'주간 과제 완료 ✔ — {ko.format(n=goal)} (보상: {prize})', f'Weekly done ✔ — {en.format(n=goal)} (prize: {prize})')
+    return L(f'주간 과제: {ko.format(n=goal)} {min(w["n"], goal)}/{goal} — 보상: {prize}', f'Weekly: {en.format(n=goal)} {min(w["n"], goal)}/{goal} — prize: {prize}')
 
 
 def dex_hint(st, n):
@@ -2570,7 +2570,7 @@ def main(scr):
                 tower = battle_now.get('tower')
                 prize = [L(*ball_name(key, k)) if key in ('super', 'hyper', 'master') else L(f'{item_name(key)} {k}개', f'{k} {item_name(key)}')
                          for every, pz in TOWER_PRIZES for key, k in pz if tower and tower[0] and tower[0] % every == 0]
-                res = (L(f'승리! {tower[0]}연승!', f'Won! {tower[0]} in a row!') + (L(' 상: ', ' Prize: ') + ', '.join(prize) + ' ·' if prize else '') + gain
+                res = (L(f'승리! {tower[0]}연승!', f'Won! {tower[0]} in a row!') + (L(' 보상: ', ' Prize: ') + ', '.join(prize) + ' ·' if prize else '') + gain
                        if battle_now['won'] else L(f'패배… 연승 끝 (최고 {tower[1]}연승)', f'Defeat… streak over (best {tower[1]})') + gain) if tower else \
                     (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]을 받았다!' if battle_now['key'].startswith('champ') else f'[{badge_name(battle_now["key"])}]를 받았다!',
                                                   f'Got the [{badge_name(battle_now["key"])}]!') if battle_now['first'] else '') + gain) \
