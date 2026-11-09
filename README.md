@@ -95,7 +95,7 @@ A challenge costs two explores and plays a fully automatic battle line by line, 
 
 ![A gym battle](docs/images/battle.png)
 
-Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation.
+Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation — and opens the next generation once every wild species of this one is caught (a news line says how many are left; the last catch opens it).
 
 **Controls** — arrow keys, Enter and `q`, plus Tab in lists. The mouse works too.
 
