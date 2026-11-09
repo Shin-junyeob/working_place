@@ -277,10 +277,13 @@ def wild_pool(st):
 
 
 def old_pool(st):
-    """이전 세대(열린 세대보다 아래 전부) 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 포함.
+    """이전 세대(열린 세대보다 아래 전부)와 지금 세대에서 계열을 다 잡은 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 포함.
     모든 세대를 다 채웠으면 전 세대에서. 그 세대 종의 리전폼(FORMS 번호)도 함께 — 진화형 폼도 야생에서 바로."""
-    top = opened_gen(st) if wild_pool(st) else GENS + 1
-    return [n for n in DEX if gen(n) < top and wild_ok(n)] + [p for p, (sp, _) in FORMS.items() if gen(sp) < top]
+    cur = wild_pool(st)
+    top = opened_gen(st) if cur else GENS + 1
+    done = [n for n in DEX if gen(n) == top and wild_ok(n) and n not in cur]  # 지금 세대에서 계열을 다 잡은 종도 — 안 그러면
+    # 그 세대를 다 채울 때까지 다시 못 만났다(이로치도 못 노림, 2026-11-09 사용자)
+    return [n for n in DEX if gen(n) < top and wild_ok(n)] + done + [p for p, (sp, _) in FORMS.items() if gen(sp) < top]
 
 
 ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX']
@@ -3751,6 +3754,8 @@ def selftest():
         op = old_pool(o2)
         assert op and all(gen(n) == 1 for n in op) and 1 in op and 150 in op
         assert {10091, 10169, 10252} <= set(op) and 10233 not in op  # 2세대 종(블레이범)의 폼은 2세대가 지나야
+        o2['caught'] = [152, 153, 154]  # 지금 세대(2)에서 계열을 다 잡은 치코리타는 지금 세대 후보에서 빠져도 이쪽으로 만난다
+        assert 152 not in wild_pool(o2) and 152 in old_pool(o2) and 155 not in old_pool(o2)  # 진화형은 원래 야생에 없다(wild_ok)
         r, hits = random.Random(3), 0
         for _ in range(2000):
             o2['wild'], o2['used'] = None, 0
