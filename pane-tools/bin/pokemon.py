@@ -370,8 +370,8 @@ def wild_odds(st):
     막아 같은 포켓몬만 나왔다(진화 전 스타팅 3종이 4칸 중 3칸). 아예 빼지는 않고 드물게만 나오게 한다."""
     pool, inbag = wild_pool(st), boxed(st)
     fresh = [n for n in pool if n not in inbag and not evo_wild(n)][:WINDOW]
-    if not fresh:  # 남은 게 전부 가방 속 종·이전 세대 진화형이면 그것들끼리 — 진화로만 묶여 막히지 않게
-        return [(n, 1) for n in pool[:WINDOW]]
+    if not fresh:  # 남은 게 전부 가방 속 종·이전 세대 진화형이면 그것들 전부에서 고르게 — 앞 WINDOW 마리만 쓰니
+        return [(n, 1) for n in pool]          # 3세대 41종이 다 가방에 있을 때 스타팅 3종·포챠나만 돌아가며 나왔다(2026-11-09)
     front = pool[:pool.index(fresh[-1]) + 1]
     return [(n, BOXED_WEIGHT if n in inbag else EVO_WILD_WEIGHT if evo_wild(n) else 1) for n in front]
 
@@ -3231,6 +3231,10 @@ def selftest():
     assert later and o.get(196) == EVO_WILD_WEIGHT and o.get(197) == EVO_WILD_WEIGHT and all(o.get(n) == 1 for n in later), o
     ev['caught'] += later
     assert dict(wild_odds(ev)) == {196: 1, 197: 1}
+    ev['box'] = [{'id': n, 'xp': 0} for n in wild_pool(ev)]  # 후보가 다 가방에 있어도 앞 WINDOW 마리가 아니라 후보 전부에서
+    ev['caught'] = [n for n in ev['caught'] if n not in (152, 155, 158)]  # 스타팅 셋을 다시 후보로 — 다섯 마리(> WINDOW)
+    ev['box'] += [{'id': n, 'xp': 0} for n in (152, 155, 158)]
+    assert len(wild_pool(ev)) > WINDOW and dict(wild_odds(ev)) == {n: 1 for n in wild_pool(ev)}, wild_odds(ev)
     assert dex_hint(ev, 196) == L('진화 — ???에서 · 야생은 드묾', 'evolve from ??? · rare in the wild')
     odds = dict(wild_odds(dup))
     assert odds[25] == BOXED_WEIGHT and sorted(odds.values()).count(1) == WINDOW, odds
@@ -3314,6 +3318,7 @@ def selftest():
     assert [egg_km({'need': k * EGG_STEP}) for k in (10, 15, 20, 25, 40, 120)] == [2, 5, 5, 7, 10, 12]
     first_bonus = type('R', (), {'random': lambda s: 0.99, 'choices': lambda s, xs, weights: [xs[0]]})()  # 이로치 아님 · 덤은 몬스터볼 1
     ek = {**new_state(), 'eggs': [{'id': 798, 'base': 0, 'need': 250_000}, {'id': 123, 'base': 0, 'need': 125_000}]}
+    weekly(ek)['done'] = True  # 이번 주 과제가 마침 '알 부화'면 그 보상까지 섞여 날짜 따라 깨졌다(2026-11-09)
     assert len(hatch(ek, 300_000, first_bonus)) == 2 and (ek['balls'], ek['super'], ek['hyper']) == (2, 1, 2)  # 12km 하이퍼볼 2 · 7km 슈퍼볼 1 더
     assert ek['news'][0]['arg'] == '798|balls:1,hyper:2'
     said = speech(ek, 300_000, now=ek['news'][-1]['at'] + 1, folder=tempfile.mkdtemp())  # 가장 최근 — 7km 알
@@ -3581,6 +3586,7 @@ def selftest():
     assert set(check_badges(bd)) == {'super1', 'hyper1'}
     # 알: 풀에는 열린 세대의 1단계(전설·환상 빼고), 베이비 ×3 · 가방에 있는 종 ×BOXED_WEIGHT · 최대 3개 · 다 자라야 부화
     eg = new_state()
+    weekly(eg)['done'] = True  # 이번 주 과제가 '알 부화'여도 그 소식·보상이 안 섞이게(날짜 따라 깨졌다)
     eg['caught'] = [n for n in DEX if gen(n) == 1]  # 1세대 완성 → 2세대까지 열림
     eg['box'] = [{'id': 1, 'xp': 0}]
     pool = dict(egg_pool(eg))
