@@ -5,7 +5,7 @@
 - 도감은 세대별(1~9세대). 데이터는 처음 열 때 PokeAPI 에서 받아 ~/.claude/pane-tools/pokedex.json 에 둔다(_pokedata.py). 그 세대 도감을 다 채우거나
   사천왕·챔피언을 이기고 그 세대 야생 종(전설·환상 포함)을 다 잡으면 다음 세대가 열리고(opened_gen — 모자라면 소식 genwait), 야생에선 열린 세대 중 가장 최근 세대가 나온다. 이상한사탕(주간 상)은 진화할 수 있는 포켓몬 아무나 바로 진화시킨다(가방에서).
 - 나오는 순서: 스타팅·피카츄·이브이 → 일반(원작 포획률 높은 = 흔한 것부터) → 전설 → 환상. 앞쪽 WINDOW 마리 중 무작위 —
-  후보가 전부 가방에 있으면 후보 전체에서(wild_odds). 탐색 OLD_GEN_RATE 는 이전 세대 전체 + 지금 세대에서 계열을 다 잡은 종(old_pool) — 전설·환상은 ×OLD_LEGEND_WEIGHT.
+  후보가 전부 가방에 있으면 후보 전체에서(wild_odds). 탐색 OLD_GEN_RATE 는 이전 세대 전체 + 지금 세대에서 계열을 다 잡은 종(old_pool) — 전설·환상은 한 종마다 OLD_LEGEND_EACH(old_pick).
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
 - 지금 가방에 있는 종은 다른 종의 1/10 확률로만 나온다(BOXED_WEIGHT). 나오면 똑같이 잡을 수 있다 — 같은 종이라도 개체값(HP·공·방·특공·특방·스피드
   여섯, 0~15, roll_iv — 목록엔 % 만)이 달라 골라 키운다. 남는 것은 [박사에게] 보내면 급에 따라 몬스터볼 1~5개(dupe_balls) — [정리]는 같은 종 중
@@ -105,7 +105,11 @@ TOWER_SIZE, TOWER_COST, TOWER_LV0, TOWER_LV_STEP = 3, 2, 45, 6  # 2026-11-04 측
 TOWER_PRIZES = [(7, [('super', 3), ('cap', 2)]), (21, [('hyper', 2)]), (49, [('master', 1), ('gcap', 2)])]  # n 연승마다 — 은색 7개 ≈ 금색 1개, 개체값 6칸이라 둘씩
 RESEARCH_CATCH, RESEARCH_WIN, RESEARCH_PRIZE = 5, 3, ('super', 2)  # 연구: 잡기 5(전설·환상 1) · 진화 1(진화형이 있으면) · 배틀 승리 3
 IV_FLOOR = 10  # 알·전설·환상은 개체값이 최소 이만큼(포켓몬고처럼)
-OLD_LEGEND_WEIGHT = 10  # 이전 세대 탐색에서 전설·환상은 다른 종의 10배 — 0.1(2026-10-30)이면 8세대쯤 특정 전설 재회가 2년, 10이면 약 15일(2026-11-09 사용자)
+# 이전 세대 탐색에서 전설·환상 한 종이 나올 몫 — 후보 수와 상관없이 같게(2026-11-09 사용자). 처음엔 가중치(다른 종의 10배)라
+# 1세대처럼 후보가 몇십 종일 때는 섞기 탐색 넷 중 하나가 같은 전설이었다(파이어가 잡은 뒤에도 연달아). 값은 그 10배가 8세대에서
+# 내던 몫(후보 529 · 전설·환상 68 → 한 종 0.88%, 전체 60%) — 8세대쯤 특정 전설 재회 약 15일이라는 그때 결정은 그대로.
+OLD_LEGEND_EACH = 0.0088
+OLD_LEGEND_CAP = 0.6  # 전설·환상 전체 몫 상한 — 전설이 많아져도 섞기 탐색의 대부분을 차지하지 않게
 OLD_GEN_RATE = 0.2  # 탐색 5번 중 1번은 이전 세대 전체에서 — 다 채운 세대도 이로치를 노릴 수 있게(현재 8 : 이전 2)
 EGG_CATCH, EGG_MAX, EGG_STEP = 0.1, 3, 5000  # 잡을 때 알을 함께 얻을 확률 · 가질 수 있는 알 · 부화 걸음 하나당 토큰
 # 주간 과제 (종류, 목표, 한국어, 영어) — 주 번호로 하나를 고른다. 이번 주에 쌓인 횟수로 센다
@@ -284,9 +288,18 @@ def wild_pool(st):
     return []
 
 
-def old_weight(n):
-    """이전 세대 탐색에서의 가중치 — 전설·환상은 OLD_LEGEND_WEIGHT, 리전폼 전설(가라르 프리져 등)도 원래 종으로 판정(2026-11-09)."""
-    return OLD_LEGEND_WEIGHT if DEX[sp(n)][5] else 1
+def is_legend(n):
+    """전설·환상인가 — 리전폼 전설(가라르 프리져 등)도 원래 종으로 판정(2026-11-09)."""
+    return bool(DEX[sp(n)][5])
+
+
+def old_pick(old, rng=random):
+    """이전 세대 섞기에서 한 종 — 전설·환상은 한 종마다 OLD_LEGEND_EACH(전체는 OLD_LEGEND_CAP 까지), 나머지는 고르게."""
+    legs = sum(1 for n in old if is_legend(n))
+    rest = len(old) - legs
+    share = min(OLD_LEGEND_CAP, OLD_LEGEND_EACH * legs) if rest else 1
+    weights = [share / legs if is_legend(n) else (1 - share) / rest for n in old]
+    return rng.choices(old, weights=weights)[0]
 
 
 def old_pool(st):
@@ -578,7 +591,7 @@ def explore(st, t, rng=random):
     st['used'] += 1
     bump(st, 'explore')
     if old and (not odds or rng.random() < OLD_GEN_RATE):
-        n = rng.choices(old, weights=[old_weight(n) for n in old])[0]
+        n = old_pick(old, rng)
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     shiny = rng.random() < shiny_rate(st, n)  # 리전폼도 이로치·우두머리(2026-11-06 사용자 — 전엔 따로 모으던 시절 규칙으로 없었다)
@@ -3832,7 +3845,15 @@ def selftest():
         op = old_pool(o2)
         assert op and all(gen(n) == 1 for n in op) and 1 in op and 150 in op
         assert {10091, 10169, 10252} <= set(op) and 10233 not in op  # 2세대 종(블레이범)의 폼은 2세대가 지나야
-        assert old_weight(10169) == old_weight(150) == OLD_LEGEND_WEIGHT and old_weight(10091) == old_weight(19) == 1  # 가라르 프리져도 전설
+        assert is_legend(10169) and is_legend(150) and not is_legend(10091) and not is_legend(19)  # 가라르 프리져도 전설
+        # 전설 한 종의 몫은 후보 수와 상관없다 — 1세대(전설 1 · 일반 40)에서도 8세대 규모(전설 68 · 일반 461)에서도 약 0.88%
+        r = random.Random(7)
+        small = [146] + [n for n in DEX if gen(n) == 1 and not DEX[n][5]][:40]
+        big = [n for n in DEX if gen(n) < 8 and DEX[n][5]][:68] + [n for n in DEX if gen(n) < 8 and not DEX[n][5]][:461]
+        hit_small = sum(old_pick(small, r) == 146 for _ in range(40000)) / 40000
+        hit_big = sum(old_pick(big, r) == big[0] for _ in range(40000)) / 40000
+        assert 0.006 < hit_small < 0.012 and 0.006 < hit_big < 0.012, (hit_small, hit_big)
+        assert old_pick([150, 151], r) in (150, 151)  # 전설만 남아도 고른다
         o2['caught'] += [152, 153, 154]  # 지금 세대(2)에서 계열을 다 잡은 치코리타는 지금 세대 후보에서 빠져도 이쪽으로 만난다
         assert 152 not in wild_pool(o2) and 152 in old_pool(o2) and 155 not in old_pool(o2)  # 진화형은 원래 야생에 없다(wild_ok)
         r, hits = random.Random(3), 0
