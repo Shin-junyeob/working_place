@@ -3,7 +3,7 @@
 
 누적 토큰: 각 세션의 pane-tools mod 가 usage/<sid>.json 의 gained 에 적는 값(컨텍스트가 늘어난 만큼)을 모두 더한 것.
 - 도감은 세대별(1~9세대). 데이터는 처음 열 때 PokeAPI 에서 받아 ~/.claude/pane-tools/pokedex.json 에 둔다(_pokedata.py). 그 세대 도감을 다 채우거나
-  사천왕·챔피언을 이기면 다음 세대가 열리고(opened_gen), 야생에선 열린 세대 중 가장 최근 세대가 나온다. 이상한사탕(주간 상)은 진화할 수 있는 포켓몬 아무나 바로 진화시킨다(가방에서).
+  사천왕·챔피언을 이기고 그 세대 야생 종(전설·환상 포함)을 다 잡으면 다음 세대가 열리고(opened_gen — 모자라면 소식 genwait), 야생에선 열린 세대 중 가장 최근 세대가 나온다. 이상한사탕(주간 상)은 진화할 수 있는 포켓몬 아무나 바로 진화시킨다(가방에서).
 - 나오는 순서: 스타팅·피카츄·이브이 → 일반(원작 포획률 높은 = 흔한 것부터) → 전설 → 환상. 앞쪽 WINDOW 마리 중 무작위 —
   후보가 전부 가방에 있으면 후보 전체에서(wild_odds). 탐색 OLD_GEN_RATE 는 이전 세대 전체 + 지금 세대에서 계열을 다 잡은 종(old_pool).
 - ENCOUNTER_EVERY 토큰마다 탐색 1회. 볼 BALLS 개 + 보유 볼, 다 빗나가면 도망(나중에 다시 나온다). 잡으면 보유 볼 +1.
@@ -255,12 +255,19 @@ def current_gen(st):
 
 
 def opened_gen(st):
-    """열린 가장 높은 세대 — 1세대부터, 도감을 다 채웠거나 사천왕·챔피언을 이긴 세대의 다음 세대가 열린다(2026-10-27:
-    도감만으로는 진화로만 얻는 종 때문에 한 달씩 갇혔다)."""
+    """열린 가장 높은 세대 — 1세대부터, 도감을 다 채웠거나 사천왕·챔피언을 이기고 그 세대 야생 종(전설·환상 포함)을 다 잡은
+    세대의 다음 세대가 열린다. 도감만으로는 진화로만 얻는 종 때문에 한 달씩 갇혔고(2026-10-27), 챔피언만으로는 넘긴 세대의
+    전설·환상이 이전 세대 탐색에서 거의 안 나와 2년씩 걸렸다(2026-11-09 사용자) — 진화형은 넘긴 뒤에도 같은 속도로 채운다."""
     g = 1
-    while g < GENS and (gen_done(st, g) or str(g) in st.get('league', {})):
+    while g < GENS and (gen_done(st, g) or (str(g) in st.get('league', {}) and not wild_left(st, g))):
         g += 1
     return g
+
+
+def wild_left(st, g):
+    """g 세대에서 야생으로 잡을 수 있는데(wild_ok — 전설·환상 포함) 아직 못 잡은 종."""
+    caught = set(st['caught'])
+    return [n for n in DEX if gen(n) == g and wild_ok(n) and n not in caught]
 
 
 def wild_pool(st):
@@ -478,6 +485,11 @@ def load(root=ROOT):
             if m['id'] in DEX:
                 r = st['research'].setdefault(str(m['id']), {})
                 r['c'] = r.get('c', 0) + 1
+    told = st.setdefault('genwait', [])  # 챔피언은 이겼는데 야생 종이 남아 닫힌 세대 — 소식으로 한 번 알린다(2026-11-09 규칙)
+    for g in sorted(int(k) for k in st.get('league', {})):
+        if g < GENS and not gen_done(st, g) and wild_left(st, g) and g not in told:
+            told.append(g)
+            tell(st, 'genwait', f'{g}|{len(wild_left(st, g))}')
     for n in st['caught']:  # 2026-11-09 전에 진화로 얻은 종은 잡기 0 — 1로 맞추고, 과제를 다 채웠으면 지금 연구 완료(상·메가스톤)
         if n in DEX and not wild_ok(n):
             r = st['research'].setdefault(str(n), {})
@@ -674,6 +686,7 @@ def shown(w):
 def _caught(st, t, w, rng):
     """잡았다 — 가방에 넣고(개체값 바닥: 전설·환상 IV_FLOOR · 우두머리 ALPHA_IV) 도감·연구·보상. 'caught'."""
     floor = max(IV_FLOOR if DEX[w['id']][5] else 0, ALPHA_IV if w.get('alpha') else 0)
+    g0 = opened_gen(st)
     # 리전폼은 폼 번호로 가방에 — 도감 숫자(caught) 대신 리전폼 목록(forms)에 적는다
     st['box'].append({'id': w.get('form') or w['id'], 'xp': 0, 'iv': roll_iv(rng, floor),
                       **({'shiny': True} if w.get('shiny') else {}), **({'alpha': True} if w.get('alpha') else {})})
@@ -693,6 +706,8 @@ def _caught(st, t, w, rng):
     if rng.random() < EGG_CATCH:
         give_egg(st, t)  # 알이 가득 차 있으면 못 받는다
     bump(st, 'catch')
+    if opened_gen(st) > g0:  # 챔피언을 이긴 세대의 마지막 야생 종 — 다음 세대가 열린다
+        tell(st, 'opengen', str(opened_gen(st)))
     return 'caught'
 
 
@@ -769,6 +784,10 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
             ko, en = ' + '.join(a for a, _ in names), ' + '.join(b for _, b in names)
             return L(f'알이 부화했다! {"✨이로치 " if sh else ""}{name(hn)}(이)가 태어났다!' + (f' 덤으로 {ko}!' if extra else ''),
                      f'An egg hatched! {"✨shiny " if sh else ""}{name(hn)} was born!' + (f' Plus {en}!' if extra else '')), False
+        if n['kind'] == 'genwait':  # 챔피언은 이겼는데 그 세대 야생 종이 남았다
+            g, k = n['arg'].split('|')
+            return L(f'{g}세대 야생 포켓몬 {k}종(전설·환상 포함)을 마저 잡으면 {int(g) + 1}세대가 열린다!',
+                     f'Catch the last {k} wild Gen {g} species (legendaries included) to open Gen {int(g) + 1}!'), False
         if n['kind'] == 'opengen':
             return L(f'{n["arg"]}세대가 열렸다! 풀숲에서 새 포켓몬이 나온다.', f'Gen {n["arg"]} is open! New Pokémon in the tall grass.'), False
         if n['kind'] == 'streak':
@@ -2049,7 +2068,11 @@ def fight(st, t, d, g, i, rng=random, today=None):
         st['league'][str(g)] = day  # 챔피언 훈장(마스터볼)은 check_badges 가
         tell(st, 'league', str(g))
         if g < GENS and not gen_done(st, g):
-            tell(st, 'opengen', str(g + 1))
+            if not wild_left(st, g):
+                tell(st, 'opengen', str(g + 1))
+            else:
+                st.setdefault('genwait', []).append(g)  # load 가 또 알리지 않게
+                tell(st, 'genwait', f'{g}|{len(wild_left(st, g))}')
         first = True
     elif won and i != 'L' and f'gym:{g}-{i}' not in st.setdefault('gym', {}):
         st['gym'][f'gym:{g}-{i}'] = day
@@ -3199,6 +3222,11 @@ def selftest():
     global DEX
     import struct
     import tempfile
+
+    def unlock(st, top, mark='x'):  # top 세대까지 열기 — 아래 세대 챔피언 승리 + 그 세대 야생 종 전부 포획(opened_gen)
+        st['league'] = {**st.get('league', {}), **{str(g): mark for g in range(1, top)}}
+        st['caught'] = st['caught'] + [n for n in DEX if gen(n) < top and wild_ok(n) and n not in st['caught']]
+        return st
     import zlib
     assert len(DEX) == 1025 and GENS == 9 and GEN_SIZE[1] == 151
     root = tempfile.mkdtemp()
@@ -3237,7 +3265,7 @@ def selftest():
     dup['box'], dup['caught'] = [{'id': 25, 'xp': 0}], [25]
     # 가방 속 피카츄는 앞쪽에 남되 1/10 — 새 종 WINDOW 마리는 그대로 1
     # 이전 세대 진화형(에브이 196 · 블래키 197)은 1/10 — 다른 것이 다 잡히고 그것만 남으면 보통 확률로(막히지 않게)
-    ev = new_state(); ev['league'] = {'1': True}
+    ev = unlock(new_state(), 2)
     g2 = [n for n in DEX if gen(n) == 2]
     ev['caught'] = [n for n in DEX if gen(n) == 1]
     order = [n for n in sorted((n for n in g2 if wild_ok(n)), key=order_key)]
@@ -3293,13 +3321,13 @@ def selftest():
         def choices(self, seq, weights=None): return [571]
         def choice(self, seq): return seq[0]
     zr = {**new_state(), 'box': [{'id': 1, 'xp': 0, 'iv': [1] * 6}, {'id': 25, 'xp': 0, 'iv': [1] * 6}], 'partner': 0, 'team': [0, 1]}
-    zr['league'] = {str(g): True for g in range(1, 5)}  # 5세대 열림
+    unlock(zr, 5)  # 5세대 열림
     assert explore(zr, ENCOUNTER_EVERY, ZoroRng()) == (25, 0) and zr['wild']['id'] == 571 and 571 not in zr['seen']  # 팀 마지막(피카츄)의 환영
     assert throw(zr, ENCOUNTER_EVERY, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and zr['box'][-1]['id'] == 571 and 571 in zr['seen']
     zn = {**new_state(), 'league': zr['league']}
     assert explore(zn, ENCOUNTER_EVERY, ZoroRng()) == (571, 0) and 'disguise' not in zn['wild']  # 팀·동료가 없으면 환영 없이
     # 배틀 타워: 챔피언 뒤 열림 · 팀 앞 3마리 · 시작할 때만 탐색 2번 · 7연승마다 상 · 지면 끝(최고 기록은 남는다)
-    tw_ = {**new_state(), 'league': {'1': True}}
+    tw_ = unlock(new_state(), 2)
     assert (0, 'T') in gym_rows(tw_)[:2] and not any(r[1] == 'T' for r in gym_rows(new_state()))
     o0, o6, o48 = tower_opp(tw_, 0), tower_opp(tw_, 6), tower_opp(tw_, 48)
     assert len(o0) == TOWER_SIZE and o0 == tower_opp(tw_, 0) and o0[0][1] == TOWER_LV0 and o0[0][2] == (6,) * 6
@@ -3671,7 +3699,7 @@ def selftest():
     og = new_state()
     og['caught'] = [n for n in DEX if gen(n) == 1 and wild_ok(n)]  # 1세대 야생만 다 잡고 진화형은 남음
     assert opened_gen(og) == 1 and current_gen(og) == 1
-    og['league'] = {'1': '2026-10-26'}
+    unlock(og, 2, '2026-10-26')
     assert opened_gen(og) == 2 and current_gen(og) == 1 and all(gen(n) == 2 for n in wild_pool(og))
     assert gym_gens(og) == range(1, 3) and any(gen(n) == 2 for n, _ in egg_pool(og))
     og['caught'] += [n for n in DEX if gen(n) == 2 and wild_ok(n)]  # 2세대 야생을 다 잡아도 진화형이 남은 계열은 계속 2세대에서
@@ -3735,7 +3763,7 @@ def selftest():
     gs['gym'].update({f'gym:1-{i}': '2026-10-21' for i in range(8)})
     eggs = len(gs['eggs'])
     assert 'conquer1' in check_badges(gs) and len(gs['eggs']) == eggs + 1 and gs['master'] == 1  # 지방 정복 → 마스터볼과 알
-    gs['league'] = {'1': '2026-10-21'}
+    unlock(gs, 2, '2026-10-21')
     assert 'champ1' in check_badges(gs) and gs['master'] == 2 and gs['hyper'] == 1  # 챔피언 → 마스터볼(세대당 2개)
     # 도감 상세 배틀 정보: 꼬마돌(바위/땅) — 물·풀 ×4, 전기 무효
     BATTLE_DATA[:] = [{'stats': {74: [40, 80, 100, 30, 30, 20]}, 'types': {74: [6, 5]},
@@ -3764,11 +3792,11 @@ def selftest():
                   10169: (144, 'galar'), 10252: (128, 'paldea-aqua-breed'), 10233: (157, 'hisui')})
     try:
         assert old_pool(new_state()) == []
-        o2 = new_state(); o2['league'] = {'1': True}
+        o2 = unlock(new_state(), 2)
         op = old_pool(o2)
         assert op and all(gen(n) == 1 for n in op) and 1 in op and 150 in op
         assert {10091, 10169, 10252} <= set(op) and 10233 not in op  # 2세대 종(블레이범)의 폼은 2세대가 지나야
-        o2['caught'] = [152, 153, 154]  # 지금 세대(2)에서 계열을 다 잡은 치코리타는 지금 세대 후보에서 빠져도 이쪽으로 만난다
+        o2['caught'] += [152, 153, 154]  # 지금 세대(2)에서 계열을 다 잡은 치코리타는 지금 세대 후보에서 빠져도 이쪽으로 만난다
         assert 152 not in wild_pool(o2) and 152 in old_pool(o2) and 155 not in old_pool(o2)  # 진화형은 원래 야생에 없다(wild_ok)
         r, hits = random.Random(3), 0
         for _ in range(2000):
@@ -3792,13 +3820,13 @@ def selftest():
             def random(self): return 0.0
             def choice(self, seq): return self.n if self.n in seq else seq[0]
             def choices(self, seq, weights=None): return [self.choice(seq)]
-        fm = new_state(); fm['league'] = {'1': True}; fm['balls'] = 0
+        fm = unlock(new_state(), 2); fm['balls'] = 0; c0 = list(fm['caught'])
         assert explore(fm, ENCOUNTER_EVERY, Pick(10091)) == (10091, 0)
         # (난수 0 이라 이로치·우두머리도 — 리전폼도 같은 판정, 2026-11-06)
         assert fm['wild'] == {'id': 19, 'form': 10091, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0} and fm['forms_seen'] == [10091]
         assert throw(fm, ENCOUNTER_EVERY, Pick(10091)) == 'caught'
         assert fm['box'][0]['shiny'] and fm['box'][0]['alpha'] and art_of(fm['box'][0]) == 'form:shiny/10091'
-        assert [m['id'] for m in fm['box']] == [10091] and fm['forms'] == [10091] and fm['caught'] == [] and fm['partner'] == 0
+        assert [m['id'] for m in fm['box']] == [10091] and fm['forms'] == [10091] and fm['caught'] == c0 and fm['partner'] == 0
         assert 'form1' in check_badges(fm) and 'form_all' not in fm['badges']
         assert explore(fm, 2 * ENCOUNTER_EVERY, Pick(10091)) == (10091, 0) and fm['wild']['form'] == 10091
         fm['wild'] = None
@@ -3811,7 +3839,7 @@ def selftest():
         assert evo_next(83) == [] and evo_next(52) == [53] and evo_next(194) == [195] and research_goals(83)['e'] == 0  # 보통 모습은 지방 전용 진화형으로 안 간다
         assert need_xp(10091) == STAGE_XP[0] and need_xp(10092) is None
         fm['wild'] = None
-        assert evolve(fm, 10**9) == 10092 and fm['box'][0]['id'] == 10092 and 10092 in fm['forms'] and fm['caught'] == []
+        assert evolve(fm, 10**9) == 10092 and fm['box'][0]['id'] == 10092 and 10092 in fm['forms'] and fm['caught'] == c0
         assert evo_status(fm, 10**9) == ('final',) and box_level(fm['box'][0]) == _battle.level(1, 0)
         fm['team'] = [0]
         assert team_of(fm, 1) == [(0, 10092, box_level(fm['box'][0]))]  # 배틀엔 폼 번호 — 종족값·타입은 그 모습 것
@@ -3873,13 +3901,14 @@ def selftest():
         research_bump(mw, 800, 'c')
         assert mw['items'] == {'stone:10157': 2, 'fuse:800': 1}  # 도구는 하나면 된다
         assert change(mg, 0, 0) is None  # 6세대가 아직 안 열렸다
-        mg['league'] = {str(g): '2026-10-30' for g in range(1, 6)}  # 5세대까지 사천왕 → 6세대 열림
+        unlock(mg, 6, '2026-10-30')  # 5세대까지 사천왕 → 6세대 열림
         assert change(mg, 0, 0) == 10034 and mg['box'][0]['id'] == 10034 and mg['items']['stone:10034'] == 1
         assert mg['specials'] == [10034] and box_level(mg['box'][0]) == lv0 and name(10034) == L('메가리자몽 X', 'Mega Charizard X')
         assert change_options(mg, 0) == [] and item_name('stone:10035') == L('리자몽나이트Y', 'Charizardite Y')
         assert [ok for _, _, ok, _ in change_options({**mg, 'box': [{'id': 6, 'xp': 0}]}, 0)][2] is False  # 거다이맥스는 8세대
         ul = new_state()
-        ul['box'], ul['items'], ul['league'] = [{'id': 10155, 'xp': 0}], {'stone:10157': 1}, {str(g): 'x' for g in range(1, 7)}
+        ul['box'], ul['items'] = [{'id': 10155, 'xp': 0}], {'stone:10157': 1}
+        unlock(ul, 7)
         assert change(ul, 0, 0) == 10157 and name(10157) == L('울트라네크로즈마', 'Ultra Necrozma')
         pr = new_state()
         raid_state(pr)
@@ -3911,7 +3940,7 @@ def selftest():
     assert load(lr2)['research'] == {'1': {'c': 2}}  # 옛 가방은 마릿수를 잡은 횟수로(상 없이)
     # 진화로만 얻는 종(리자몽)의 연구 — 잡기 목표 1, 진화해서 얻으면 잡기로 센다, 옛 저장은 불러올 때 맞춰 바로 완료
     assert research_goals(6)['c'] == 1 and research_goals(4)['c'] == RESEARCH_CATCH and research_goals(150)['c'] == 1
-    rz = {**new_state(), 'box': [{'id': 5, 'xp': 0, 'iv': [0] * 6}], 'partner': 0, 'candy': 1, 'league': {'1': True}}
+    rz = unlock({**new_state(), 'box': [{'id': 5, 'xp': 0, 'iv': [0] * 6}], 'partner': 0, 'candy': 1}, 2)
     assert use_candy(rz, 0, i=0) == 6 and rz['research']['6']['c'] == 1
     rl = tempfile.mkdtemp()
     save({**new_state(), 'caught': [4, 5, 6], 'research': {'4': {'c': 1}, '6': {'w': 3}}, 'box': [{'id': 6, 'xp': 0}]}, rl)
@@ -3986,8 +4015,14 @@ def selftest():
     assert gym_left(gy)[gym_start(gy)] == ('G', 1)
     gy['gym'] = {f'gym:1-{i}': 'd' for i in range(8)}; gy['badges']['conquer1'] = 'd'
     assert gym_right(gy, 1)[-1] == (1, 'L') and gym_left(gy)[gym_start(gy)] == ('G', 1)  # 1세대 사천왕이 남았다
-    gy['league'] = {'1': 'd'}
-    assert ('T', 0) in gym_left(gy) and gym_left(gy)[gym_start(gy)] == ('G', 2)  # 1세대를 다 이겼으면 2세대부터
+    gy['league'] = {'1': 'd'}  # 챔피언은 이겼지만 1세대 야생 종이 남았으면 2세대는 아직 닫혀 있다(2026-11-09)
+    assert opened_gen(gy) == 1 and len(wild_left(gy, 1)) > 0
+    unlock(gy, 2, 'd')
+    assert ('T', 0) in gym_left(gy)
+    lw = unlock(new_state(), 2); lw['caught'].remove(151); lw['master'] = 1  # 뮤만 남았다 — 잡는 순간 2세대가 열린다
+    assert opened_gen(lw) == 1 and wild_left(lw, 1) == [151]
+    lw['wild'] = {'id': 151, 'balls': BALLS}
+    assert throw(lw, 0, random.Random(1), 'master') == 'caught' and opened_gen(lw) == 2 and lw['news'][-1]['kind'] == 'opengen' and gym_left(gy)[gym_start(gy)] == ('G', 2)  # 1세대를 다 이겼으면 2세대부터
     # 훈장 분류 — 맨 위 '장식 중', 모든 훈장이 한 분류에 한 번씩, 장식한 체육관 배지도 '장식 중'에
     mg = new_state(); mg['badges'] = {'catch1': 'd'}; mg['gym'] = {'gym:1-0': 'd'}; mg['showcase'] = ['catch1', 'gym:1-0']
     grps = medal_groups(mg)
