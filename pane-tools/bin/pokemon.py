@@ -1361,7 +1361,7 @@ BATTLE_DATA = []  # battle.json 을 한 번만 읽어 둔다
 
 
 def draw_info(scr, st, n, h, w, gold):
-    """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 이로치 그림).
+    """도감 상세: 이름 · 분류 · 타입, 잡았으면 키 · 몸무게 · 설명, 아래에 그림(이로치를 잡았으면 보통·이로치 나란히).
     그림은 Sixel·Kitty 가 되면 원본 도트로 — 놓을 그림 (방식, y, x, 키, 데이터, 칸, 줄)을 돌려주고, 화면을 그린 뒤 놓는다."""
     if not INFO or (n in FORMS or n in SPECIALS) and str(n) not in INFO:  # 리전폼 자료가 없는 옛 파일이면 ensure_detail 이 다시 받는다
         put(scr, 1, 1, L('PokeAPI 에서 도감 상세를 받는 중…', 'Downloading Pokédex details from PokeAPI…'), curses.A_DIM)
@@ -1398,37 +1398,57 @@ def draw_info(scr, st, n, h, w, gold):
                 y = fy + 1 + i
         else:
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
-    room, sid, gray = h - 3 - (y + 1), f'form:{n}' if form else n + (_pokedata.SHINY if sh else 0), False
-    loading = lambda: put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM) and None  # noqa: E731
+    room, gray = h - 3 - (y + 1), False
+    # 이로치를 잡았으면 보통·이로치 그림을 나란히(2026-11-09 사용자 — 전엔 이로치만 보여 보통 색을 볼 수 없었다)
+    sids = [f'form:{n}'] if form else [n, n + _pokedata.SHINY] if sh else [n]
+    if len(sids) > 1:
+        room -= 1  # 그림 아래 '보통 · ✨이로치' 줄
     if room < 4:
         return None
+    half, art = (w - 2) // len(sids), None
+    for k, sid in enumerate(sids):
+        ok, a = info_pic(scr, sid, gray, y + 1, 1 + k * half, half, room, 300000 + n if form else sid)
+        if not ok:
+            put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM)
+            return None
+        art = join_art(art, a)
+        if len(sids) > 1:
+            label = L('✨이로치', '✨shiny') if k else L('보통', 'normal')
+            put(scr, y + 1 + (a[6] if a else room), 1 + k * half + max(0, (half - memo_w(label)) // 2), label, gold if k else curses.A_DIM)
+    return art
+
+
+def info_pic(scr, sid, gray, y, x, width, room, key):
+    """도감 상세 그림 하나를 (y, x) 부터 width 칸 · room 줄 안 가운데에 — (받았나, 놓을 그림 또는 None).
+    Sixel·Kitty 는 놓을 그림을 돌려주고, 아니면 ▀▄ 칸으로 바로 그린다. key 는 Kitty 이미지 번호의 바탕."""
     if SIXEL:  # 원본 도트를 정수 배로 — ▀▄ 칸은 평균·256색이라 흐리고 색이 틀렸다(2026-10-21)
         cw_, ch_ = _gfx.cell_px()
         # 그림이 바깥 터미널 아래 끝을 넘으면 터미널 전체가 밀려 올라갔다(2026-10-21 실제 화면). 칸 크기를 잘못 알아
         # 두 배로 그려져도 넘지 않게, 남은 줄의 절반 · 최대 8줄로.
-        below = _gfx.rows_below(y + 1)
+        below = _gfx.rows_below(y)
         room = max(0, min(room, 8, (below - 1) // 2 if below else room))
         if room < 3:
-            return None
-        six = _pokedata.sprite_sixel_fit(sid, gray, int((w - 2) * cw_), int(room * ch_))
+            return True, None
+        six = _pokedata.sprite_sixel_fit(sid, gray, int(width * cw_), int(room * ch_))
         if not six:
-            return loading()
+            return False, None
         cols, rows = math.ceil(six[1] / cw_), math.ceil(six[2] / ch_)
-        return ('six', y + 1, max(1, (w - cols) // 2), (sid, gray, w, room), six[0], cols, rows)
+        return True, ('six', y, x + max(0, (width - cols) // 2), (sid, gray, width, room), six[0], cols, rows)
     if KITTY:
         png = _pokedata.sprite_png(sid, gray)
         if not png:
-            return loading()
+            return False, None
         cols = _gfx.kitty_cols(png[1], png[2], room)
-        return ('kitty', y + 1, max(1, (w - cols) // 2), (300000 + n if form else sid) * 2 + gray, png[0], cols, room)
+        while cols > width and room > 1:  # 나란히 놓으면 폭이 절반 — 칸을 넘지 않게 줄인다
+            room -= 1
+            cols = _gfx.kitty_cols(png[1], png[2], room)
+        return True, ('kitty', y, x + max(0, (width - cols) // 2), key * 2 + gray, png[0], cols, room)
     if curses.COLORS >= 256:
-        grid = _pokedata.sprite(sid, room * 2, w - 4)
-        if grid:
-            _pokedata.draw_sprite(scr, y + 1, max(1, (w - len(grid[0])) // 2), grid, gray)
-        else:
-            loading()
-    return None
-
+        grid = _pokedata.sprite(sid, room * 2, width - 2)
+        if not grid:
+            return False, None
+        _pokedata.draw_sprite(scr, y, x + max(0, (width - len(grid[0])) // 2), grid, gray)
+    return True, None
 
 SHOWCASE_MAX = 12  # 2026-11-05 사용자: 메인 맨 위 한 줄에 12개까지
 # 훈장 → PokeAPI 도구 그림(sprites/items/<이름>.png) — 2026-10-21 미리보기로 보여 드린 짝. 지방 정복은 그 지방 이야기의
