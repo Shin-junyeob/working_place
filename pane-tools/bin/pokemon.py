@@ -477,6 +477,11 @@ def load(root=ROOT):
             if m['id'] in DEX:
                 r = st['research'].setdefault(str(m['id']), {})
                 r['c'] = r.get('c', 0) + 1
+    for n in st['caught']:  # 2026-11-09 전에 진화로 얻은 종은 잡기 0 — 1로 맞추고, 과제를 다 채웠으면 지금 연구 완료(상·메가스톤)
+        if n in DEX and not wild_ok(n):
+            r = st['research'].setdefault(str(n), {})
+            r['c'] = max(1, r.get('c', 0))
+            research_award(st, n)
     for i, m in enumerate(st['box']):  # 개체값을 넣기 전(2026-10-28)에 잡은 것 — 저장될 때까지 같은 값이 나오게 자리·종으로 고정
         floor = max(IV_FLOOR if DEX[sp(m['id'])][5] else 0, ALPHA_IV if m.get('alpha') else 0)
         if 'iv' not in m:
@@ -1002,12 +1007,25 @@ def research_goals(n):
     특수 모습은 그 모습의 도감에 따로 {'m': 만들기 1, 'w': 배틀 승리}(2026-10-30)."""
     if n in SPECIALS:
         return {'m': 1, 'w': RESEARCH_WIN}
-    return {'c': 1 if DEX[n][5] else RESEARCH_CATCH, 'e': 1 if n in CHILDREN else 0, 'w': RESEARCH_WIN}
+    # 잡기: 전설·환상과 진화로만 얻는 종(야생에 안 나옴)은 1 — 5로 두면 진화형은 연구를 못 끝내 메가스톤도 못 얻었다(2026-11-09)
+    return {'c': 1 if DEX[n][5] or not wild_ok(n) else RESEARCH_CATCH, 'e': 1 if n in CHILDREN else 0, 'w': RESEARCH_WIN}
 
 
 def research_done(st, n):
     r = st.get('research', {}).get(str(n), {})
     return (n in DEX or n in SPECIALS) and all(r.get(k, 0) >= v for k, v in research_goals(n).items())
+
+
+def research_award(st, n):
+    """과제를 다 채웠는데 아직 완료 전이면 연구 완료 — 도감 ★, RESEARCH_PRIZE, 첫 메가스톤, 합체 도구. 이번에 완료했나."""
+    if not research_done(st, n) or n in st.setdefault('researched', []):
+        return False
+    st['researched'].append(n)
+    st[RESEARCH_PRIZE[0]] += RESEARCH_PRIZE[1]
+    tell(st, 'research', str(n))
+    give_stones(st, n)  # 첫 메가스톤
+    give_fuse_tool(st, n)  # 큐레무·네크로즈마·버드렉스 — 합체 도구(한 번, 쓴 뒤에도 남는다)
+    return True
 
 
 def research_bump(st, n, key):
@@ -1016,13 +1034,7 @@ def research_bump(st, n, key):
         return
     r = st.setdefault('research', {}).setdefault(str(n), {})
     r[key] = r.get(key, 0) + 1
-    if research_done(st, n) and n not in st.setdefault('researched', []):
-        st['researched'].append(n)
-        st[RESEARCH_PRIZE[0]] += RESEARCH_PRIZE[1]
-        tell(st, 'research', str(n))
-        give_stones(st, n)  # 첫 메가스톤
-        give_fuse_tool(st, n)  # 큐레무·네크로즈마·버드렉스 — 합체 도구(한 번, 쓴 뒤에도 남는다)
-    elif key == 'c' and n in DEX and n in st['researched'] and (r['c'] - research_goals(n)['c']) % RESEARCH_CATCH == 0:
+    if not research_award(st, n) and key == 'c' and n in DEX and n in st['researched'] and (r['c'] - research_goals(n)['c']) % RESEARCH_CATCH == 0:
         give_stones(st, n)  # 연구를 끝낸 뒤엔 RESEARCH_CATCH 마리 더 잡을 때마다 하나 더 — 전설(목표 1)도 매번이 아니라 5마리마다
 
 
@@ -1178,6 +1190,7 @@ def _evolve(st, t, rng, i=None):
         st['base'] = t
     st['evolved'] = st.get('evolved', 0) + 1
     bump(st, 'evolve')
+    research_bump(st, sp(mon['id']), 'c')  # 진화해서 얻은 것도 그 종을 얻은 것 — 진화형 연구의 '잡기'
     if mon['id'] in FORMS:  # 리전폼으로 진화 — 리전폼 목록에
         _mark(st, 'forms_seen', mon['id'])
         _mark(st, 'forms', mon['id'])
@@ -3895,6 +3908,15 @@ def selftest():
     lr2 = tempfile.mkdtemp()
     save({**new_state(), 'research': {}, 'box': [{'id': 1, 'xp': 0}, {'id': 1, 'xp': 0}]}, lr2)
     assert load(lr2)['research'] == {'1': {'c': 2}}  # 옛 가방은 마릿수를 잡은 횟수로(상 없이)
+    # 진화로만 얻는 종(리자몽)의 연구 — 잡기 목표 1, 진화해서 얻으면 잡기로 센다, 옛 저장은 불러올 때 맞춰 바로 완료
+    assert research_goals(6)['c'] == 1 and research_goals(4)['c'] == RESEARCH_CATCH and research_goals(150)['c'] == 1
+    rz = {**new_state(), 'box': [{'id': 5, 'xp': 0, 'iv': [0] * 6}], 'partner': 0, 'candy': 1, 'league': {'1': True}}
+    assert use_candy(rz, 0, i=0) == 6 and rz['research']['6']['c'] == 1
+    rl = tempfile.mkdtemp()
+    save({**new_state(), 'caught': [4, 5, 6], 'research': {'4': {'c': 1}, '6': {'w': 3}}, 'box': [{'id': 6, 'xp': 0}]}, rl)
+    lz = load(rl)
+    assert lz['research']['6']['c'] == 1 and 6 in lz['researched'] and 5 not in lz['researched']
+    assert any(k.startswith('stone:') for k in lz.get('items', {})) or not SPECIALS  # 메가리자몽나이트
     # 우두머리: 볼 3번 안에 못 잡으면 보유 볼이 남아도 도망
     al = new_state()
     al['wild'], al['balls'] = {'id': 19, 'balls': BALLS, 'alpha': True, 'tries': 0}, 10
