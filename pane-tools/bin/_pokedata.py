@@ -473,10 +473,47 @@ def strip_image(ids, height, kind='six'):
     return _sprites[key]
 
 
+ROMAN = ('I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX')
+GLYPH = {'I': ['#'] * 5, 'V': ['#.#'] * 4 + ['.#.'], 'X': ['#.#', '#.#', '.#.', '#.#', '#.#']}  # 3×5 도트 — 로마 숫자에 쓰는 셋만
+
+
+def charm_numeral(px, g, gold=(255, 196, 32, 255), edge=(70, 40, 0, 255)):
+    """빛나는 부적 그림(RGBA 행렬)의 별 가운데 — 가장 넓은 줄의 가운데 — 에 g 세대 로마 숫자를 금색·어두운 테두리로(2026-11-09 사용자)."""
+    px = crop(px)
+    cols = [GLYPH[c] for c in ROMAN[g - 1]]
+    w = sum(len(c[0]) for c in cols) + len(cols) - 1
+    mask, x = set(), 0
+    for c in cols:
+        mask |= {(x + i, j) for j, row in enumerate(c) for i, ch in enumerate(row) if ch == '#'}
+        x += len(c[0]) + 1
+    span = lambda r: [i for i, c in enumerate(r) if c[3] > 127]  # noqa: E731
+    cy = max(range(len(px)), key=lambda j: len(span(px[j])))
+    cx = (span(px[cy])[0] + span(px[cy])[-1]) // 2
+    x0, y0 = cx - w // 2, cy - 2
+    out = [list(r) for r in px]
+    for (i, j) in {(i + di, j + dj) for i, j in mask for di in (-1, 0, 1) for dj in (-1, 0, 1)} - mask:
+        if 0 <= y0 + j < len(out) and 0 <= x0 + i < len(out[0]):
+            out[y0 + j][x0 + i] = edge
+    for i, j in mask:
+        if 0 <= y0 + j < len(out) and 0 <= x0 + i < len(out[0]):
+            out[y0 + j][x0 + i] = gold
+    return out
+
+
 def _local(n):
-    """받아 둔 그림 파일 경로. 없으면 뒤에서 받기 시작하고 None — 허브가 멈추지 않게."""
+    """받아 둔 그림 파일 경로. 없으면 뒤에서 받기 시작하고 None — 허브가 멈추지 않게.
+    'item:shiny-charm-<세대>' 는 받은 빛나는 부적에 로마 숫자를 얹어 만들어 둔다(charm_numeral)."""
     path = f'{SPRITES}/{_src(n)}.png'
     if os.path.exists(path):
+        return path
+    if isinstance(n, str) and n.startswith('item:shiny-charm-'):
+        base = _local('item:shiny-charm')
+        if not base:
+            return None
+        with open(base, 'rb') as f:
+            data = encode_png(charm_numeral(decode_png(f.read()), int(n.rsplit('-', 1)[1])))
+        with open(path, 'wb') as f:
+            f.write(data)
         return path
     if n not in _fetching:  # ponytail: 실패해도 이 허브가 켜져 있는 동안은 다시 안 받는다
         _fetching.add(n)
