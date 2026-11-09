@@ -1459,7 +1459,7 @@ SHOWCASE_MAX = 12  # 2026-11-05 사용자: 메인 맨 위 한 줄에 12개까지
 # 훈장 → PokeAPI 도구 그림(sprites/items/<이름>.png) — 2026-10-21 미리보기로 보여 드린 짝. 지방 정복은 그 지방 이야기의
 # 상징물(처음엔 8관 배지 그림을 썼더니 훈장과 배지가 같은 그림이 됐다).
 MEDAL_ART = {'catch1': 'poke-ball', 'catch10': 'great-ball', 'catch50': 'ultra-ball', 'catch100': 'luxury-ball',
-             'catch500': 'master-ball', **{f'gen{g}': 'shiny-charm' for g in range(1, 10)},  # 세대 완성 = 빛나는 부적(2026-11-09 사용자 — 전엔 세대별 진화의 돌)
+             'catch500': 'master-ball', **{f'gen{g}': f'shiny-charm-{g}' for g in range(1, 10)},  # 세대 완성 = 빛나는 부적 + 금색 로마 숫자(_pokedata.charm_numeral, 2026-11-09 사용자)
              'shiny1': 'star-piece', 'shiny5': 'comet-shard', 'legend': 'red-chain', 'myth': 'gracidea',
              'evo1': 'rare-candy', 'final10': 'exp-share', 'super1': 'nugget', 'super10': 'big-nugget',
              'hyper1': 'gold-bottle-cap', 'conquer1': 'poke-flute', 'conquer2': 'rainbow-wing', 'conquer3': 'red-orb',
@@ -3765,6 +3765,14 @@ def selftest():
     sc['caught'] = list(range(1, 86))
     assert badge_goal(sc, 'catch100') == (85, 100) and badge_goal(sc, 'gen1') == (85, 151) and badge_goal(sc, 'legend') is None
     assert set(MEDAL_ART) == {b for b, _, _, _ in BADGES}  # 모든 훈장에 그림이 있다
+    # 세대 훈장 — 빛나는 부적 별 가운데에 금색 로마 숫자(가장 넓은 줄 가운데), 크기는 그대로
+    star = [[(0, 0, 0, 0)] * 15 for _ in range(9)]
+    for x_ in range(1, 14):
+        star[4][x_] = (250, 250, 200, 255)
+    for g in (1, 8, 9):
+        cn = _pokedata.charm_numeral(star, g)
+        assert len(cn) == 1 and len(cn[0]) == 13 and (255, 196, 32, 255) in cn[0], g  # 한 줄짜리 별은 잘려도 숫자가 든다
+    assert MEDAL_ART['gen3'] == 'shiny-charm-3' and _pokedata._src('item:shiny-charm-3') == 'items/shiny-charm-3'
     assert art_id('catch1') == 'item:poke-ball' and art_id('gym:1-0') == _pokedata.BADGE + 1 and art_id('conquer1') == 'item:poke-flute'
     assert not {art_id(b) for b, _, _, _ in BADGES} & {art_id(f'gym:{g}-{i}') for g in range(1, 10) for i in range(8)}  # 훈장과 배지는 다른 그림
     # 체육관: 팀 최대 6 · 탐색 2회 · 처음 이기면 배지+하이퍼볼, 다시 이기면 경험치만 · 8관 모두면 지방 정복 훈장과 알
