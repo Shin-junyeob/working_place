@@ -2669,7 +2669,8 @@ def main(scr):
                 # 그림 자리 — 상대는 상자 오른쪽 빈 곳 가운데, 나는 상자 왼쪽 빈 곳 가운데
                 x0, x1 = (bw + 2, w - 1) if side == 'foe' else (1, w - 2 - bw)
                 y0, rows_ = (1, half - 1) if side == 'foe' else (half + 1, mb - half - 2)
-                a = mon_art(art_of(n), y0, w, x0, max(1, rows_), x1 - x0, flip=side == 'me') if rows_ >= 2 else None
+                pic = art_of({'id': n, 'shiny': side == 'me' and n in battle_now.get('shiny', ())})
+                a = mon_art(pic, y0, w, x0, max(1, rows_), x1 - x0, flip=side == 'me') if rows_ >= 2 else None
                 if a:
                     wide = a[5] * (SIXEL_SCALE if a[0] == 'six' else 1)  # Sixel 은 알려 준 칸보다 크게 그려진다
                     pics.append((a[0], a[1], max(x0, round((x0 + x1 - wide) / 2)), *a[3:]))
@@ -3163,7 +3164,10 @@ def main(scr):
                 ups = [(n, lv, box_level(st['box'][k])) for k, n, lv in team if box_level(st['box'][k]) > lv]
                 gain = GYM_WIN_XP + 10 * (8 if gsel[1] in ('L', 'R', 'T') else gsel[1]) if won else GYM_LOSE_XP
                 tw = tower_state(st)
+                # 기록엔 종 번호만 있어 이로치를 몰랐다(2026-11-09 이로치 가이오가가 보통 그림) — 팀의 이로치 종을 함께
+                # shortcut: 같은 종이 이로치·보통 둘 다 팀에 있으면 둘 다 이로치로 그린다 — 그런 팀이 생기면 기록에 가방 번호를 싣는다
                 battle_now = {'ev': ev, 'k': 0, 'won': won, 'first': first, 'xp': gain, 'ups': ups,
+                              'shiny': {n for k_, n, _ in team if st['box'][k_].get('shiny')},
                               'tower': (tw['streak'], tw['best']) if gsel[1] == 'T' else None,
                               'key': f'champ{gsel[0]}' if gsel[1] == 'L' else f'gym:{gsel[0]}-{gsel[1]}'}
                 view, msg = 'fight', ''
