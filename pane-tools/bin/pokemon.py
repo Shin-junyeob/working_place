@@ -284,6 +284,11 @@ def wild_pool(st):
     return []
 
 
+def old_weight(n):
+    """이전 세대 탐색에서의 가중치 — 전설·환상은 OLD_LEGEND_WEIGHT, 리전폼 전설(가라르 프리져 등)도 원래 종으로 판정(2026-11-09)."""
+    return OLD_LEGEND_WEIGHT if DEX[sp(n)][5] else 1
+
+
 def old_pool(st):
     """이전 세대(열린 세대보다 아래 전부)와 지금 세대에서 계열을 다 잡은 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 포함.
     모든 세대를 다 채웠으면 전 세대에서. 그 세대 종의 리전폼(FORMS 번호)도 함께 — 진화형 폼도 야생에서 바로."""
@@ -573,7 +578,7 @@ def explore(st, t, rng=random):
     st['used'] += 1
     bump(st, 'explore')
     if old and (not odds or rng.random() < OLD_GEN_RATE):
-        n = rng.choices(old, weights=[OLD_LEGEND_WEIGHT if n in DEX and DEX[n][5] else 1 for n in old])[0]
+        n = rng.choices(old, weights=[old_weight(n) for n in old])[0]
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     shiny = rng.random() < shiny_rate(st, n)  # 리전폼도 이로치·우두머리(2026-11-06 사용자 — 전엔 따로 모으던 시절 규칙으로 없었다)
@@ -3816,6 +3821,7 @@ def selftest():
         op = old_pool(o2)
         assert op and all(gen(n) == 1 for n in op) and 1 in op and 150 in op
         assert {10091, 10169, 10252} <= set(op) and 10233 not in op  # 2세대 종(블레이범)의 폼은 2세대가 지나야
+        assert old_weight(10169) == old_weight(150) == OLD_LEGEND_WEIGHT and old_weight(10091) == old_weight(19) == 1  # 가라르 프리져도 전설
         o2['caught'] += [152, 153, 154]  # 지금 세대(2)에서 계열을 다 잡은 치코리타는 지금 세대 후보에서 빠져도 이쪽으로 만난다
         assert 152 not in wild_pool(o2) and 152 in old_pool(o2) and 155 not in old_pool(o2)  # 진화형은 원래 야생에 없다(wild_ok)
         r, hits = random.Random(3), 0
