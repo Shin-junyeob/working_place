@@ -1438,14 +1438,16 @@ def draw_info(scr, st, n, h, w, gold):
 
 def info_pic(scr, sid, gray, y, x, width, room, key):
     """도감 상세 그림 하나를 (y, x) 부터 width 칸 · room 줄 안 가운데에 — (받았나, 놓을 그림 또는 None).
-    Sixel·Kitty 는 놓을 그림을 돌려주고, 아니면 ▀▄ 칸으로 바로 그린다. key 는 Kitty 이미지 번호의 바탕."""
+    Sixel·Kitty 는 놓을 그림을 돌려주고, 아니면 ▀▄ 칸으로 바로 그린다. key 는 Kitty 이미지 번호의 바탕.
+    그림은 남은 줄의 절반 높이 — 가로·세로가 절반이라 넓이 1/4(2026-11-10 사용자: 24줄 패널에서 23칸×11줄이 너무 컸다)."""
+    room = max(2, room // 2)
     if SIXEL:  # 원본 도트를 정수 배로 — ▀▄ 칸은 평균·256색이라 흐리고 색이 틀렸다(2026-10-21)
         cw_, ch_ = _gfx.cell_px()
         # 그림이 바깥 터미널 아래 끝을 넘으면 터미널 전체가 밀려 올라갔다(2026-10-21 실제 화면). 칸 크기를 잘못 알아
         # 두 배로 그려져도 넘지 않게, 남은 줄의 절반 · 최대 8줄로.
         below = _gfx.rows_below(y)
         room = max(0, min(room, 8, (below - 1) // 2 if below else room))
-        if room < 3:
+        if room < 2:  # 위에서 절반으로 줄였으니 2줄까지는 그린다(3줄 기준이면 작은 패널에서 그림이 사라졌다)
             return True, None
         six = _pokedata.sprite_sixel_fit(sid, gray, int(width * cw_), int(room * ch_))
         if not six:
