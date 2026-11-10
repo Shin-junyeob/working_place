@@ -467,6 +467,19 @@ def strip(ids, height, gap=4):
     return [sum((p[y] + [blank] * gap for p in parts), [])[:-gap or None] for y in range(height)]
 
 
+def grid(ids, height, per_row, gap=4):
+    """strip() 을 per_row 개씩 끊어 위아래로 쌓은 한 장(전체 높이 height) — 줄마다 왼쪽 정렬, 빈 곳은 투명."""
+    lines = [ids[k:k + per_row] for k in range(0, len(ids), per_row)]
+    rows = [strip(ln, (height - gap * (len(lines) - 1)) // len(lines), gap) for ln in lines]
+    if not rows or any(r is None for r in rows):
+        return None
+    w = max(len(r[0]) for r in rows)
+    out = []
+    for k, r in enumerate(rows):
+        out += ([[(0, 0, 0, 0)] * w for _ in range(gap)] if k else []) + [row + [(0, 0, 0, 0)] * (w - len(row)) for row in r]
+    return out
+
+
 EGG_KM = (2, 5, 7, 10, 12)  # 알 종류(포켓몬고처럼 거리로 부른다) — 무늬 색은 EGG_COLORS
 EGG_COLORS = {2: ((236, 244, 222), (88, 176, 72)), 5: ((250, 238, 214), (236, 132, 44)), 7: ((250, 242, 206), (228, 196, 40), (236, 112, 164)),
               10: ((242, 232, 250), (146, 84, 200)), 12: ((56, 40, 44), (220, 48, 52))}  # (바탕, 무늬[, 둘째 무늬])
@@ -504,11 +517,11 @@ def egg_image(km, height, kind='six'):
     return _sprites[key]
 
 
-def strip_image(ids, height, kind='six'):
-    """strip() 을 Sixel (문자열, 가로, 세로) 또는 PNG (바이트, 가로, 세로) 로 — 같은 조합은 다시 만들지 않는다."""
-    key = ('strip', tuple(ids), height, kind)
+def strip_image(ids, height, kind='six', per_row=0):
+    """strip()(per_row 를 주면 grid()) 을 Sixel (문자열, 가로, 세로) 또는 PNG (바이트, 가로, 세로) 로 — 같은 조합은 다시 만들지 않는다."""
+    key = ('strip', tuple(ids), height, kind, per_row)
     if key not in _sprites:
-        px = strip(ids, height)
+        px = grid(ids, height, per_row) if per_row else strip(ids, height)
         if px is None:
             return None  # 아직 받는 중 — 다음에 다시
         _sprites[key] = encode_sixel(px, height) if kind == 'six' else (encode_png(px), len(px[0]), len(px))
