@@ -17,8 +17,9 @@
 - 볼 네 가지: 몬스터볼 · 슈퍼볼(1.5배) · 하이퍼볼(2배) · 마스터볼(반드시 잡힘). 전설·환상은 하이퍼볼·마스터볼로만
   잡힌다(다른 볼은 쓰지 않고 알려만 준다). 마스터볼은 세대마다 두 개 — 8관 지방 정복과 사천왕·챔피언 첫 승리.
   체육관은 처음 이길 때마다 하이퍼볼 1개. [교환] → [몬스터볼]에서 볼을 위 단계로 바꾼다(TRADES — 몬스터볼 5 → 슈퍼볼,
-  슈퍼볼 20 → 하이퍼볼, 하이퍼볼 5 → 마스터볼). 슈퍼볼은 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가
-  하나라도 있으면 1개(하루 1개, 기록은 feed.py 가 읽는 ~/.claude/jobs 의 timeline). 그런 날이 STREAK_DAYS 일 연속이면 하이퍼볼.
+  슈퍼볼 20 → 하이퍼볼, 하이퍼볼 5 → 마스터볼).
+- 일한 보상 — 그날 push·PR 병합·배포가 든 completed 가 하나라도 있으면 탐색 +WORK_EXPLORES(하루 한 번, 기록은 feed.py 가 읽는
+  ~/.claude/jobs 의 timeline). 그런 평일이 STREAK_DAYS 일 연속이면 탐색 +STREAK_BONUS 더(주말은 연속을 끊지도 세지도 않는다).
 - 알: 야생 포켓몬을 잡을 때 EGG_CATCH 확률로 하나(최대 EGG_MAX), 지방 정복 때 하나. 알마다 받은 때(base)부터 따로 자라고, 메인 화면에 한 줄씩(egg_lines). 종류(egg_km, 2·5·7·10·12km)에 따라 덤을 더 준다(EGG_KM_BONUS · EGG_KM_SHINY).
 - 주간 과제: 주마다(월요일) WEEKLY 에서 하나 — 이루면 WEEKLY_PRIZE.
 - 리전폼(알로라·가라르·히스이·팔데아 모습, FORMS): 이전 세대 탐색(OLD_GEN_RATE)에 그 종의 세대가 지난 폼이 함께 나온다.
@@ -93,7 +94,9 @@ SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이�
 SHIP = re.compile(r'(?<![a-z])PRs?(?![a-z])|병합|배포|(?<![a-z])(merge|deploy|push)|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
 # 영문자만 경계로 — prefix·approval 의 pr 은 빼고(2026-10-30, 실제 기록 37건), 'PR을' 처럼 한글이 붙은 건 잡는다
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
-STREAK_DAYS = 3  # 보상받은 날이 며칠 연속이면 하이퍼볼(3·6·9일째) — 2026-10-23 알에서 바꿈(알은 포획 때 EGG_CATCH)
+# 일한 보상(2026-11-11 사용자 — 슈퍼볼 1개 · 3일 연속 하이퍼볼에서 바꿈): 그날 탐색 +1, 평일 5일 연속(월~금이면 한 주)마다 +5 더.
+# 주말은 보통 쉬어서 연속을 끊지 않고, 주말에 일하면 그날 +1 만 받는다. 받은 탐색은 st['extra'] 에 쌓여 tickets 에 더해진다.
+WORK_EXPLORES, STREAK_DAYS, STREAK_BONUS = 1, 5, 5
 ALPHA_RATE, ALPHA_IV, ALPHA_TRIES = 0.01, 12, 3  # 우두머리: 탐색 100번에 1번 · 개체값 최소 12 · 볼 3번 안에 못 잡으면 도망
 ALPHA_BOOST = 1.1  # 우두머리 배틀 능력치 배수(2026-11-06 사용자)
 # 레이드 보스 HP 배수 · 레이드볼 · 도전 1번에 쓰는 탐색. 레이드는 모든 세대가 나간다 — 모든 세대 최종 진화형 중 고른 팀을 보스 레벨에 맞춰
@@ -427,8 +430,8 @@ BADGES = [('catch1', '첫 포획', 'First catch', lambda st: len(st['caught']) >
     ('myth', '첫 환상', 'First mythical', lambda st: any(DEX[n][5] == 2 for n in st['caught'])),
     ('evo1', '첫 진화', 'First evolution', lambda st: st['evolved'] >= 1),
     ('final10', '최종 진화 10', '10 fully evolved', lambda st: _final_evolved(st) >= 10),
-    ('super1', '첫 슈퍼볼', 'First Great Ball', lambda st: (st['super_earned'] or 0) >= 1),
-    ('super10', '슈퍼볼 10', '10 Great Balls', lambda st: (st['super_earned'] or 0) >= 10),
+    ('super1', '첫 일한 날', 'First work day', lambda st: (st['super_earned'] or 0) >= 1),
+    ('super10', '일한 날 10', '10 work days', lambda st: (st['super_earned'] or 0) >= 10),
     ('hyper1', '하이퍼볼 교환', 'Ultra Ball trade', lambda st: st['exchanged'] >= 1)] + \
     [(f'conquer{g}', f'{g}세대 지방 정복', f'Gen {g} gyms cleared',
       (lambda g: lambda st: all(f'gym:{g}-{i}' in st.get('gym', {}) for i in range(8)))(g)) for g in range(1, 10)] + \
@@ -622,7 +625,7 @@ def save(st, root=ROOT):
 
 
 def tickets(st, t):
-    return t // ENCOUNTER_EVERY - st['used']
+    return t // ENCOUNTER_EVERY + st.get('extra', 0) - st['used']
 
 
 def partner_xp(st, t):
@@ -904,7 +907,9 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
         if n['kind'] == 'opengen':
             return L(f'{n["arg"]}세대가 열렸다! 풀숲에서 새 포켓몬이 나온다.', f'Gen {n["arg"]} is open! New Pokémon in the tall grass.'), False
         if n['kind'] == 'streak':
-            return L(f'{n["arg"]}일 연속! {pn}(이)가 하이퍼볼을 물어 왔다!', f'{n["arg"]}-day streak! {pn} brought an Ultra Ball!'), False
+            return L(f'평일 {n["arg"]}일 연속! 탐색 기회 +{STREAK_BONUS}!', f'{n["arg"]} weekdays in a row! +{STREAK_BONUS} explores!'), False
+        if n['kind'] == 'work':
+            return L(f'오늘도 일했다! {pn}(이)가 신나서 탐색 기회 +{WORK_EXPLORES}!', f'Shipped today! {pn} is excited: +{WORK_EXPLORES} explore!'), False
         if n['kind'] == 'weekly':
             ko = '·'.join(ball_name(b, c)[0] for b, c in WEEKLY_PRIZE)
             en = ', '.join(ball_name(b, c)[1] for b, c in WEEKLY_PRIZE)
@@ -1017,33 +1022,39 @@ def egg_lines(st, t):
 
 
 def reward(st, folder=feed.JOBS, today=None):
-    """일한 보상 — 기능을 켠 날부터, 조건을 채운 날마다 슈퍼볼 1개(하루 1개). 새로 준 개수."""
+    """일한 보상 — 기능을 켠 날부터, 조건을 채운 날마다 탐색 +WORK_EXPLORES(하루 한 번), 평일 STREAK_DAYS 일 연속마다
+    +STREAK_BONUS 더. 새로 보상한 날 수."""
     today = today or datetime.now().astimezone().strftime('%Y-%m-%d')
     st['reward_since'] = st.get('reward_since') or today
     got = 0
     for day, names in sorted(shipped(folder).items()):
         if day >= st['reward_since'] and day not in st['rewarded'] and len(names) >= SUPER_SESSIONS:
             st['rewarded'].append(day)  # 자르지 않는다 — 잘린 날을 '안 받은 날'로 보고 다시 줬다(2026-10-30)
-            st['super'] += 1
-            st['super_earned'] = (st.get('super_earned') or 0) + 1
+            st['extra'] = st.get('extra', 0) + WORK_EXPLORES
+            st['super_earned'] = (st.get('super_earned') or 0) + 1  # 일한 날 수(훈장) — 예전 이름 그대로
             got += 1
-            tell(st, 'super')
+            tell(st, 'work')
             bump(st, 'ship')
             k = streak(st, day)
-            if k % STREAK_DAYS == 0:
-                st['hyper'] += 1
+            if datetime.strptime(day, '%Y-%m-%d').weekday() < 5 and k % STREAK_DAYS == 0:  # 주말엔 연속이 그대로라 다시 주지 않게
+                st['extra'] += STREAK_BONUS
                 tell(st, 'streak', str(k))
     return got
 
 
 def streak(st, day):
-    """day(또는 그 전날)에서 끝나는, 보상받은 날의 연속 일수 — 오늘 아직 안 했어도 어제까지 이어졌으면 센다."""
-    got, d = set(st['rewarded']), datetime.strptime(day, '%Y-%m-%d')
-    if day not in got:
-        d -= timedelta(days=1)
-    n = 0
-    while d.strftime('%Y-%m-%d') in got:
-        n, d = n + 1, d - timedelta(days=1)
+    """day 까지 보상받은 평일의 연속 일수 — 주말은 건너뛴다(끊지도 세지도 않음, 2026-11-11 사용자). 오늘(평일)을 아직 안
+    했어도 그 전 평일까지 이어졌으면 센다."""
+    got, d, n, first = set(st['rewarded']), datetime.strptime(day, '%Y-%m-%d'), 0, True
+    for _ in range(4000):  # ponytail: 10년쯤이면 충분 — 무한 루프 방지
+        if d.weekday() >= 5:
+            d -= timedelta(days=1)
+            continue
+        if d.strftime('%Y-%m-%d') in got:
+            n += 1
+        elif not first:
+            break
+        first, d = False, d - timedelta(days=1)
     return n
 
 
@@ -2483,9 +2494,9 @@ def main(scr):
             # 아래 글(알 · 주간 과제 · 볼 · 메시지)이 차지할 줄을 먼저 세고, 남은 줄로 팀 칸 크기를 정한다 — 패널 크기에 맞춰
             today = datetime.now().astimezone().strftime('%Y-%m-%d')
             done = len(shipped().get(today, ()))
-            weekly_line = weekly_text(st) + ' · ' + (L('오늘 슈퍼볼 ✔', 'Great Ball today ✔') if today in st['rewarded'] else
+            weekly_line = weekly_text(st) + ' · ' + (L(f'오늘 탐색 +{WORK_EXPLORES} ✔', f'+{WORK_EXPLORES} explore today ✔') if today in st['rewarded'] else
                                                      L(f'오늘 push·PR·배포 {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}', f'push/PR/deploy today {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}')) \
-                + L(f' · 연속 {streak(st, today)}일', f' · {streak(st, today)}-day streak')
+                + L(f' · 평일 연속 {streak(st, today)}일', f' · {streak(st, today)}-weekday streak')
             balls_line = L(f'몬스터볼\xa0{st["balls"]} · 슈퍼볼\xa0{st["super"]} · 하이퍼볼\xa0{st["hyper"]} · 마스터볼\xa0{st["master"]}',
                            f'Poké\xa0{st["balls"]} · Great\xa0{st["super"]} · Ultra\xa0{st["hyper"]} · Master\xa0{st["master"]}')  # 이름과 숫자는 붙여 접는다
             eggs = egg_lines(st, t)
@@ -3854,10 +3865,10 @@ def selftest():
     assert join_art(('kitty', 2, 1, 7, b'B', 3, 1), ('kitty', 4, 1, 9, b'P', 2, 2))[7] == [(4, 1, 9, b'P', 2, 2)]
     rw = new_state()
     rw['reward_since'] = '2026-10-01'
-    assert reward(rw, jd) == 1 and rw['super'] == 1 and reward(rw, jd) == 0  # 21일만, 하루 1개
+    assert reward(rw, jd) == 1 and rw['extra'] == WORK_EXPLORES and rw['super'] == 0 and reward(rw, jd) == 0  # 21일만, 하루 한 번
     job('b', [(day2, '배포 완료')])
     feed._cache.clear()
-    assert reward(rw, jd) == 1 and rw['super'] == 2 and not rw['eggs']  # 22일 — 연속 2일, 알은 아직
+    assert reward(rw, jd) == 1 and rw['extra'] == 2 * WORK_EXPLORES and not rw['eggs']  # 22일 — 연속 2일, 알은 아직
     rw2 = new_state()
     assert reward(rw2, jd, today='2026-10-22') == 1 and rw2['reward_since'] == '2026-10-22'  # 켠 날(22일) 전 보상은 없다
     global shipped
@@ -3865,7 +3876,7 @@ def selftest():
     shipped = lambda folder=None: days70  # 기록이 60일을 넘어도 한 번 준 날은 다시 주지 않는다
     try:
         rw3 = {**new_state(), 'reward_since': '2026-07-01'}
-        assert reward(rw3) == 84 and reward(rw3) == 0 and rw3['super'] == 84
+        assert reward(rw3) == 84 and reward(rw3) == 0 and len(rw3['rewarded']) == 84
     finally:
         shipped = real_ship
     bad = tempfile.mkdtemp()  # 깨진 저장 파일은 덮어쓰지 않고 사본을 남긴다
@@ -3949,10 +3960,10 @@ def selftest():
     assert 172 in eg['caught'] and 172 in eg['shiny'] and not eg['eggs'] and eg['news'][-1]['kind'] == 'hatch'
     assert eg['super'] == 1 and eg['news'][-1]['arg'] == '172*|super:1'  # 포켓몬과 함께 덤 볼 하나
     assert sum(w for _, _, w in EGG_BONUS) == 100 and ball_name('balls', '2') == ('몬스터볼 2개', '2 Poké Balls')
-    # 하이퍼볼: 보상받은 날이 3일 연속이면(3·6·9일째) — 하루 빠지면 처음부터. 알은 이제 여기서 주지 않는다
+    # 일한 보상: 날마다 탐색 +1, 평일 5일 연속(11/2~6 월~금, 11/9~13)마다 +5 — 토요일(11/7)은 +1 만, 연속은 그대로
     sd = tempfile.mkdtemp()
-    for j, d in enumerate(('2026-11-01', '2026-11-02', '2026-11-03', '2026-11-05', '2026-11-06', '2026-11-07',
-                           '2026-11-08', '2026-11-09')):
+    for j, d in enumerate(('2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07',
+                           '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13')):
         os.makedirs(f'{sd}/s{j}')
         with open(f'{sd}/s{j}/state.json', 'w') as f:
             json.dump({'name': f's{j}', 'state': 'done'}, f)
@@ -3962,8 +3973,10 @@ def selftest():
     ew = new_state()
     ew['reward_since'] = '2026-10-01'
     ew['weekly'] = {'key': week_key(), 'kind': 'hatch', 'n': 0, 'done': False}  # 실제 이번 주 과제가 'ship' 이면 상이 섞인다
-    assert reward(ew, sd) == 8 and ew['hyper'] == 2 and not ew['eggs']  # 1~3일 · 4일 빠짐 · 5~7일 → 하이퍼볼 둘 · 8·9일은 4·5일째
-    assert sum(1 for n in ew['news'] if n['kind'] == 'streak') == 2
+    assert reward(ew, sd) == 11 and ew['extra'] == 11 + 2 * STREAK_BONUS and ew['hyper'] == 0 and ew['super'] == 0 and not ew['eggs']
+    assert sum(1 for n in ew['news'] if n['kind'] == 'streak') == 2 and tickets(ew, 0) == ew['extra']
+    assert streak(ew, '2026-11-08') == 5 and streak(ew, '2026-11-13') == 10 and streak(ew, '2026-11-16') == 10  # 일요일·다음 월요일(아직)
+    assert streak({'rewarded': ['2026-11-02', '2026-11-03', '2026-11-05']}, '2026-11-05') == 1  # 수요일을 빠지면 처음부터
     # 알: 잡을 때 EGG_CATCH 확률로(가득 차면 못 받는다)
     ca = new_state()
     ca['caught'] = [1]
@@ -4019,7 +4032,6 @@ def selftest():
     sm = dex_summary(dh, 1)
     nums = [int(x) for x in re.findall(r'\d+', sm.split(L('지금', 'in the'))[0])]
     assert sum(nums) == len(left1), (sm, len(left1))
-    assert streak(ew, '2026-11-09') == 5 and streak(ew, '2026-11-10') == 5 and streak(ew, '2026-11-11') == 0
     # 장식 배지: 받은 것만, 최대 SHOWCASE_MAX 개, 다시 고르면 뺀다 · 진행도
     sc = new_state()
     filler = [f'gen{g}' for g in range(1, 8)]  # 앞의 다섯과 합쳐 12개를 채울 것
