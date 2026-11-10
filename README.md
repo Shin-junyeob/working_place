@@ -101,6 +101,12 @@ A challenge costs two explores and plays a fully automatic battle line by line, 
 
 Each gym's first win gives an Ultra Ball. Clearing all eight gyms of a generation gives the region conquest medal, a Master Ball and an egg — and opens that generation's **Elite Four and Champion**: five battles in a row (four members with four Pokémon each, a champion with six), four explores per run. The first clear gives the champion medal and a Master Ball — two Master Balls per generation — and opens the next generation once every wild species of this one is caught (a news line says how many are left; the last catch opens it).
 
+### Rebirth and player info
+
+**Player info** — press `t` or click the top line of the main screen: this run (start date, Pokédex, generations, champions, shinies, alphas, ribbons), all-time totals (caught, shinies, legendaries, gym/league wins, explores, work days, longest streak), rebirth perks, the companion, the run history and the three rebirth goals.
+
+**Rebirth** — once every species in the National Pokédex is caught, all nine leagues are beaten and the Battle Tower reaches 100 wins, **[rebirth]** appears there. Pick one Pokémon to bring along (its level, IVs, ribbons and nickname stay; it gets a Rebirth Ribbon and may enter any generation's gyms and leagues) and everything else starts over from Gen 1: the Pokédex and research, the rest of the bag, balls, items and eggs, Shiny Charms, gym badges, leagues and raids, the Battle Tower (from 0, best included), medals and the showcase. What stays: your unused explores, the work-reward streak, all-time totals and the run history. Every rebirth doubles the shiny rate again (×2, ×4, ×8 … until the base rate reaches 1/8; a generation's Shiny Charm still doubles on top), doubles the alpha rate and hands out a Master Ball and five Ultra Balls. Totals from before this feature start from what the save still shows (caught species, gym badges, explores used).
+
 **Controls** — arrow keys, Enter and `q`, plus Tab in lists. The mouse works too.
 
 | Screen | Keys |

@@ -371,7 +371,8 @@ RIBBONS = {**{f'champ{g}': (CHAMP_RIBBON.get(g, 'champion-ribbon'), f'{g}세대 
            'tower49': ('battle-tree-master-ribbon', '배틀 타워 49연승 리본', 'Tower 49-Win Ribbon'),
            'raid': ('legend-ribbon', '레이드 리본', 'Raid Ribbon'),
            'partner': ('best-friends-ribbon', '단짝 리본', 'Best Friends Ribbon'),
-           'effort': ('effort-ribbon', '노력 리본', 'Effort Ribbon')}
+           'effort': ('effort-ribbon', '노력 리본', 'Effort Ribbon'),
+           'rebirth': ('souvenir-ribbon', '환생 리본', 'Rebirth Ribbon')}
 def ribbon_how():
     return L('사천왕·챔피언을 이긴 팀원 · 배틀 타워 21·49연승 · 레이드를 이긴 팀원 · 동료로 진화 · 개체값 여섯을 모두 15로',
              'beat a league · Tower 21/49 wins · win a raid · evolve as partner · all six IVs at 15')
@@ -394,6 +395,80 @@ def mon_name(m):
 
 NICK_MAX = 12  # 닉네임 최대 글자 수
 
+# 환생(2026-11-11 사용자 설계) — 도감 전부 잡기 · 1~9세대 사천왕 · 배틀 타워 REBIRTH_TOWER 연승을 모두 채우면 [환생]:
+# 고른 1마리(동행)만 데리고 처음부터. 남는 것은 탐색 기회 · 일한 보상(연속) · 누적 기록 · 회차 기록뿐(훈장·체육관·타워도 리셋).
+# 혜택은 매 환생 모두: 동행(세대 제한 없이 출전, 환생 리본) · 이로치 ×2^환생수(기본 확률이 1/8 에 닿으면 멈춤) · 우두머리 ×2 ·
+# 출발 보급(마스터볼 1 · 하이퍼볼 5).
+REBIRTH_TOWER, REBIRTH_SHINY_CAP, REBIRTH_ALPHA = 100, 5, 2
+REBIRTH_SUPPLY = (('master', 1), ('hyper', 5))
+KEEP_ON_REBIRTH = ('used', 'extra', 'rewarded', 'reward_since', 'super_earned', 'weekly', 'habitat', 'forms_boxed', 'news', 'life', 'runs')
+
+
+def run_stat(st, today=None):
+    """이번 회차 기록 {'start', 'caught', 'wins', 'explores'} — 없던 저장은 남은 기록으로 어림해 시작한다."""
+    r = st.get('run')
+    if r is None:
+        r = st['run'] = {'start': st.get('reward_since') or today or datetime.now().astimezone().strftime('%Y-%m-%d'),
+                         'caught': len(st['caught']) + len(st.get('forms', [])),
+                         'wins': len(st.get('gym', {})) + len(st.get('league', {})), 'explores': st['used']}
+    return r
+
+
+def legends_caught(st):
+    return sum(1 for n in st['caught'] if n in DEX and DEX[n][5])
+
+
+def best_streak(st):
+    """일한 보상의 가장 긴 연속(streak 와 같은 규칙) — 환생해도 기록(rewarded)이 남아 회차를 넘어 센다."""
+    return max((streak(st, d) for d in st.get('rewarded', [])), default=0)
+
+
+def rebirth_goals(st):
+    """환생 조건 [(이름, 지금, 목표)] — 도감(전국도감 종을 모두 잡기) · 사천왕(1~GENS 세대) · 배틀 타워 최고 연승."""
+    return [(L('도감', 'Pokédex'), len(set(st['caught']) & set(DEX)), len(DEX)),
+            (L('사천왕', 'Leagues'), sum(1 for g in range(1, GENS + 1) if str(g) in st.get('league', {})), GENS),
+            (L('배틀 타워', 'Tower'), min(tower_state(st)['best'], REBIRTH_TOWER), REBIRTH_TOWER)]
+
+
+def can_rebirth(st):
+    return bool(DEX) and all(a >= b for _, a, b in rebirth_goals(st))
+
+
+def rebirth(st, i, t, today=None):
+    """가방 i 번째(동행)만 데리고 처음부터 — 성공하면 True. 누적·회차 기록에 이번 회차를 더하고, 혜택을 준다."""
+    if not can_rebirth(st) or not 0 <= i < len(st['box']):
+        return False
+    today = today or datetime.now().astimezone().strftime('%Y-%m-%d')
+    m = dict(st['box'][i])
+    if i == st['partner']:  # 동료였으면 지금까지 쌓인 진화 경험치를 그 포켓몬에 남긴다
+        m['xp'] = partner_xp(st, t)
+    m['companion'] = True
+    r, life = run_stat(st, today), dict(st.get('life', {}))
+    for k, v in (('caught', r['caught']), ('wins', r['wins']), ('explores', r['explores']),
+                 ('shiny', len(st['shiny'])), ('legend', legends_caught(st))):
+        life[k] = life.get(k, 0) + v
+    runs = st.get('runs', []) + [{'start': r['start'], 'end': today}]
+    keep = {k: st[k] for k in KEEP_ON_REBIRTH if k in st}
+    n = st.get('rebirth', 0) + 1
+    st.clear()
+    st.update(new_state())
+    st.update(keep)
+    st.update(life=life, runs=runs, rebirth=n, run={'start': today, 'caught': 0, 'wins': 0, 'explores': 0}, box=[m], team=[0])
+    for key, k in REBIRTH_SUPPLY:
+        st[key] += k
+    if m['id'] in FORMS:  # 동행은 도감에 '잡음'으로(리전폼은 리전폼 목록에)
+        _mark(st, 'forms_seen', m['id'])
+        _mark(st, 'forms', m['id'])
+    elif m['id'] in DEX:
+        _mark(st, 'seen', m['id'])
+        _mark(st, 'caught', m['id'])
+        if m.get('shiny'):
+            _mark(st, 'shiny', m['id'])
+    set_partner(st, t, 0)
+    give_ribbon(st, [0], 'rebirth')
+    tell(st, 'rebirth', f'{n}|{mon_name(m)}')
+    return True
+
 
 def old_pool(st):
     """이전 세대(열린 세대보다 아래 전부)와 지금 세대에서 계열을 다 잡은 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 포함.
@@ -410,7 +485,7 @@ ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX']
 
 def shiny_rate(st, n, base=SHINY_RATE):
     """그 세대의 빛나는 부적이 있으면 이로치 2배 — 세대를 완성하면 그 세대 부적을 받는다."""
-    return base * (2 if gen(n) in st.get('charms', []) else 1)
+    return base * 2 ** min(st.get('rebirth', 0), REBIRTH_SHINY_CAP) * (2 if gen(n) in st.get('charms', []) else 1)
 
 
 def gen_done(st, g):
@@ -682,13 +757,14 @@ def explore(st, t, rng=random):
     if not odds and not old:
         return None
     st['used'] += 1
+    run_stat(st)['explores'] += 1
     bump(st, 'explore')
     if old and (not odds or rng.random() < OLD_GEN_RATE):
         n = old_pick(old, rng)
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     shiny = rng.random() < shiny_rate(st, n)  # 리전폼도 이로치·우두머리(2026-11-06 사용자 — 전엔 따로 모으던 시절 규칙으로 없었다)
-    alpha = not DEX[sp(n)][5] and rng.random() < ALPHA_RATE
+    alpha = not DEX[sp(n)][5] and rng.random() < ALPHA_RATE * (REBIRTH_ALPHA if st.get('rebirth') else 1)
     mark = 'alpha' if alpha else roll_mark(rng)
     if n in FORMS:  # 리전폼 — 다른 종처럼 이미 있어도 만나서 잡는다(개체값·박사)
         ill = illusion(st) if FORMS[n][0] in ZORUA else None  # 히스이 조로아·조로아크도 환영으로
@@ -803,6 +879,7 @@ def _caught(st, t, w, rng):
     st['box'].append({'id': w.get('form') or w['id'], 'xp': 0, 'iv': roll_iv(rng, floor),
                       **({'shiny': True} if w.get('shiny') else {}), **({'alpha': True} if w.get('alpha') else {}),
                       **({'mark': w['mark']} if w.get('mark') else {})})
+    run_stat(st)['caught'] += 1
     research_bump(st, w['id'], 'c')  # 리전폼도 원래 종(w['id']) 연구에
     if w.get('form'):
         _mark(st, 'forms_seen', w['form'])  # 환영이던 히스이 조로아크는 잡을 때 처음 본다
@@ -885,6 +962,9 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
     for n in reversed(st.get('news', [])):
         if now - n['at'] >= NEWS_SHOW:
             continue
+        if n['kind'] == 'rebirth':  # arg: '환생 수|동행 이름'
+            k, who = n['arg'].split('|', 1)
+            return L(f'★{k} 환생! {who}(이)랑 함께 1세대부터 다시!', f'Rebirth ★{k}! Back to Gen 1 with {who}!'), False
         if n['kind'] == 'ribbon':  # arg: '리본|받은 포켓몬 이름|몇 마리'
             key, who, k = n['arg'].split('|')
             rb = RIBBONS.get(key, ('', key, key))
@@ -1941,7 +2021,7 @@ def box_level(m):
 def team_of(st, g=None):
     """팀 [(가방 번호, 종, 레벨)] — 가방 순서가 아니라 넣은 순서. g 를 주면 그 세대 포켓몬만(체육관·사천왕 출전)."""
     return [(i, st['box'][i]['id'], box_level(st['box'][i])) for i in st.get('team', [])
-            if i < len(st['box']) and (g is None or gen(st['box'][i]['id']) == g)]
+            if i < len(st['box']) and (g is None or gen(st['box'][i]['id']) == g or st['box'][i].get('companion'))]
 
 
 SORTS = [('도감번호', 'No.'), ('레벨', 'level'), ('개체값', 'IV'), ('이름', 'name')]  # 가방 정렬(Tab) — 0 이 기본
@@ -2211,6 +2291,7 @@ def fight(st, t, d, g, i, rng=random, today=None):
     day, first = today or datetime.now().astimezone().strftime('%Y-%m-%d'), False
     if won:
         bump(st, 'gym')
+        run_stat(st)['wins'] += 1
     if won and i == 'L':
         give_ribbon(st, [k for k, _, _ in team], f'champ{g}')
     if i == 'T':  # 타워 — 이기면 연승 +1(TOWER_PRIZES 마다 상), 지면 도전 끝
@@ -2368,6 +2449,7 @@ def main(scr):
     ball_pick = None  # 만남 화면에서 고른 볼(던지기 전까지는 고르기만)
     bag_sel, use_sel, cap_n = 0, 0, 1  # 가방·사용 화면에서 들어가기 전에 고르던 줄(돌아오면 그 줄로) · 은색 병뚜껑 쓸 개수
     pslot, query, pick_sort = 0, '', 1  # 팀 칸 고르기: 몇 번째 자리 · 이름 찾기 · 정렬(처음은 레벨순)
+    reborn_i = None  # 환생 때 데려갈 가방 번호
     mon_i, naming = None, None  # 포켓몬 상세 화면의 가방 번호 · 이름 짓는 중이면 입력 중인 글(아니면 None)
     searching = False  # 이름 찾기 입력 중인가 — F 로 켜고 Enter(검색어 유지)·Esc(지움)로 끈다(2026-11-05 사용자)
     gcol, gsub, gtop = 0, 0, 0  # 체육관 화면: 커서가 있는 열(0 왼쪽 · 1 오른쪽) · 오른쪽에서 고른 줄 · 오른쪽 맨 위 줄
@@ -2461,6 +2543,8 @@ def main(scr):
             title = f' {fmt_tok(t)} · ' + dex_text(st)
         put(scr, 0, 0, title + ' ' * w, curses.A_REVERSE)
         btns, navbtns = [], []  # navbtns: 방향키로 고르는 버튼들 (y, x, 끝, act, 글) — 목록 줄은 btns 에만(마우스용)
+        if view == 'main':
+            btns.append((0, 0, w - 1, 'trainer'))  # 맨 윗줄을 누르면 플레이어 정보(t 와 같다)
 
         def button(y, x, label, act):
             if w < 50:  # 아주 좁으면 '돌아가기 q' 의 q 꼬리도 뗀다(q 키는 그대로)
@@ -2640,6 +2724,73 @@ def main(scr):
                 put(scr, h - 2, 1, fit(iv_text(st['box'][rows[sel][0]]), w - 2), curses.A_DIM)
             x = button(h - 1, 1, L('쓰기', 'use'), 'use_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+        elif view == 'trainer':  # 플레이어 정보(2026-11-11 사용자 — 환생에 필요해 넣음). 메인 맨 윗줄 클릭·t
+            r, life, nb = run_stat(st), st.get('life', {}), st.get('rebirth', 0)
+            put(scr, 1, 1, msg or L('q 돌아가기', 'q back'), curses.A_DIM)
+            put(scr, 2, 1, L('트레이너', 'Trainer'), curses.A_BOLD)
+            if nb:
+                put(scr, 2, 11, '★' * min(nb, 10) + (f'{nb}' if nb > 10 else ''), gold)
+            tag = L(f'환생 {nb}회 · {nb + 1}회차', f'Rebirth {nb} · run {nb + 1}')
+            put(scr, 2, max(12, w - 1 - memo_w(tag)), tag, curses.A_DIM)
+            today_ = datetime.now().astimezone().strftime('%Y-%m-%d')
+            days = (datetime.strptime(today_, '%Y-%m-%d') - datetime.strptime(r['start'], '%Y-%m-%d')).days + 1
+            alphas = sum(1 for m in st['box'] if m.get('alpha'))
+            ribbons = sum(len(m.get('ribbons', [])) for m in st['box'])
+            rows = [(L('이번 회차', 'This run'), [L(f'{r["start"]} 시작 · {days}일째', f'started {r["start"]} · day {days}'),
+                                              L(f'도감 {len(set(st["caught"]) & set(DEX))}/{len(DEX)} · 세대 {opened_gen(st)}/{GENS} · 챔피언 {len(st.get("league", {}))}',
+                                                f'Dex {len(set(st["caught"]) & set(DEX))}/{len(DEX)} · Gen {opened_gen(st)}/{GENS} · Champion {len(st.get("league", {}))}'),
+                                              L(f'이로치 {len(st["shiny"])} · 우두머리 {alphas} · 리본 {ribbons}', f'Shinies {len(st["shiny"])} · Alphas {alphas} · Ribbons {ribbons}')]),
+                    (L('누적', 'All time'), [L(f'잡은 포켓몬 {life.get("caught", 0) + r["caught"]:,} · 이로치 {life.get("shiny", 0) + len(st["shiny"])} · 전설·환상 {life.get("legend", 0) + legends_caught(st)}',
+                                             f'Caught {life.get("caught", 0) + r["caught"]:,} · Shinies {life.get("shiny", 0) + len(st["shiny"])} · Legends {life.get("legend", 0) + legends_caught(st)}'),
+                                           L(f'체육관·사천왕 승리 {life.get("wins", 0) + r["wins"]:,} · 탐색 {life.get("explores", 0) + r["explores"]:,}',
+                                             f'Gym/league wins {life.get("wins", 0) + r["wins"]:,} · Explores {life.get("explores", 0) + r["explores"]:,}'),
+                                           L(f'일한 날 {len(st.get("rewarded", []))} · 최장 연속 {best_streak(st)}일', f'Work days {len(st.get("rewarded", []))} · Longest streak {best_streak(st)}')])]
+            if nb:
+                rate = SHINY_RATE * 2 ** min(nb, REBIRTH_SHINY_CAP)
+                rows.append((L('환생 혜택', 'Perks'), [L(f'이로치 ×{2 ** min(nb, REBIRTH_SHINY_CAP)} (1/{round(1 / rate)} · 부적 세대 1/{round(1 / rate / 2)}) · 우두머리 ×{REBIRTH_ALPHA}',
+                                                       f'Shiny ×{2 ** min(nb, REBIRTH_SHINY_CAP)} (1/{round(1 / rate)} · charm gens 1/{round(1 / rate / 2)}) · Alpha ×{REBIRTH_ALPHA}'),
+                                                     L('출발 보급 — 환생마다 마스터볼 1 · 하이퍼볼 5', 'Supply — a Master Ball and 5 Ultra Balls each rebirth')]))
+                comp = [m for m in st['box'] if m.get('companion')]
+                if comp:
+                    m = comp[0]
+                    rows.append((L('동행', 'Companion'), [('✨' if m.get('shiny') else '') + mon_name(m) + (f'({name(m["id"])})' if m.get('nick') else '')
+                                                         + f' Lv{box_level(m)} · ' + L(f'리본 {len(m.get("ribbons", []))}', f'{len(m.get("ribbons", []))} ribbons'),
+                                                         L('모든 세대 체육관·사천왕에 나갈 수 있다', 'May enter any generation\'s gyms and leagues')]))
+            hist = st.get('runs', [])[-3:]
+            rows.append((L('회차 기록', 'Runs'), [L(f'{len(st.get("runs", [])) - len(hist) + k + 1}회차 {x["start"]} ~ {x["end"]}', f'Run {len(st.get("runs", [])) - len(hist) + k + 1} {x["start"]} ~ {x["end"]}')
+                                                 for k, x in enumerate(hist)] + [L(f'{nb + 1}회차 {r["start"]} ~ 진행 중', f'Run {nb + 1} {r["start"]} ~ now')]))
+            goals = rebirth_goals(st)
+            gl = [('✔ ' if a >= b else '') + f'{nm} {a}/{b}' for nm, a, b in goals]
+            rows.append((L('환생 조건', 'Rebirth'), [' · '.join(gl[:2]), gl[2]]))
+            y = 4
+            for head, lines in rows:
+                if y >= h - 3:
+                    break
+                put(scr, y, 1, head, curses.A_BOLD)
+                for ln in lines:
+                    if y >= h - 3:
+                        break
+                    put(scr, y, 12, fit(ln, w - 13))
+                    y += 1
+            x = 1
+            if can_rebirth(st):
+                put(scr, h - 3, 1, fit(L('모두 채웠다 — 1마리와 함께 처음부터 다시 시작할 수 있다.', 'All done — start over with one Pokémon.'), w - 2), curses.color_pair(0) | curses.A_BOLD)
+                x = button(h - 1, 1, L('환생', 'rebirth'), 'reborn_start')
+            button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+        elif view == 'reborn':  # 환생 확인 — 데려갈 1마리를 고른 뒤
+            m = st['box'][reborn_i]
+            put(scr, 2, 1, L('정말 환생할까?', 'Really start over?'), curses.A_BOLD)
+            put(scr, 4, 1, fit(L('데려가는 포켓몬  ', 'Bringing  ') + ('✨' if m.get('shiny') else '') + mon_name(m) + (f'({name(m["id"])})' if m.get('nick') else '') + f' Lv{box_level(m)}', w - 2), gold)
+            y = para(scr, 6, L(f'처음으로 돌아가는 것 — 도감·연구 · 가방({mon_name(m)} 빼고 {len(st["box"]) - 1}마리) · 볼·도구·알 · 빛나는 부적 · 체육관 배지·사천왕·레이드 · 배틀 타워 기록(0층부터) · 훈장 · 장식',
+                                 f'Reset — Pokédex and research · the bag (all {len(st["box"]) - 1} but {mon_name(m)}) · balls, items, eggs · Shiny Charms · gym badges, leagues, raids · Battle Tower (from 0) · medals · showcase'), w)
+            y = para(scr, y + 1, L(f'남는 것 — 탐색 기회 {tickets(st, t)} · 일한 보상 연속 {streak(st, datetime.now().astimezone().strftime("%Y-%m-%d"))}일 · 누적 기록',
+                                   f'Kept — {tickets(st, t)} explores · work streak · all-time records'), w)
+            nb = st.get('rebirth', 0) + 1
+            y = para(scr, y + 1, L(f'받는 것 — ★{nb} · 이로치 ×{2 ** min(nb, REBIRTH_SHINY_CAP)} · 우두머리 ×{REBIRTH_ALPHA} · 마스터볼 1 · 하이퍼볼 5 · {mon_name(m)}에게 환생 리본 · 모든 세대 체육관에 나갈 수 있음',
+                                   f'Gain — ★{nb} · shiny ×{2 ** min(nb, REBIRTH_SHINY_CAP)} · alpha ×{REBIRTH_ALPHA} · Master Ball + 5 Ultra Balls · Rebirth Ribbon · may enter any gym'), w)
+            put(scr, min(y + 1, h - 3), 1, fit(L('[환생]을 누르면 바로 환생한다 — 되돌릴 수 없다', 'Pressing [rebirth] starts over — it cannot be undone'), w - 2), gold)
+            x = button(h - 1, 1, L('환생', 'rebirth'), 'reborn_do')
+            button(h - 1, x, L('그만두기 q', 'cancel q'), 'back')
         elif view == 'mon':  # 포켓몬 상세(2026-11-10 사용자) — 증표·리본(PokeAPI 그림)·이름 짓기. 팀 자리 고르기에서 i
             m = st['box'][mon_i]
             sh, mk, rs = m.get('shiny'), m.get('mark'), m.get('ribbons', [])
@@ -2673,10 +2824,13 @@ def main(scr):
         elif view == 'slotpick':  # 팀 칸 Enter — 이 자리에 넣을 포켓몬 고르기(이름 찾기 · Tab 정렬)
             team = [i for i in st.get('team', []) if i < len(st['box'])]
             rows = slot_rows(st, pslot, query, pick_sort)
-            put(scr, 1, 1, msg or (L('동료', 'Partner') if pslot == -1 else L(f'팀 {pslot + 1}번 자리', f'Team slot {pslot + 1}'))
+            head_ = (msg or (L('환생 — 데려갈 1마리', 'Rebirth — pick one to bring') if pslot == -2 else L('동료', 'Partner') if pslot == -1 else L(f'팀 {pslot + 1}번 자리', f'Team slot {pslot + 1}'))
                 + (L(f' — 찾기: {query}▏ · Enter 확정 · Esc 지우기', f' — find: {query}▏ · Enter keep · Esc clear') if searching else
                    L(f' — F 찾기{f" ({query})" if query else ""} · Tab 정렬 {SORTS[pick_sort][0]} · Enter 넣기 · q 돌아가기',
-                     f' — F find{f" ({query})" if query else ""} · Tab sort {SORTS[pick_sort][1]} · Enter put · q back')),
+                     f' — F find{f" ({query})" if query else ""} · Tab sort {SORTS[pick_sort][1]} · Enter put · q back')))
+            if pslot == -2 and not msg and not searching:
+                head_ = head_.replace('Enter 넣기 · q 돌아가기', 'Enter 고르기 · q 그만두기').replace('Enter put · q back', 'Enter pick · q cancel')
+            put(scr, 1, 1, head_,
                 curses.A_BOLD if searching else curses.A_DIM)
             body = h - 4
             sel = max(0, min(sel, len(rows) - 1))
@@ -3106,6 +3260,8 @@ def main(scr):
             naming, act, key = st['box'][mon_i].get('nick', ''), None, -1
         elif view == 'slotpick' and not searching and key in (ord('i'), ord('I')):
             act, key = 'mon_open', -1
+        elif view == 'main' and key in (ord('t'), ord('T')):  # 플레이어 정보
+            act, key = 'trainer', -1
         elif view == 'main' and key in (ord('h'), ord('H')):  # 서식지 바꾸기(2026-11-10 사용자)
             ks = [hb[0] for hb in HABITATS]
             st['habitat'] = ks[(ks.index(habitat(st)[0]) + 1) % len(ks)]
@@ -3390,6 +3546,17 @@ def main(scr):
                 msg = L('던질 볼을 먼저 고르자.', 'Pick a ball first.')
         if view == 'wild' and not st['wild']:
             view = 'main'
+        if act == 'trainer' and view == 'main':
+            view, msg, act = 'trainer', '', None
+        if act == 'reborn_start' and view == 'trainer' and can_rebirth(st):
+            view, pslot, query, pick_sort, sel, top, msg, searching, act = 'slotpick', -2, '', 1, 0, 0, '', False, None
+        if act == 'reborn_do' and view == 'reborn':
+            nm_ = mon_name(st['box'][reborn_i])
+            if rebirth(st, reborn_i, t):
+                save(st)
+                view, msg, focus, sel, top = 'main', L(f'✨ 환생했다! ★{st["rebirth"]} · {nm_}(이)랑 함께 1세대부터 다시. 마스터볼 1 · 하이퍼볼 5를 받았다.',
+                                                     f'✨ Reborn! ★{st["rebirth"]} · back to Gen 1 with {nm_}. Got a Master Ball and 5 Ultra Balls.'), None, 0, 0
+            act = None
         if act == 'mon_open' and view == 'slotpick':
             rows_ = slot_rows(st, pslot, query, pick_sort)
             if rows_ and 0 <= sel < len(rows_) and rows_[sel] is not None:
@@ -3404,7 +3571,9 @@ def main(scr):
             act = None
         if isinstance(act, tuple) and act[0] == 'pickrow' and view == 'slotpick':
             rows = slot_rows(st, pslot, query, pick_sort)
-            if 0 <= act[1] < len(rows) and pslot == -1:  # 동료 고르기
+            if 0 <= act[1] < len(rows) and pslot == -2 and rows[act[1]] is not None:  # 환생 — 데려갈 1마리
+                view, reborn_i = 'reborn', rows[act[1]]
+            elif 0 <= act[1] < len(rows) and pslot == -1:  # 동료 고르기
                 set_partner(st, t, rows[act[1]])
                 msg = L(f'{name(st["box"][rows[act[1]]]["id"])}(을)를 데리고 다닙니다.', f'{name(st["box"][rows[act[1]]]["id"])} is now your partner.')
                 save(st)
@@ -3417,7 +3586,7 @@ def main(scr):
         if act == 'rec' and view == 'gym':
             put(scr, 9, 1, L('추천 팀을 계산하는 중…', 'Working out a team…'), curses.A_DIM)
             scr.refresh()
-            cands = [(k, m['id'], box_level(m), iv_of(m)) + alpha_x(m) for k, m in enumerate(st['box']) if gsel[1] in ('R', 'T') or gen(m['id']) == gsel[0]]
+            cands = [(k, m['id'], box_level(m), iv_of(m)) + alpha_x(m) for k, m in enumerate(st['box']) if gsel[1] in ('R', 'T') or gen(m['id']) == gsel[0] or m.get('companion')]
             opp = gym_opp(BATTLE, *gsel, st)
             if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률로(가볍게 40번씩)
                 pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
@@ -3464,7 +3633,8 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            back_to = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main', 'mon': 'slotpick'}.get(view, 'main')  # 한 단계 위로
+            back_to = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'trainer' if pslot == -2 else 'main', 'use': 'bag', 'bag': 'main', 'mon': 'slotpick',
+                       'trainer': 'main', 'reborn': 'slotpick'}.get(view, 'main')  # 한 단계 위로
             if view == 'mon':
                 msg, naming = '', None
             if view == 'use':  # 아이템 상세에서 나오면 고르던 아이템으로(2026-11-10 사용자)
@@ -4395,6 +4565,25 @@ def selftest():
     k_ = next(k for k, o in enumerate(change_options(rb, 0)) if o[0] == ('ivmax', 5))
     assert change(rb, 0, k_) == ('ivmax', 5) and 'effort' in rb['box'][0]['ribbons']
     assert all(RIBBONS[r][0].endswith('-ribbon') for r in RIBBONS) and art_id('ribbon:effort-ribbon') == 'ribbon:effort-ribbon'
+    # 환생 — 셋을 다 채워야 · 동행만 데리고 · 남는 것(탐색·일한 보상·누적·회차)과 혜택
+    rb2 = {**new_state(), 'box': [{'id': 25, 'xp': 5, 'iv': [15] * 6, 'nick': '번개', 'ribbons': ['champ1']}, {'id': 1, 'xp': 0}],
+           'partner': 1, 'base': 100, 'team': [0, 1], 'used': 40, 'extra': 7, 'rewarded': ['2026-11-10'], 'badges': {'catch1': 'd'},
+           'gym': {'gym:1-0': 'd'}, 'tower': {'streak': 3, 'best': 99, 'run': False, 'seed': 0}, 'charms': [1], 'master': 3}
+    rb2['caught'], rb2['shiny'] = list(DEX), [25]
+    rb2['league'] = {str(g): 'd' for g in range(1, GENS + 1)}
+    assert not can_rebirth(rb2) and rebirth_goals(rb2)[2][1:] == (99, REBIRTH_TOWER) and not rebirth(rb2, 0, 500)
+    rb2['tower']['best'] = REBIRTH_TOWER
+    run_stat(rb2, '2026-10-19')
+    assert can_rebirth(rb2) and rebirth(rb2, 0, 500, today='2026-12-24')
+    assert rb2['rebirth'] == 1 and len(rb2['box']) == 1 and rb2['box'][0]['nick'] == '번개' and rb2['box'][0]['companion']
+    assert set(rb2['box'][0]['ribbons']) == {'champ1', 'rebirth'} and rb2['partner'] == 0 and rb2['base'] == 500 and rb2['team'] == [0]
+    assert rb2['caught'] == [25] and rb2['badges'] == {} and rb2['gym'] == {} and rb2['league'] == {} and tower_state(rb2)['best'] == 0
+    assert rb2['charms'] == [] and (rb2['master'], rb2['hyper']) == (1, 5) and rb2['used'] == 40 and rb2['extra'] == 7 and rb2['rewarded'] == ['2026-11-10']
+    assert rb2['runs'] == [{'start': '2026-10-19', 'end': '2026-12-24'}] and rb2['run']['start'] == '2026-12-24'
+    assert rb2['life']['shiny'] == 1 and rb2['life']['legend'] == legends_caught({'caught': list(DEX)}) and rb2['news'][-1]['kind'] == 'rebirth'
+    assert shiny_rate(rb2, 25) == SHINY_RATE * 2 and shiny_rate({**rb2, 'rebirth': 9}, 25) == SHINY_RATE * 2 ** REBIRTH_SHINY_CAP
+    rb2['box'].append({'id': 152, 'xp': 0}); rb2['team'] = [0, 1]
+    assert [i for i, _, _ in team_of(rb2, 2)] == [0, 1] and [i for i, _, _ in team_of(rb2, 1)] == [0]  # 동행(피카츄)은 2세대에도
     # 만남 화면 ↑↓ — 던질 수 있는 볼 사이를 바로 오가고 끝에서 멈춘다(전설엔 몬스터볼·슈퍼볼을 건너뜀)
     wb = new_state(); wb['wild'] = {'id': 25, 'balls': 0}; wb['balls'], wb['super'], wb['hyper'], wb['master'] = 3, 0, 2, 1
     U, D = curses.KEY_UP, curses.KEY_DOWN
