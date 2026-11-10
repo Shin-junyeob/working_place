@@ -370,11 +370,30 @@ def draw_sprite(scr, y, x, grid, gray=False):
                 pass
 
 
+ITEM_DIR = {  # 훈장 도구 그림을 받을 PokeAPI 폴더 — gen9 → gen8 → gen5 → gen3 에서 먼저 있던 곳(2026-11-10 사용자, 없으면 sprites/items 바로 아래)
+    'rusted-sword': 'gen8',
+    'adamant-orb': 'gen5', 'big-nugget': 'gen5', 'big-pearl': 'gen5', 'choice-band': 'gen5', 'choice-scarf': 'gen5',
+    'choice-specs': 'gen5', 'comet-shard': 'gen5', 'dna-splicers': 'gen5', 'exp-share': 'gen5', 'gracidea': 'gen5',
+    'great-ball': 'gen5', 'kings-rock': 'gen5', 'leftovers': 'gen5', 'light-stone': 'gen5', 'luxury-ball': 'gen5',
+    'master-ball': 'gen5', 'nugget': 'gen5', 'old-amber': 'gen5', 'pearl-string': 'gen5', 'poke-ball': 'gen5',
+    'poke-flute': 'gen5', 'poke-radar': 'gen5', 'rainbow-wing': 'gen5', 'rare-candy': 'gen5', 'red-chain': 'gen5',
+    'red-orb': 'gen5', 'relic-band': 'gen5', 'relic-copper': 'gen5', 'relic-crown': 'gen5', 'relic-gold': 'gen5',
+    'relic-silver': 'gen5', 'relic-statue': 'gen5', 'relic-vase': 'gen5', 'scope-lens': 'gen5',
+    'shiny-charm': 'gen5', 'star-piece': 'gen5', 'ultra-ball': 'gen5',
+}
+
+
+def _item_dir(name):
+    """도구 그림 이름 → 받을 폴더('gen5/' 등, 없으면 ''). 세대 부적(shiny-charm-3)은 바탕 부적 그림의 폴더를 따른다."""
+    base = name.rsplit('-', 1)[0] if name.startswith('shiny-charm-') else name
+    return ITEM_DIR[base] + '/' if base in ITEM_DIR else ''
+
+
 def _src(n):
     """그림 번호 → 이 PC 의 sprites/ 아래 이름. 'item:<이름>' 은 도구 그림(훈장), 'form:<번호>' 는 리전폼(번호가 10000 을
     넘어 이로치 번호와 겹치므로 글자로) · 배지 · 이로치 · 기본 순."""
     if isinstance(n, str):
-        return n[5:] if n.startswith('form:') else f'items/{n[5:]}'
+        return n[5:] if n.startswith('form:') else f'items/{_item_dir(n[5:])}{n[5:]}'
     return f'badges/{n - BADGE}' if n > BADGE else f'shiny/{n - SHINY}' if n > SHINY else str(n)
 
 
@@ -408,8 +427,29 @@ def resize(px, height):
     return out
 
 
+def edge_white(px):
+    """불투명 칸 중 투명과 맞닿은 가장자리가 흰색(모든 채널 220 이상)인 비율 — 새 그림체(8세대~)는 흰 테두리가 그려져 있다."""
+    h, w, edge = len(px), len(px[0]) if px else 0, []
+    for y in range(h):
+        for x in range(w):
+            if px[y][x][3] > 127 and any(not (0 <= y + dy < h and 0 <= x + dx < w) or px[y + dy][x + dx][3] <= 127
+                                         for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                edge.append(px[y][x])
+    return sum(1 for c in edge if min(c[:3]) >= 220) / max(1, len(edge))
+
+
+def outline(px, color=(255, 255, 255, 255)):
+    """바깥에 한 칸 흰 테두리 — 둘레에 한 칸 여유를 두고, 불투명 칸과(8방향) 맞닿은 투명 칸을 칠한다."""
+    h, w = len(px), len(px[0])
+    g = [[(0, 0, 0, 0)] * (w + 2)] + [[(0, 0, 0, 0)] + list(r) + [(0, 0, 0, 0)] for r in px] + [[(0, 0, 0, 0)] * (w + 2)]
+    return [[color if g[y][x][3] <= 127 and any(0 <= y + dy < h + 2 and 0 <= x + dx < w + 2 and g[y + dy][x + dx][3] > 127
+                                                for dy in (-1, 0, 1) for dx in (-1, 0, 1)) else g[y][x]
+             for x in range(w + 2)] for y in range(h + 2)]
+
+
 def strip(ids, height, gap=4):
-    """그림 번호들을 높이 height 픽셀로 맞춰 가로로 이어 붙인 RGBA 한 장 — 하나라도 아직 못 받았으면 None."""
+    """그림 번호들을 높이 height 픽셀로 맞춰 가로로 이어 붙인 RGBA 한 장 — 하나라도 아직 못 받았으면 None.
+    훈장 도구 그림은 가장자리가 흰색이 아니면 흰 테두리를 두른다(원래 흰 테두리가 있는 새 그림체와 맞춤, 2026-11-10 사용자)."""
     parts = []
     for n in ids:
         path = _local(n)
@@ -417,6 +457,8 @@ def strip(ids, height, gap=4):
             return None
         with open(path, 'rb') as f:
             px = crop(decode_png(f.read()))
+        if px and isinstance(n, str) and n.startswith('item:') and edge_white(px) < 0.5:
+            px = outline(px)
         if px:
             parts.append(resize(px, height))
     if not parts:
