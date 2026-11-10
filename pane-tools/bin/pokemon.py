@@ -3882,6 +3882,14 @@ def selftest():
     _pokedata._local = _l
     os.unlink(_f.name)
     assert len(_sp) == 44 and len(_sp[0]) == 44 and _sp[0][0][3] == 0 and _sp[22][0][3] == 255
+    _pokedata._local = lambda n: _f2.name  # 배지: 작은 그림도 키워서 흰 테두리 — 높이 그대로, 둘레가 흰색
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as _f2:
+        _f2.write(_pokedata.encode_png([[(9, 9, 9, 255)] * 20 for _ in range(20)]))
+    _sb = _pokedata.strip([_pokedata.BADGE + 1], 44)
+    _pokedata._local = _l
+    os.unlink(_f2.name)
+    assert len(_sb) == 44 and len(_sb[0]) == 44 and _sb[0][22] == (255, 255, 255, 255) and _sb[22][22] == (9, 9, 9, 255)
+    assert _pokedata.scale2x([[(1, 1, 1, 1), (2, 2, 2, 2)]]) == [[(1, 1, 1, 1)] * 2 + [(2, 2, 2, 2)] * 2] * 2
     _s = _pokedata.strip  # grid: 4개씩 끊어 쌓고, 짧은 줄은 투명으로 채운다
     _pokedata.strip = lambda ids, hh, gap=4: [[(1, 1, 1, 255)] * (len(ids) * 3)] * hh
     _gg = _pokedata.grid(['a'] * 6, 10, 4, gap=2)

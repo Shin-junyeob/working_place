@@ -427,6 +427,21 @@ def resize(px, height):
     return out
 
 
+def scale2x(px):
+    """픽셀아트 두 배 확대(Scale2x/EPX) — 같은 색 모서리는 잇고 나머지는 복제해서 대각선이 계단이 되지 않는다."""
+    h, w = len(px), len(px[0])
+    g = lambda y, x: px[min(h - 1, max(0, y))][min(w - 1, max(0, x))]  # noqa: E731
+    out = [[None] * (w * 2) for _ in range(h * 2)]
+    for y in range(h):
+        for x in range(w):
+            p, a, b, c, d = px[y][x], g(y - 1, x), g(y, x + 1), g(y, x - 1), g(y + 1, x)
+            out[2 * y][2 * x] = a if c == a and c != d and a != b else p
+            out[2 * y][2 * x + 1] = b if a == b and a != c and b != d else p
+            out[2 * y + 1][2 * x] = c if d == c and d != b and c != a else p
+            out[2 * y + 1][2 * x + 1] = d if b == d and b != a and d != c else p
+    return out
+
+
 def edge_white(px):
     """불투명 칸 중 투명과 맞닿은 가장자리가 흰색(모든 채널 220 이상)인 비율 — 새 그림체(8세대~)는 흰 테두리가 그려져 있다."""
     h, w, edge = len(px), len(px[0]) if px else 0, []
@@ -449,7 +464,7 @@ def outline(px, color=(255, 255, 255, 255)):
 
 def strip(ids, height, gap=4):
     """그림 번호들을 높이 height 픽셀로 맞춰 가로로 이어 붙인 RGBA 한 장 — 하나라도 아직 못 받았으면 None.
-    훈장 도구 그림은 가장자리가 흰색이 아니면 흰 테두리를 두른다(원래 흰 테두리가 있는 새 그림체와 맞춤, 2026-11-10 사용자)."""
+    훈장 도구 그림과 체육관 배지는 가장자리가 흰색이 아니면 흰 테두리를 두른다(원래 흰 테두리가 있는 새 그림체와 맞춤, 2026-11-10 사용자)."""
     parts = []
     for n in ids:
         path = _local(n)
@@ -461,7 +476,13 @@ def strip(ids, height, gap=4):
             px = outline(px)
         if px:  # 높이 칸 안에 맞춘다 — 옆으로 긴 그림(칼로스 페어리 배지 120×30)을 높이에 맞추면 네 배로 넓어져 줄이 넘쳤다
             hh = min(height, max(1, round(height * len(px) / len(px[0]))))
-            r = resize(px, hh)
+            if isinstance(n, int) and n > BADGE:  # 체육관 배지: 작은 옛 그림은 Scale2x 로 키운 뒤 평균으로 줄여 계단을 없애고
+                while len(px) < hh * 2:  # 흰 테두리를 두른다(2026-11-10 사용자, 비교 HTML 로 고름) — 테두리 2칸만큼 작게
+                    px = scale2x(px)
+                r = resize(px, max(1, hh - 2))
+                r = outline(r) if edge_white(r) < 0.5 else [[(0, 0, 0, 0)] * len(r[0])] + r + [[(0, 0, 0, 0)] * len(r[0])]
+            else:
+                r = resize(px, hh)
             pad = [[(0, 0, 0, 0)] * len(r[0])]
             parts.append(pad * ((height - hh) // 2) + r + pad * (height - hh - (height - hh) // 2))
     if not parts:
