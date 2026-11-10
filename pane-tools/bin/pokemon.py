@@ -2381,11 +2381,16 @@ def main(scr):
                     (L('훈장', 'medals'), 'badges'), (L('체육관', 'gyms'), 'gyms'), (L('닫기 q', 'close q'), 'close')]
             bw = lambda lb: memo_w(f'[{lb.removesuffix(" q") if w < 50 else lb}]') + 1 if tight else memo_w(f'[ {lb} ]') + 2  # noqa: E731 — button() 과 같은 폭
             btn_rows = wrap_widths([bw(lb) for lb, _ in side], w) if x0 >= w else []
-            below = len(btn_rows) + len(eggs) * egg_h + sum(len(fold(s, max(10, lw - 2))) for s in (weekly_line, balls_line, ('💬 ' + msg) if msg else '') if s)
+            tw = max(10, lw - 1)  # 아래 글은 버튼 바로 앞 칸까지(2026-11-10 사용자 배치 — 22·24줄 패널 47칸)
+            text_n = sum(len(fold(s, tw)) for s in (weekly_line, balls_line, ('💬 ' + msg) if msg else '') if s)
+            below = len(btn_rows) + len(eggs) * egg_h + text_n
             cw3 = max(10, (x0 - 1) // 3)
             graphics = w >= 44 and (SIXEL or KITTY)
             cw_, ch_ = _gfx.cell_px() if graphics else (1, 2)
             cell_h, art_rows = team_layout(h - y - below, graphics, max(1, int((cw3 - 1) * cw_ / ch_)))  # 그림은 대개 정사각형
+            if h < 28 and art_rows:  # 작은 패널은 동료 그림처럼 2줄, 이름·개체값을 바로 아래 — 칸 사이 빈 줄 없이(2026-11-10 사용자 배치)
+                art_rows = min(art_rows, 2)
+                cell_h = art_rows + 2
             # ⑥ 팀 3×2 — 칸마다 그림 · 이름 레벨 · 개체값. 칸에서 Enter 면 그 자리에 넣을 포켓몬 고르기(slotpick)
             team = [i for i in st.get('team', []) if i < len(st['box'])]
             for k in range(_battle.TEAM_MAX):
@@ -2403,16 +2408,22 @@ def main(scr):
                 navbtns.append((ly, cx, cx + memo_w(label), ('slot', k), label))
                 put(scr, ly, cx, label, (gold if k < len(team) and st['box'][team[k]].get('shiny') else 0) | (0 if k < len(team) else curses.A_DIM))
             y += 2 * cell_h
+            # 알은 팀 아래 한 줄 띄고, 볼·주간 과제는 맨 아래(버튼 열 끝과 같은 줄)에 붙인다 — 줄이 모자라면 띄우지 않는다
+            # (2026-11-10 사용자 배치: 24줄이면 알 15줄 · 볼 18줄 · 주간 과제 20~22줄)
+            last = h - 1 - len(btn_rows)  # 아래 글이 쓸 수 있는 줄 끝(이 줄은 안 씀)
+            if last - y >= len(eggs) * egg_h + text_n + 1:
+                y += 1
             for text, frac, km in eggs:
                 pic = egg_art(km, y, w)
                 art = join_art(art, pic)
                 x = put(scr, y, pic[5] + 2 if pic else 1, ('' if pic else '🥚 ') + text + ' ')
-                put(scr, y, x, bar(frac, 10), curses.A_DIM)
+                put(scr, y, x, bar(frac, max(10, lw - x)), curses.A_DIM)  # 막대는 버튼 바로 앞 칸(lw - 1)까지
                 y += egg_h
+            y = max(y, last - text_n)
             stop = h - len(btn_rows)  # 아래 글은 버튼 줄 위에서 멈춘다 — 모자라면 볼·메시지를 먼저, 주간 과제는 남는 만큼
             for text, attr in ((balls_line, 0), (('💬 ' + msg) if msg else '', 0), (weekly_line, curses.A_DIM)) if h - y < below - len(btn_rows) \
                     else ((weekly_line, curses.A_DIM), (balls_line, 0), (('💬 ' + msg) if msg else '', 0)):
-                for line in fold(text, max(10, lw - 2)) if text else []:
+                for line in fold(text, tw) if text else []:
                     if y >= stop:
                         break
                     put(scr, y, 1, line, attr)
