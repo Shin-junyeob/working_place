@@ -1508,10 +1508,16 @@ def draw_info(scr, st, n, h, w, gold):
     form, spec = FORMS.get(n), SPECIALS.get(n)  # 리전폼·특수 모습 — 타입·키·몸무게·종족값은 그 모습 것, 도감 설명은 없다
     d, sh = INFO.get(str(n)), n in st['shiny']
     caught = n in (st['forms'] if form else st.get('specials', []) if spec else st['caught'])
+    unseen = n not in (st['forms_seen'] if form else st.get('specials', []) if spec else st['seen'])  # 못 봤으면 실루엣(2026-11-11 사용자)
     x = put(scr, 1, 1, f'No.{sp(n):04d}  ', curses.A_BOLD)
-    x = put(scr, 1, x, ('✨' if sh else '') + name(n), gold if sh else curses.A_BOLD)
+    x = put(scr, 1, x, '???' if unseen else ('✨' if sh else '') + name(n), curses.A_DIM if unseen else gold if sh else curses.A_BOLD)
     put(scr, 1, x + 2, (L('리전폼', 'Regional form') if form else L('특수 모습', 'Special form') if spec else L(f'{gen(n)}세대', f'Gen {gen(n)}'))
-        + ((L(' · 만듦', ' · made') if spec else L(' · 잡음', ' · caught')) if caught else L(' · 봄', ' · seen')), curses.A_DIM)
+        + (L(' · 아직 못 봄', ' · not seen yet') if unseen else (L(' · 만듦', ' · made') if spec else L(' · 잡음', ' · caught')) if caught else L(' · 봄', ' · seen')),
+        curses.A_DIM)
+    if unseen:
+        d, sh = None, False
+        hint = dex_hint(st, n) if n in DEX else L('리전폼 — 그 종의 세대가 지나면 이전 세대 탐색에서', 'regional form — older-generation explores, once its generation is behind you') if form else ''
+        put(scr, 2, 1, fit(hint or L('만나면 이름과 모습이 드러난다.', 'Meet it to reveal it.'), w - 2), curses.A_DIM)
     y = 3
     if (form or spec) and not d:
         put(scr, 2, 1, form_note(n), curses.A_DIM)
@@ -1529,7 +1535,7 @@ def draw_info(scr, st, n, h, w, gold):
                 y = fy + 1 + i
         else:
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
-    room, gray = h - 3 - (y + 1), False
+    room, gray = h - 3 - (y + 1), 2 if unseen else False
     # 이로치를 잡았으면 보통·이로치 그림을 나란히(2026-11-09 사용자 — 전엔 이로치만 보여 보통 색을 볼 수 없었다)
     sids = [f'form:{n}'] if form else [n, n + _pokedata.SHINY] if sh else [n]
     if len(sids) > 1:
@@ -1575,7 +1581,7 @@ def info_pic(scr, sid, gray, y, x, width, room, key):
         while cols > width and room > 1:  # 나란히 놓으면 폭이 절반 — 칸을 넘지 않게 줄인다
             room -= 1
             cols = _gfx.kitty_cols(png[1], png[2], room)
-        return True, ('kitty', y, x + max(0, (width - cols) // 2), key * 2 + gray, png[0], cols, room)
+        return True, ('kitty', y, x + max(0, (width - cols) // 2), key * 3 + gray, png[0], cols, room)
     if curses.COLORS >= 256:
         grid = _pokedata.sprite(sid, room * 2, width - 2)
         if not grid:
@@ -3199,8 +3205,8 @@ def main(scr):
             dg, top, sel = max(1, min(GENS + 1 + bool(SPECIALS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 뒤의 두 쪽은 리전폼 · 특수 모습
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             seen = [p for p in SPECIALS if p in st.get('specials', [])] if info in SPECIALS else \
-                [p for p in FORMS if p in st['forms_seen']] if info in FORMS else \
-                sorted(n for n in st['seen'] if gen(n) == gen(info))  # 같은 세대(리전폼은 리전폼)에서 본 것끼리 앞뒤로
+                list(FORMS) if info in FORMS else \
+                [n for n in DEX if gen(n) == gen(info)]  # 같은 세대(리전폼은 리전폼) 전부 앞뒤로 — 못 본 것은 실루엣(2026-11-11)
             info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
         elif lists and key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
             sel += {curses.KEY_UP: -1, curses.KEY_DOWN: 1, curses.KEY_PPAGE: -(h - 4), curses.KEY_NPAGE: h - 4}[key]
@@ -3216,10 +3222,9 @@ def main(scr):
                 act = ('info', p) if p in st.get('specials', []) else None
             elif view == 'dex' and dg > GENS:
                 p = list(FORMS)[min(sel, len(FORMS) - 1)] if FORMS else None
-                act = ('info', p) if p in st['forms_seen'] else None
+                act = ('info', p) if p else None  # 못 본 리전폼도 실루엣으로
             elif view == 'dex':
-                n = [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)]
-                act = ('info', n) if n in st['seen'] else None
+                act = ('info', [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)])  # 못 본 포켓몬도 실루엣으로
             elif view == 'slotpick':
                 act = ('pickrow', sel)
             elif view == 'bag':
@@ -3808,6 +3813,7 @@ def selftest():
     red, blue = (255, 0, 0), (0, 0, 255)
     assert _pokedata.shrink(px, 12, 16) == [[red, red, None], [None, blue, blue]]  # 왼쪽 빈 열을 잘라 냄
     assert (_pokedata.xterm256(*red), _pokedata.xterm256(*blue)) == (196, 21)
+    assert _pokedata.crop([[(0, 0, 0, 0), (200, 10, 10, 255)]], 2) == [[_pokedata.SILHOUETTE + (255,)]]  # 실루엣
     assert (_pokedata.gray256(0, 0, 0), _pokedata.gray256(255, 255, 255), _pokedata.gray256(128, 128, 128)) == (16, 231, 244)
     assert _pokedata.shrink([[(0, 0, 0, 0)]], 12, 16) == []
     # Kitty 그래픽용: 여백을 잘라 PNG 로 다시 쓰면 그대로 읽힌다 · 회색은 밝기만
