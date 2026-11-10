@@ -1894,16 +1894,23 @@ def opt_name(f):
     return name(f)
 
 
-def change(st, i, k):
-    """change_options 의 k 번째로 바꾼다 — 바뀐 모습 번호 · 못 하면 None. 가방 번호가 당겨질 수 있다(합체 상대가 빠지면)."""
+def cap_max(st, i, f):
+    """은색 병뚜껑을 그 능력치에 한 번에 쓸 수 있는 개수 — 15까지 남은 칸과 가진 개수 중 작은 쪽(2026-11-10 사용자)."""
+    return max(0, min(15 - iv_of(st['box'][i])[f[1]], st.get('items', {}).get('cap', 0)))
+
+
+def change(st, i, k, n=1):
+    """change_options 의 k 번째로 바꾼다 — 바뀐 모습 번호 · 못 하면 None. 가방 번호가 당겨질 수 있다(합체 상대가 빠지면).
+    n: 은색 병뚜껑을 그 능력치에 몇 개 쓰나(1 ~ cap_max) — 능력치마다 하나씩 되풀이하던 걸 한 번에(2026-11-10 사용자)."""
     opts = change_options(st, i)
     if not 0 <= k < len(opts) or not opts[k][2]:
         return None
     f, (what, ref), _, _ = opts[k]
     if isinstance(f, tuple):  # 특훈 — 모습은 그대로, 개체값만
-        st['items'][ref] -= 1
+        n = max(1, min(n, cap_max(st, i, f))) if f[0] == 'iv' else 1
+        st['items'][ref] -= n
         m = st['box'][i]
-        m['iv'] = [(min(15, v + 1) if f[0] == 'iv' else 15) if j == f[1] else v for j, v in enumerate(iv_of(m))]
+        m['iv'] = [(min(15, v + n) if f[0] == 'iv' else 15) if j == f[1] else v for j, v in enumerate(iv_of(m))]
         return f
     if what == 'mon':
         i = _drop(st, {ref})[i]  # 합체 상대는 사라진다(2026-10-30 — 분리 없음, 다른 모습은 재료를 다시 모아서)
@@ -2233,6 +2240,7 @@ def main(scr):
     chg = None  # 변신 화면이 다루는 가방 번호
     ukey, chg_from, chg_only = None, 'bag', []  # 가방에서 고른 아이템 · 바꾸기 화면에서 돌아갈 곳
     ball_pick = None  # 만남 화면에서 고른 볼(던지기 전까지는 고르기만)
+    bag_sel, use_sel, cap_n = 0, 0, 1  # 가방·사용 화면에서 들어가기 전에 고르던 줄(돌아오면 그 줄로) · 은색 병뚜껑 쓸 개수
     pslot, query, pick_sort = 0, '', 1  # 팀 칸 고르기: 몇 번째 자리 · 이름 찾기 · 정렬(처음은 레벨순)
     searching = False  # 이름 찾기 입력 중인가 — F 로 켜고 Enter(검색어 유지)·Esc(지움)로 끈다(2026-11-05 사용자)
     gcol, gsub, gtop = 0, 0, 0  # 체육관 화면: 커서가 있는 열(0 왼쪽 · 1 오른쪽) · 오른쪽에서 고른 줄 · 오른쪽 맨 위 줄
@@ -2746,11 +2754,18 @@ def main(scr):
                 cost = (L('재료 ', 'material ') + f'{name(st["box"][ref]["id"])} Lv{box_level(st["box"][ref])} · {iv_text(st["box"][ref])}' if what == 'mon'
                         else L(f'{item_name(ref)} {st.get("items", {}).get(ref, 0)}개', f'{item_name(ref)} ×{st.get("items", {}).get(ref, 0)}'))
                 text = f'{opt_name(f)} ← {cost}' + ('' if ok else f'  · {why}')
+                if row == sel and ok and isinstance(f, tuple) and f[0] == 'iv':  # 은색 병뚜껑 — 몇 개 쓸지(←→)
+                    cmax, cur = cap_max(st, chg, f), iv_of(base_m)[f[1]]
+                    cap_n = max(1, min(cap_n, cmax))
+                    text = L(f'{opt_name(f).split(" ")[0]} {cur} → {cur + cap_n}  ◀ {cap_n}개 ▶ ({1}~{cmax}개 · 가진 {st.get("items", {}).get("cap", 0)}개)',
+                             f'{opt_name(f).split(" ")[0]} {cur} → {cur + cap_n}  ◀ {cap_n} ▶ (1–{cmax} · have {st.get("items", {}).get("cap", 0)})')
                 btns.append((y + 1 + row, 1, w - 1, ('chg', k)))
                 put(scr, y + 1 + row, 1, text.ljust(w - 2) if row == sel else text,
                     (curses.A_REVERSE if row == sel else 0) | (0 if ok else curses.A_DIM))
             x = button(h - 1, 1, L('바꾸기', 'change'), 'chg_sel')
-            button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+            x = button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+            if chg_from == 'use' and ukey == 'cap':
+                put(scr, h - 1, x, L('↑↓ 능력치 · ←→ 개수', '↑↓ stat · ←→ how many'), curses.A_DIM)
         elif view == 'trade':  # 2026-11-05 사용자: 체육관처럼 두 열 — 왼쪽 박사에게 · 중복 정리 · 볼 바꾸기, 오른쪽에 그 내용
             order = bag_order(st, None, bag_sort)  # 박사에게 쪽의 보이는 순서(가방 번호들) — 고른 줄로 가방 번호를 찾는다
             tidy = tidy_targets(st)
@@ -2905,6 +2920,12 @@ def main(scr):
         elif view == 'slotpick':  # 평소 — 방향키 줄 이동 · Enter 넣기 · Tab 정렬 · q/Esc 돌아가기
             if key == 9:
                 pick_sort, sel, top = (pick_sort + 1) % len(SORTS), 0, 0
+        if view == 'change' and chg_from == 'use' and ukey == 'cap':  # 은색 병뚜껑 — ←→ 는 쓸 개수(아래 버튼 대신)
+            if key in (curses.KEY_LEFT, curses.KEY_RIGHT):
+                cap_n, key = max(1, cap_n + (1 if key == curses.KEY_RIGHT else -1)), -1  # 위쪽 끝은 그릴 때 cap_max 로 자른다
+                confirm = None
+            elif key in (curses.KEY_UP, curses.KEY_DOWN):
+                cap_n, confirm = 1, None
         if view == 'gyms':  # 두 열 — ←→ 로 열을 오가고, 오른쪽에선 ↑↓ 가 관을 고른다. q·Esc 는 오른쪽이면 왼쪽으로
             left = gym_left(st)
             on_gen = bool(left) and left[max(0, min(sel, len(left) - 1))][0] == 'G'
@@ -3041,16 +3062,19 @@ def main(scr):
                 msg = L(f'아직 못 바꾼다 — {opts[k][3]}', f'Not yet — {opts[k][3]}')
             elif confirm != ('chg', chg, k):  # 되돌릴 수 없으니 한 번 더 눌러야 바뀐다
                 confirm = ('chg', chg, k)
-                msg = L(f'{opt_name(opts[k][0])} — {item_name(opts[k][1][1])} 1개를 쓴다. 한 번 더 누르면 특훈한다', f'{opt_name(opts[k][0])} — uses a {item_name(opts[k][1][1])}. Press again') \
+                cn = max(1, min(cap_n, cap_max(st, chg, opts[k][0]))) if isinstance(opts[k][0], tuple) and opts[k][0][0] == 'iv' else 1
+                msg = L(f'{opt_name(opts[k][0]).split(" ")[0]} — {item_name(opts[k][1][1])} {cn}개를 쓴다. 한 번 더 누르면 특훈한다',
+                        f'{opt_name(opts[k][0]).split(" ")[0]} — uses {cn} {item_name(opts[k][1][1])}. Press again') \
                     if isinstance(opts[k][0], tuple) else L(f'{opt_name(opts[k][0])}(으)로 바꾼다 — 재료는 사라지고 되돌릴 수 없다. 한 번 더 누르면 바뀐다',
                         f'Change into {opt_name(opts[k][0])} — the material is used up and it can\'t be undone. Press again')
             else:
                 mon, before = st['box'][chg], name(st['box'][chg]['id'])
-                f = change(st, chg, k)
+                f = change(st, chg, k, cap_n)
                 save(st)
                 msg = L(f'특훈 완료! {before} — {iv_text(mon)}', f'Hyper Training done! {before} — {iv_text(mon)}') if isinstance(f, tuple) else \
                     L(f'오잉!? {before}의 모습이… {name(f)}(으)로 바뀌었다!', f'What? {before} became {name(f)}!')
-                view, confirm, rec, sel, top = 'bag', None, None, 0, 0
+                view, confirm, rec, top, cap_n = 'bag', None, None, 0, 1
+                sel = max(0, min(bag_sel, len(bag_items(st)) - 1))  # 가방에서 고르던 아이템으로(다 썼으면 가까운 줄)
             act = None
         if act in ('send', 'tidy') and view == 'trade' and picked is not None:
             i = picked
@@ -3101,6 +3125,7 @@ def main(scr):
         if isinstance(act, tuple) and act[0] == 'bagitem' and view == 'bag':
             rows = bag_items(st)
             if 0 <= act[1] < len(rows):
+                bag_sel = act[1]  # 돌아오면 이 아이템에(2026-11-10 사용자 — 전엔 맨 위로 갔다)
                 view, ukey, sel, top, msg, confirm, query, searching = 'use', rows[act[1]][0], 0, 0, '', None, '', False
                 focus = 'use_sel'  # 가방의 [돌아가기] 강조가 넘어와 Enter 가 나갈 것처럼 보였다(2026-11-06 사용자) — Enter 는 늘 쓰기
             act = None
@@ -3111,8 +3136,9 @@ def main(scr):
                 before = name(st['box'][i]['id'])
                 if not ok:
                     msg = L(f'아직 못 쓴다 — {why}', f'Not yet — {why}')
-                elif ukey != 'candy' and len(ks) > 1:  # 고를 게 더 있다(병뚜껑 공·방·체, 합체 상대 둘) — 바꾸기 화면에서
-                    view, chg, chg_from, chg_only, sel, top, msg, confirm = 'change', i, 'use', ks, 0, 0, '', None
+                elif ukey == 'cap' or ukey != 'candy' and len(ks) > 1:  # 고를 게 더 있다(병뚜껑 능력치·개수, 합체 상대 둘) — 바꾸기 화면에서
+                    use_sel = act[1]
+                    view, chg, chg_from, chg_only, sel, top, msg, confirm, cap_n = 'change', i, 'use', ks, 0, 0, '', None, 1
                 elif confirm != ('use', ukey, i):  # 되돌릴 수 없으니 한 번 더
                     confirm = ('use', ukey, i)
                     msg = L(f'{before}에게 {item_name(ukey)} — 한 번 더 누르면 쓴다(되돌릴 수 없다)', f'{item_name(ukey)} on {before} — press again (can\'t be undone)')
@@ -3126,7 +3152,8 @@ def main(scr):
                         msg = L(f'특훈 완료! {before} — {iv_text(st["box"][i])}', f'Hyper Training done! {before} — {iv_text(st["box"][i])}') if isinstance(f, tuple) else \
                             L(f'오잉!? {before}의 모습이… {name(f)}(으)로 바뀌었다!', f'What? {before} became {name(f)}!')
                     save(st)
-                    view, sel, top, rec = 'bag', 0, 0, None
+                    view, top, rec = 'bag', 0, None
+                    sel = max(0, min(bag_sel, len(bag_items(st)) - 1))  # 가방에서 고르던 아이템으로
             act = None
         if act == 'partner_pick' and view == 'main':
             view, pslot, query, pick_sort, sel, top, msg, searching = 'slotpick', -1, '', 1, 0, 0, '', False
@@ -3213,7 +3240,12 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            view = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main'}.get(view, 'main')  # 한 단계 위로
+            back_to = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main'}.get(view, 'main')  # 한 단계 위로
+            if view == 'use':  # 아이템 상세에서 나오면 고르던 아이템으로(2026-11-10 사용자)
+                sel, top, msg, confirm = max(0, min(bag_sel, len(bag_items(st)) - 1)), 0, '', None
+            elif view == 'change' and chg_from == 'use':  # 능력치·개수 고르기에서 나오면 고르던 포켓몬으로 — 쓰기 확인 문구는 지운다
+                sel, top, cap_n, msg, confirm = use_sel, 0, 1, '', None
+            view = back_to
         elif isinstance(act, tuple) and act[0] == 'gymleft':  # 체육관 왼쪽 열 클릭 — 그 줄로(세대면 오른쪽에 관들이 바뀐다)
             sel, gcol, gsub, gtop = act[1], 0, 0, 0
         elif isinstance(act, tuple) and act[0] == 'gym':
@@ -3409,6 +3441,13 @@ def selftest():
     cp = {**new_state(), 'box': [{'id': 19, 'xp': 0, 'iv': [15, 3, 14, 15, 15, 15]}], 'items': {'cap': 2, 'gcap': 1}}
     assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('iv', 2), ('ivmax', 1), ('ivmax', 2)]
     assert change(cp, 0, 1) == ('iv', 2) and cp['box'][0]['iv'] == [15, 3, 15, 15, 15, 15] and cp['items']['cap'] == 1
+    # 여러 개 한꺼번에 — 15까지 남은 칸과 가진 개수 중 작은 쪽까지만(2026-11-10 사용자)
+    cq = {**new_state(), 'box': [{'id': 19, 'xp': 0, 'iv': [10, 3, 14, 15, 15, 15]}], 'items': {'cap': 7}}
+    k_atk = next(k for k, o in enumerate(change_options(cq, 0)) if o[0] == ('iv', 1))
+    assert cap_max(cq, 0, ('iv', 1)) == 7 and cap_max(cq, 0, ('iv', 0)) == 5 and cap_max(cq, 0, ('iv', 2)) == 1
+    assert change(cq, 0, k_atk, 4) == ('iv', 1) and cq['box'][0]['iv'][1] == 7 and cq['items']['cap'] == 3
+    assert change(cq, 0, next(k for k, o in enumerate(change_options(cq, 0)) if o[0] == ('iv', 0)), 99) == ('iv', 0)
+    assert cq['box'][0]['iv'][0] == 13 and cq['items']['cap'] == 0  # 99개라 해도 가진 3개까지
     assert [f for f, *_ in change_options(cp, 0)] == [('iv', 1), ('ivmax', 1)] and opt_name(('iv', 1)) == L('공격 +1', 'Attack +1')
     assert change(cp, 0, 0) == ('iv', 1) and cp['box'][0]['iv'] == [15, 4, 15, 15, 15, 15]
     assert change(cp, 0, 0) == ('ivmax', 1) and cp['box'][0]['iv'] == [15] * 6 and change_options(cp, 0) == []
