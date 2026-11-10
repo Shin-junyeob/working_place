@@ -282,14 +282,19 @@ def encode_png(px):
             + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
 
 
+SILHOUETTE = (88, 92, 104)  # 도감에서 못 본 포켓몬의 실루엣 색 — 어두운 터미널 바탕에서 보이게 검정 대신 어두운 회색
+
+
 def crop(px, gray=False):
-    """투명 여백을 잘라 낸 RGBA 행렬 — gray 면 밝기만 남긴다. 다 투명하면 []."""
+    """투명 여백을 잘라 낸 RGBA 행렬 — gray 면 밝기만 남긴다, gray == 2 면 실루엣(불투명한 점을 모두 SILHOUETTE). 다 투명하면 []."""
     on = [(x, y) for y, r in enumerate(px) for x, c in enumerate(r) if c[3] > 127]
     if not on:
         return []
     x0, x1 = min(x for x, _ in on), max(x for x, _ in on) + 1
     y0, y1 = min(y for _, y in on), max(y for _, y in on) + 1
     g = lambda c: (lambda v: (v, v, v, c[3]))(round(0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]))  # noqa: E731
+    if gray == 2:
+        g = lambda c: SILHOUETTE + (c[3],)  # noqa: E731
     return [[g(c) if gray else c for c in r[x0:x1]] for r in px[y0:y1]]
 
 
