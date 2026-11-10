@@ -302,6 +302,94 @@ def old_pick(old, rng=random):
     return rng.choices(old, weights=weights)[0]
 
 
+# 서식지(2026-11-10 사용자 — 레전드 아르세우스의 지역·낚시에서) — 탐색할 곳을 고르면 그 타입 포켓몬만 나온다. 메인 화면 h 로 바꾼다.
+# 열여덟 타입이 모두 어딘가에 들어가게 나눴다. 타입 자료(BATTLE)가 아직 없으면 거르지 않는다.
+HABITATS = (('all', '전체', 'All', ()),
+            ('grass', '풀숲', 'Grass', (_battle.GRASS, _battle.BUG, _battle.NORMAL, _battle.POISON, _battle.FAIRY)),
+            ('water', '물가', 'Water', (_battle.WATER, _battle.ICE)),
+            ('cave', '동굴', 'Cave', (_battle.ROCK, _battle.GROUND, _battle.STEEL, _battle.FIGHTING, _battle.FIRE, _battle.DRAGON)),
+            ('sky', '하늘', 'Sky', (_battle.FLYING, _battle.PSYCHIC, _battle.GHOST, _battle.DARK, _battle.ELECTRIC)))
+TYPES = {}  # 번호 → 타입 번호들 — 포켓몬 화면이 배틀 자료를 읽으면 채운다
+
+
+def habitat(st):
+    """지금 고른 서식지 (키, 한국어, 영어, 타입들)."""
+    return next((hb for hb in HABITATS if hb[0] == st.get('habitat')), HABITATS[0])
+
+
+def in_habitat(st, n):
+    """n 이 지금 서식지에 나오나 — '전체'거나 타입을 모르면 늘 나온다(리전폼은 그 모습의 타입)."""
+    tys = habitat(st)[3]
+    t = TYPES.get(n) or TYPES.get(sp(n))
+    return not tys or not t or bool(set(t) & set(tys))
+
+
+# 증표(소드·실드) — 야생이 MARK_RATE 로 하나 달고 나와 이름 앞에 칭호가 붙는다(가방 상세에 그림). 날씨·시간대 증표는 뺐다
+# (시간에 따른 출현은 하지 않기로, 2026-11-05). 우두머리는 늘 우두머리 증표. 칭호는 우리말로 새로 지었다.
+MARK_RATE = 0.02
+MARKS = {'absent-minded': ('멍한', 'the Absent-Minded'), 'angry': ('화난', 'the Angry'), 'calmness': ('차분한', 'the Calm'),
+         'charismatic': ('카리스마 있는', 'the Charismatic'), 'crafty': ('꾀 많은', 'the Crafty'), 'excited': ('신난', 'the Excited'),
+         'ferocious': ('사나운', 'the Ferocious'), 'flustered': ('허둥대는', 'the Flustered'), 'humble': ('겸손한', 'the Humble'),
+         'intellectual': ('똑똑한', 'the Clever'), 'intense': ('열정적인', 'the Intense'), 'jittery': ('안절부절못하는', 'the Jittery'),
+         'joyful': ('즐거운', 'the Joyful'), 'kindly': ('상냥한', 'the Kind'), 'peeved': ('토라진', 'the Peeved'),
+         'prideful': ('거만한', 'the Proud'), 'pumped-up': ('의욕 넘치는', 'the Pumped'), 'rowdy': ('시끌벅적한', 'the Rowdy'),
+         'scowling': ('찌푸린', 'the Scowling'), 'slump': ('슬럼프에 빠진', 'the Slumping'), 'smiley': ('싱글벙글한', 'the Smiley'),
+         'teary': ('눈물 많은', 'the Teary'), 'thorny': ('까칠한', 'the Prickly'), 'unsure': ('망설이는', 'the Unsure'),
+         'upbeat': ('쾌활한', 'the Upbeat'), 'vigor': ('기운찬', 'the Vigorous'), 'zero-energy': ('기운 없는', 'the Drained'),
+         'zoned-out': ('넋 나간', 'the Zoned-Out'), 'uncommon': ('붙임성 좋은', 'the Sociable'), 'rare': ('은둔하던', 'the Recluse'),
+         'alpha': ('우두머리였던', 'the Former Alpha')}
+MARK_WEIGHT = {'uncommon': 6, 'rare': 1, 'alpha': 0}  # 나머지 성격 증표는 1씩 — 붙임성은 흔하게, 은둔은 드물게
+
+
+def roll_mark(rng=random):
+    """야생이 달고 나올 증표 — MARK_RATE 로 하나, 아니면 None."""
+    if rng.random() >= MARK_RATE:
+        return None
+    keys = list(MARKS)
+    return rng.choices(keys, weights=[MARK_WEIGHT.get(k, 1) for k in keys])[0]
+
+
+def titled(mark, nm):
+    """증표 칭호를 붙인 이름 — '사나운 피카츄' · 'Pikachu the Ferocious'."""
+    return L(f'{MARKS[mark][0]} {nm}', f'{nm} {MARKS[mark][1]}') if mark in MARKS else nm
+
+
+def mark_name(mark):
+    return L(f'{MARKS[mark][0]} 증표', mark.replace('-', ' ').title() + ' Mark')
+
+
+# 리본(포켓몬 HOME 처럼 포켓몬마다) — 키 → (PokeAPI 그림, 한국어, 영어). 같은 리본은 한 번만.
+CHAMP_RIBBON = {3: 'hoenn-champion-ribbon', 4: 'sinnoh-champion-ribbon', 6: 'kalos-champion-ribbon', 7: 'alola-champion-ribbon',
+                8: 'galar-champion-ribbon', 9: 'paldea-champion-ribbon'}  # 그 밖의 세대는 champion-ribbon
+RIBBONS = {**{f'champ{g}': (CHAMP_RIBBON.get(g, 'champion-ribbon'), f'{g}세대 챔피언 리본', f'Gen {g} Champion Ribbon') for g in range(1, 10)},
+           'tower21': ('battle-tree-great-ribbon', '배틀 타워 21연승 리본', 'Tower 21-Win Ribbon'),
+           'tower49': ('battle-tree-master-ribbon', '배틀 타워 49연승 리본', 'Tower 49-Win Ribbon'),
+           'raid': ('legend-ribbon', '레이드 리본', 'Raid Ribbon'),
+           'partner': ('best-friends-ribbon', '단짝 리본', 'Best Friends Ribbon'),
+           'effort': ('effort-ribbon', '노력 리본', 'Effort Ribbon')}
+def ribbon_how():
+    return L('사천왕·챔피언을 이긴 팀원 · 배틀 타워 21·49연승 · 레이드를 이긴 팀원 · 동료로 진화 · 개체값 여섯을 모두 15로',
+             'beat a league · Tower 21/49 wins · win a raid · evolve as partner · all six IVs at 15')
+
+
+def give_ribbon(st, idxs, key):
+    """가방 번호들에 리본 key — 이미 있는 포켓몬은 건너뛴다. 새로 받은 수(받았으면 동료가 알린다)."""
+    got = [i for i in dict.fromkeys(idxs) if 0 <= i < len(st['box']) and key not in st['box'][i].get('ribbons', [])]
+    for i in got:
+        st['box'][i].setdefault('ribbons', []).append(key)
+    if got:
+        tell(st, 'ribbon', f'{key}|{mon_name(st["box"][got[0]])}|{len(got)}')
+    return len(got)
+
+
+def mon_name(m):
+    """가방 포켓몬의 이름 — 지어 준 이름(닉네임)이 있으면 그것."""
+    return m.get('nick') or name(m['id'])
+
+
+NICK_MAX = 12  # 닉네임 최대 글자 수
+
+
 def old_pool(st):
     """이전 세대(열린 세대보다 아래 전부)와 지금 세대에서 계열을 다 잡은 야생 종 — 잡은 종도 나온다(같은 모습이 가방에 있으면 볼로 바뀐다), 전설·환상 포함.
     모든 세대를 다 채웠으면 전 세대에서. 그 세대 종의 리전폼(FORMS 번호)도 함께 — 진화형 폼도 야생에서 바로."""
@@ -397,7 +485,7 @@ def wild_odds(st):
     """이번 탐색의 후보와 가중치 [(번호, 가중치)] — 가방에 없는 앞쪽 WINDOW 마리는 1, 그 사이에 낀 가방 속 종은
     BOXED_WEIGHT. 가방 속 종은 진화형을 동료 진화로만 얻으니 나와 봐야 볼로 바뀔 뿐인데, 그대로 두면 맨 앞 칸을
     막아 같은 포켓몬만 나왔다(진화 전 스타팅 3종이 4칸 중 3칸). 아예 빼지는 않고 드물게만 나오게 한다."""
-    pool, inbag = wild_pool(st), boxed(st)
+    pool, inbag = [n for n in wild_pool(st) if in_habitat(st, n)], boxed(st)
     fresh = [n for n in pool if n not in inbag and not evo_wild(n)][:WINDOW]
     if not fresh:  # 남은 게 전부 가방 속 종·이전 세대 진화형이면 그것들 전부에서 고르게 — 앞 WINDOW 마리만 쓰니
         return [(n, 1) for n in pool]          # 3세대 41종이 다 가방에 있을 때 스타팅 3종·포챠나만 돌아가며 나왔다(2026-11-09)
@@ -585,7 +673,7 @@ def _mark(st, key, n):
 def explore(st, t, rng=random):
     if st['wild'] or tickets(st, t) <= 0:
         return None
-    odds, old = wild_odds(st), old_pool(st)
+    odds, old = wild_odds(st), [n for n in old_pool(st) if in_habitat(st, n)]
     if not odds and not old:
         return None
     st['used'] += 1
@@ -596,19 +684,20 @@ def explore(st, t, rng=random):
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     shiny = rng.random() < shiny_rate(st, n)  # 리전폼도 이로치·우두머리(2026-11-06 사용자 — 전엔 따로 모으던 시절 규칙으로 없었다)
     alpha = not DEX[sp(n)][5] and rng.random() < ALPHA_RATE
+    mark = 'alpha' if alpha else roll_mark(rng)
     if n in FORMS:  # 리전폼 — 다른 종처럼 이미 있어도 만나서 잡는다(개체값·박사)
         ill = illusion(st) if FORMS[n][0] in ZORUA else None  # 히스이 조로아·조로아크도 환영으로
         if not ill:
             _mark(st, 'forms_seen', n)
         st['wild'] = {'id': FORMS[n][0], 'form': n, 'balls': BALLS, **({'shiny': True} if shiny else {}),
-                      **({'alpha': True, 'tries': 0} if alpha else {}), **({'disguise': ill} if ill else {})}
+                      **({'alpha': True, 'tries': 0} if alpha else {}), **({'disguise': ill} if ill else {}), **({'mark': mark} if mark else {})}
         return ill or n, 0
     # 메타몽은 다른 포켓몬으로 변신해, 조로아·조로아크는 내 포켓몬의 환영으로 나온다 — 잡아야 정체가 드러난다
     disguise = rng.choice(disguises(st)) if n == DITTO else illusion(st) if n in ZORUA else None
     if not (n in ZORUA and disguise):  # 환영은 내 포켓몬 모습이라 새로 본 것이 없다
         _mark(st, 'seen', disguise or n)
     st['wild'] = {'id': n, 'balls': BALLS, **({'shiny': True} if shiny else {}), **({'alpha': True, 'tries': 0} if alpha else {}),
-                  **({'disguise': disguise} if disguise else {})}
+                  **({'disguise': disguise} if disguise else {}), **({'mark': mark} if mark else {})}
     if disguise:
         return disguise, 0
     return n, 0
@@ -707,7 +796,8 @@ def _caught(st, t, w, rng):
     g0 = opened_gen(st)
     # 리전폼은 폼 번호로 가방에 — 도감 숫자(caught) 대신 리전폼 목록(forms)에 적는다
     st['box'].append({'id': w.get('form') or w['id'], 'xp': 0, 'iv': roll_iv(rng, floor),
-                      **({'shiny': True} if w.get('shiny') else {}), **({'alpha': True} if w.get('alpha') else {})})
+                      **({'shiny': True} if w.get('shiny') else {}), **({'alpha': True} if w.get('alpha') else {}),
+                      **({'mark': w['mark']} if w.get('mark') else {})})
     research_bump(st, w['id'], 'c')  # 리전폼도 원래 종(w['id']) 연구에
     if w.get('form'):
         _mark(st, 'forms_seen', w['form'])  # 환영이던 히스이 조로아크는 잡을 때 처음 본다
@@ -770,7 +860,7 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
     if st['partner'] is None:
         return None
     now = now or datetime.now().timestamp()
-    pn = name(st['box'][st['partner']]['id'])
+    pn = mon_name(st['box'][st['partner']])
     events = feed.feed(folder, limit=None)
     since = {}
     for at, nm, state, _ in events:  # 최근 것부터 — 세션마다 가장 최근 blocked 시각
@@ -790,6 +880,11 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
     for n in reversed(st.get('news', [])):
         if now - n['at'] >= NEWS_SHOW:
             continue
+        if n['kind'] == 'ribbon':  # arg: '리본|받은 포켓몬 이름|몇 마리'
+            key, who, k = n['arg'].split('|')
+            rb = RIBBONS.get(key, ('', key, key))
+            return (L(f'{who}(이)가 {rb[1]}을 받았다!', f'{who} got the {rb[2]}!') if k == '1' else
+                    L(f'팀 {k}마리가 {rb[1]}을 받았다!', f'{k} team members got the {rb[2]}!')), False
         if n['kind'] == 'super':
             return L(f'{pn}(이)가 슈퍼볼을 물어 왔다!', f'{pn} brought you a Great Ball!'), False
         if n['kind'] == 'charm':
@@ -1217,7 +1312,9 @@ def use_candy(st, t, rng=random, i=None):
 def evolve(st, t, rng=random):
     if not can_evolve(st, t):
         return None
-    return _evolve(st, t, rng)
+    n = _evolve(st, t, rng)
+    give_ribbon(st, [st['partner']], 'partner')  # 동료로 함께 지내 진화 — 단짝 리본(사탕 진화는 아님)
+    return n
 
 
 def _evolve(st, t, rng, i=None):
@@ -1490,7 +1587,7 @@ MEDAL_ART = {'catch1': 'poke-ball', 'catch10': 'great-ball', 'catch50': 'ultra-b
 
 def art_id(key):
     """훈장 번호 또는 체육관 배지('gym:세대-관') → 그림 번호(_pokedata). 리전폼 그림('form:번호')은 그대로."""
-    if key.startswith('form:'):
+    if key.startswith(('form:', 'ribbon:', 'mark:')):
         return key
     if key.startswith('gym:'):
         g, i = map(int, key[4:].split('-'))
@@ -1523,7 +1620,7 @@ def bag_text(m, room):
     """가방·교환 목록 한 줄(표시 뒤) — 늘 '이름 Lv · 공 방 체 (%)'(도감번호·경험치는 빼기로, 2026-11-03 사용자).
     room 칸보다 길면 이름 끝을 '…'로 줄여 개체값이 늘 보이게 — 팔데아 켄타로스(블레이즈종)에서 잘렸다."""
     cw = lambda t: sum(map(memo.cw, t))  # noqa: E731
-    nm = name(m['id'])
+    nm = mon_name(m)
     tail = f' Lv{box_level(m)} · {iv_text(m, False)}'
     if cw(nm + tail) <= room:
         return nm + tail
@@ -1704,7 +1801,7 @@ def typed_char(key):
 def pick_list(st, query='', sort=1):
     """팀 칸에 넣을 후보 가방 번호들 — 이름에 query 가 든 것, SORTS[sort] 순(처음은 레벨 높은 것부터)."""
     q = query.lower()
-    return [i for i in bag_order(st, None, sort) if q in name(st['box'][i]['id']).lower()]
+    return [i for i in bag_order(st, None, sort) if q in name(st['box'][i]['id']).lower() or q in st['box'][i].get('nick', '').lower()]
 
 
 def slot_rows(st, k, query='', sort=1):
@@ -1906,6 +2003,8 @@ def change(st, i, k, n=1):
         st['items'][ref] -= n
         m = st['box'][i]
         m['iv'] = [(min(15, v + n) if f[0] == 'iv' else 15) if j == f[1] else v for j, v in enumerate(iv_of(m))]
+        if all(v == 15 for v in m['iv']):
+            give_ribbon(st, [i], 'effort')
         return f
     if what == 'mon':
         i = _drop(st, {ref})[i]  # 합체 상대는 사라진다(2026-10-30 — 분리 없음, 다른 모습은 재료를 다시 모아서)
@@ -2090,11 +2189,15 @@ def fight(st, t, d, g, i, rng=random, today=None):
     day, first = today or datetime.now().astimezone().strftime('%Y-%m-%d'), False
     if won:
         bump(st, 'gym')
+    if won and i == 'L':
+        give_ribbon(st, [k for k, _, _ in team], f'champ{g}')
     if i == 'T':  # 타워 — 이기면 연승 +1(TOWER_PRIZES 마다 상), 지면 도전 끝
         tw = tower_state(st)
         if won:
             tw['streak'] += 1
             tw['best'] = max(tw['best'], tw['streak'])
+            if f'tower{tw["streak"]}' in RIBBONS:
+                give_ribbon(st, [k for k, _, _ in team], f'tower{tw["streak"]}')
             for every, prize in TOWER_PRIZES:
                 if tw['streak'] % every == 0:
                     for key, k in prize:
@@ -2107,6 +2210,7 @@ def fight(st, t, d, g, i, rng=random, today=None):
     elif won and i == 'R':  # 레이드 — 레이드볼 RAID_BALLS 개로 잡을 기회(다른 야생과 만나는 중이면 그게 끝난 뒤)
         r = raid_state(st)
         r['won'], r['pending'] = True, True
+        give_ribbon(st, [k for k, _, _ in team], 'raid')
         give_item(st, 'soup')  # 거다이맥스 재료 — 쓰는 건 8세대가 열린 뒤
         raid_release(st)
         tell(st, 'raid', str(raid_boss(st)[1]))
@@ -2242,6 +2346,7 @@ def main(scr):
     ball_pick = None  # 만남 화면에서 고른 볼(던지기 전까지는 고르기만)
     bag_sel, use_sel, cap_n = 0, 0, 1  # 가방·사용 화면에서 들어가기 전에 고르던 줄(돌아오면 그 줄로) · 은색 병뚜껑 쓸 개수
     pslot, query, pick_sort = 0, '', 1  # 팀 칸 고르기: 몇 번째 자리 · 이름 찾기 · 정렬(처음은 레벨순)
+    mon_i, naming = None, None  # 포켓몬 상세 화면의 가방 번호 · 이름 짓는 중이면 입력 중인 글(아니면 None)
     searching = False  # 이름 찾기 입력 중인가 — F 로 켜고 Enter(검색어 유지)·Esc(지움)로 끈다(2026-11-05 사용자)
     gcol, gsub, gtop = 0, 0, 0  # 체육관 화면: 커서가 있는 열(0 왼쪽 · 1 오른쪽) · 오른쪽에서 고른 줄 · 오른쪽 맨 위 줄
     tm, tcol = 0, 0  # 교환 화면: 왼쪽에서 고른 일(0 박사에게 · 1 중복 정리 · 2 볼 바꾸기) · 커서가 있는 열 — 오른쪽 줄은 sel·top
@@ -2250,6 +2355,7 @@ def main(scr):
     order, bag_sort = [], _lang.get('bag_sort', 0) % len(SORTS)  # 교환: 보이는 순서(가방 번호들) · 정렬  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
     BATTLE = _battle.load()  # 체육관을 처음 열 때 없으면 받는다
+    TYPES.update(BATTLE['types'] if BATTLE else {})  # 서식지 — 타입 자료가 없으면 거르지 않는다
     if not DEX or len(DEX[1]) < 9:  # 처음 열었거나 옛 형식(알에 쓸 베이비·부화 걸음 없음) — 도감을 받아 온다
         put(scr, 0, 0, L('PokeAPI 에서 포켓몬 도감을 받는 중…', 'Downloading the Pokédex from PokeAPI…'))
         scr.refresh()
@@ -2358,7 +2464,7 @@ def main(scr):
                 art = join_art(art, pic)
                 px = pic[5] + 3 if pic else 1
                 y = 3 + (pr - 2) // 2  # 이름·게이지 두 줄은 그림 높이의 가운데에
-                plabel = (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + ('◆' if m.get('alpha') else '') + name(n) + f'  Lv.{box_level(m)}'
+                plabel = (L('✨이로치 ', '✨shiny ') if m.get('shiny') else '') + ('◆' if m.get('alpha') else '') + mon_name(m) + f'  Lv.{box_level(m)}'
                 put(scr, y, px, plabel, gold if m.get('shiny') else curses.A_BOLD)
                 btns.extend((3 + r, 1, x0 - 2, 'partner_pick') for r in range(max(2, pr)))  # 동료를 누르면 동료 고르기(2026-11-05 사용자)
                 navbtns.append((y, px, px + memo_w(plabel), 'partner_pick', plabel))
@@ -2385,7 +2491,7 @@ def main(scr):
             eggs = egg_lines(st, t)
             egg_h = 2 if w >= 44 and (SIXEL or KITTY) else 1  # 알 그림이 있으면 한 알에 2줄
             k = tickets(st, t)  # ⑤ 오른쪽 네모 버튼 — 맨 위는 가장 자주 누르는 풀숲 탐색
-            explore_label = L('앗! 야생', 'Wild!') if st['wild'] else (L(f'풀숲 탐색 {k}', f'Explore {k}') if k < 10 else L(f'탐색 {k}', f'Explore {k}')) if k > 0 else \
+            explore_label = L('앗! 야생', 'Wild!') if st['wild'] else (L(f'{habitat(st)[1]} 탐색 {k}', f'{habitat(st)[2]} {k}') if k < 10 else L(f'{habitat(st)[1]} {k}', f'{habitat(st)[2]} {k}')) if k > 0 else \
                 L(f'다음 {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}', f'next {fmt_tok(ENCOUNTER_EVERY - t % ENCOUNTER_EVERY)}')
             # 이름을 explore 라 하면 탐색 함수를 가려 눌렀을 때 꺼졌다(2026-11-05)
             side = [(explore_label, 'encounter' if st['wild'] else 'explore'), (L('도감', 'dex'), 'dex'), (L('가방', 'bag'), 'box'), (L('교환', 'trade'), 'trade'),
@@ -2411,7 +2517,7 @@ def main(scr):
                     mm = st['box'][team[k]]
                     pic = mon_art(art_of(mm), cy, w, cx, art_rows, cw3 - 1)
                     art = join_art(art, pic)
-                    label = fit(('◆' if mm.get('alpha') else '') + name(mm['id']), cw3 - 7) + f' Lv.{box_level(mm)}'
+                    label = fit(('◆' if mm.get('alpha') else '') + mon_name(mm), cw3 - 7) + f' Lv.{box_level(mm)}'
                     put(scr, ly + 1, cx, iv_text(mm, False), curses.A_DIM)
                 else:
                     label = L('(빈칸)', '(empty)')
@@ -2453,7 +2559,8 @@ def main(scr):
             sh = wd.get('shiny') and not wd.get('disguise')
             y = para(scr, 1, (L('레이드 보스 ', 'Raid boss ') if wd.get('raid') else
                               L('앗! 붉은 눈의 우두머리 ', 'Oh! An alpha ') if wd.get('alpha') else L('앗! 야생의 ', 'Oh! A wild '))
-                     + (L('✨이로치 ', '✨shiny ') if sh else '') + name(shown(wd)) + L('(이)가 나타났다!', ' appeared!'), x0, gold | curses.A_BOLD if sh else curses.A_BOLD)
+                     + (L('✨이로치 ', '✨shiny ') if sh else '') + (name(shown(wd)) if wd.get('alpha') else titled(wd.get('mark'), name(shown(wd))))
+                     + L('(이)가 나타났다!', ' appeared!'), x0, gold | curses.A_BOLD if sh else curses.A_BOLD)
             if wd.get('alpha'):
                 y = para(scr, y, L(f'볼 {ALPHA_TRIES - wd.get("tries", 0)}번 안에 못 잡으면 도망친다', f'Flees after {ALPHA_TRIES - wd.get("tries", 0)} more throws'), x0, curses.A_DIM)
             # ① 그림은 패널 한가운데, 폭의 ⅓ 쯤(실제로 보일 크기 기준) · ② 볼은 오른쪽 열 · ③④ 는 아래 가운데에 나란히
@@ -2510,6 +2617,36 @@ def main(scr):
                 put(scr, h - 2, 1, fit(iv_text(st['box'][rows[sel][0]]), w - 2), curses.A_DIM)
             x = button(h - 1, 1, L('쓰기', 'use'), 'use_sel')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+        elif view == 'mon':  # 포켓몬 상세(2026-11-10 사용자) — 증표·리본(PokeAPI 그림)·이름 짓기. 팀 자리 고르기에서 i
+            m = st['box'][mon_i]
+            sh, mk, rs = m.get('shiny'), m.get('mark'), m.get('ribbons', [])
+            if naming is not None:
+                put(scr, 1, 1, fit(L(f'이름: {naming}▏  Enter 저장 · Esc 취소 · 비우면 원래 이름', f'Name: {naming}▏  Enter save · Esc cancel · empty = species'), w - 2), curses.A_BOLD)
+            else:
+                put(scr, 1, 1, fit(msg or L('N 이름 짓기 · q 돌아가기', 'N name · q back'), w - 2), curses.A_DIM)
+            head = ('✨' if sh else '') + ('◆' if m.get('alpha') else '') + titled(mk, mon_name(m)) \
+                + (f'  ({name(m["id"])})' if m.get('nick') else '') + f'  Lv{box_level(m)}'
+            put(scr, 2, 1, fit(head, w - 2), (gold if sh else 0) | curses.A_BOLD)
+            put(scr, 3, 1, fit(iv_text(m), w - 2), curses.A_DIM)
+            put(scr, 5, 1, fit(L('증표  ', 'Mark     ') + (mark_name(mk) if mk else L('없음 — 야생이 드물게 달고 나온다', 'none — wild ones rarely carry one')), w - 2),
+                0 if mk else curses.A_DIM)
+            put(scr, 6, 1, L(f'리본  {len(rs)}개', f'Ribbons  {len(rs)}'), 0 if rs else curses.A_DIM)
+            y = 7
+            if not rs:
+                y = para(scr, y, L('받는 법 — ', 'How — ') + ribbon_how(), w, curses.A_DIM)
+            for r in rs[:max(0, h - 13)]:  # 그림 자리(아래 4줄)를 남기고
+                put(scr, y, 3, fit('· ' + L(RIBBONS[r][1], RIBBONS[r][2]), w - 4))
+                y += 1
+            keys = ([f'mark:{mk}-mark'] if mk else []) + [f'ribbon:{RIBBONS[r][0]}' for r in rs]
+            per = max(1, (w - 4) // 8)  # 한 줄에 몇 개 — 3줄 높이 그림이 7칸쯤
+            lines = -(-len(keys) // per) if keys else 0
+            rows_ = min(3 * lines, h - 3 - (y + 1))
+            if keys and rows_ >= 2:
+                art = badge_art(st, keys, y + 1, 2, rows_, per if lines > 1 else 0)
+                if art and art[5] > w - 4:
+                    art = None
+            x = button(h - 1, 1, L('이름 짓기 N', 'name N'), 'nick')
+            button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'slotpick':  # 팀 칸 Enter — 이 자리에 넣을 포켓몬 고르기(이름 찾기 · Tab 정렬)
             team = [i for i in st.get('team', []) if i < len(st['box'])]
             rows = slot_rows(st, pslot, query, pick_sort)
@@ -2535,6 +2672,7 @@ def main(scr):
             elif rows[sel] is not None:  # 고른 줄의 개체값 여섯 — 목록은 %만(2026-11-06 사용자)
                 put(scr, h - 2, 1, fit(iv_text(st['box'][rows[sel]]), w - 2), curses.A_DIM)
             x = button(h - 1, 1, L('넣기', 'put'), 'pick_sel')
+            x = button(h - 1, x, L('자세히 i', 'info i'), 'mon_open')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'badges':  # 2026-11-05 사용자: 체육관처럼 두 열 — 왼쪽 장식 중·분류, 오른쪽 그 분류의 훈장
             groups = medal_groups(st)
@@ -2923,7 +3061,38 @@ def main(scr):
                 st = fresh_st
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
         lists = view in ('trade', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
-        if view in ('slotpick', 'use') and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
+        if view == 'mon' and naming is not None:  # 이름 짓는 중 — 글자는 이름으로(q 도), Enter 저장 · Esc 취소
+            if key == 27:
+                naming, act, key = None, None, -1
+            elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
+                nick = naming.strip()
+                if nick:
+                    st['box'][mon_i]['nick'] = nick
+                else:
+                    st['box'][mon_i].pop('nick', None)
+                save(st)
+                msg = L(f'이름을 {mon_name(st["box"][mon_i])}(으)로 정했다.', f'Named {mon_name(st["box"][mon_i])}.')
+                naming, act, key = None, None, -1
+            elif key in (curses.KEY_BACKSPACE, 127, 8):
+                naming, act, key = naming[:-1], None, -1
+            elif typed_char(key) or key == 32:
+                naming, act, key = (naming + chr(key))[:NICK_MAX], None, -1
+            else:
+                act = None
+        elif view == 'mon' and key in (ord('n'), ord('N')):
+            naming, act, key = st['box'][mon_i].get('nick', ''), None, -1
+        elif view == 'slotpick' and not searching and key in (ord('i'), ord('I')):
+            act, key = 'mon_open', -1
+        elif view == 'main' and key in (ord('h'), ord('H')):  # 서식지 바꾸기(2026-11-10 사용자)
+            ks = [hb[0] for hb in HABITATS]
+            st['habitat'] = ks[(ks.index(habitat(st)[0]) + 1) % len(ks)]
+            hb = habitat(st)
+            tn = [(BATTLE or {}).get('tnames', {}).get(tp, ['', '']) for tp in hb[3]]
+            msg = (L(f'서식지: {hb[1]} — {"·".join(x[0] for x in tn)} 타입만 나온다 (h 로 바꾸기)', f'Habitat: {hb[2]} — only {"/".join(x[1] for x in tn)} types (h to change)')
+                   if hb[3] else L('서식지: 전체 — 어떤 포켓몬이든 나온다 (h 로 바꾸기)', 'Habitat: all — anything can appear (h to change)'))
+            save(st)
+            act, key = None, -1
+        elif view in ('slotpick', 'use') and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
             if key == 27:  # Esc — 검색어를 지우고 찾기 끝
                 query, searching, sel, top, act, key = '', False, 0, 0, None, -1
             elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):  # Enter — 검색어는 두고 찾기 끝(넣기는 다음 Enter)
@@ -3141,6 +3310,7 @@ def main(scr):
                 scr.refresh()
                 try:
                     BATTLE = _battle.ensure()
+                    TYPES.update(BATTLE['types'] if BATTLE else {})
                 except Exception as e:  # 네트워크 오류 등
                     msg, act = L('배틀 데이터를 받지 못했다: ', 'Could not download battle data: ') + f'{type(e).__name__}: {e}', None
             if BATTLE is not None:  # 아직 못 이긴 관이 남은 가장 앞 세대에서 시작
@@ -3198,6 +3368,13 @@ def main(scr):
                 msg = L('던질 볼을 먼저 고르자.', 'Pick a ball first.')
         if view == 'wild' and not st['wild']:
             view = 'main'
+        if act == 'mon_open' and view == 'slotpick':
+            rows_ = slot_rows(st, pslot, query, pick_sort)
+            if rows_ and 0 <= sel < len(rows_) and rows_[sel] is not None:
+                view, mon_i, naming, msg = 'mon', rows_[sel], None, ''
+            act = None
+        if act == 'nick' and view == 'mon':
+            naming, act = st['box'][mon_i].get('nick', ''), None
         if act == 'pick_sel' and view == 'slotpick':
             act = ('pickrow', sel)
         if isinstance(act, tuple) and act[0] == 'slot' and view == 'main':
@@ -3265,7 +3442,9 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            back_to = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main'}.get(view, 'main')  # 한 단계 위로
+            back_to = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'main', 'use': 'bag', 'bag': 'main', 'mon': 'slotpick'}.get(view, 'main')  # 한 단계 위로
+            if view == 'mon':
+                msg, naming = '', None
             if view == 'use':  # 아이템 상세에서 나오면 고르던 아이템으로(2026-11-10 사용자)
                 sel, top, msg, confirm = max(0, min(bag_sel, len(bag_items(st)) - 1)), 0, '', None
             elif view == 'change' and chg_from == 'use':  # 능력치·개수 고르기에서 나오면 고르던 포켓몬으로 — 쓰기 확인 문구는 지운다
@@ -3287,7 +3466,8 @@ def main(scr):
             if act == 'explore':
                 got = explore(st, t)
                 if not got:
-                    msg = ''
+                    msg = L(f'{habitat(st)[1]}엔 지금 나올 포켓몬이 없다 — h 로 서식지를 바꾸자.', f'Nothing left in {habitat(st)[2]} — press h to change habitat.') \
+                        if habitat(st)[3] and tickets(st, t) > 0 and not st['wild'] else ''
                 elif got[1]:
                     msg = L(f'또 {name(got[0])}! 이미 가방에 있어서 몬스터볼 {got[1]}개로 바꿨다.',
                             f'{name(got[0])} again! Already in your bag, so it became {got[1]} Poké Ball(s).')
@@ -3622,8 +3802,8 @@ def selftest():
     sh['box'], sh['caught'] = [{'id': 25, 'xp': 0}], [25]
     lucky = type('R', (), {'choices': lambda s, xs, weights: [25], 'random': lambda s: 0.0})()
     # (난수 0 이면 우두머리도 함께 — 개체값은 우두머리 바닥 ALPHA_IV 부터)
-    assert explore(sh, ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild'] == {'id': 25, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0}
-    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'iv': [ALPHA_IV] * 6, 'shiny': True, 'alpha': True}
+    assert explore(sh, ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild'] == {'id': 25, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0, 'mark': 'alpha'}
+    assert throw(sh, 0, lucky) == 'caught' and sh['box'][-1] == {'id': 25, 'xp': 0, 'iv': [ALPHA_IV] * 6, 'shiny': True, 'alpha': True, 'mark': 'alpha'}
     assert sh['shiny'] == [25]
     assert explore(sh, 2 * ENCOUNTER_EVERY, lucky) == (25, 0) and sh['wild']
     sh['wild'] = None
@@ -3986,7 +4166,7 @@ def selftest():
         fm = unlock(new_state(), 2); fm['balls'] = 0; c0 = list(fm['caught'])
         assert explore(fm, ENCOUNTER_EVERY, Pick(10091)) == (10091, 0)
         # (난수 0 이라 이로치·우두머리도 — 리전폼도 같은 판정, 2026-11-06)
-        assert fm['wild'] == {'id': 19, 'form': 10091, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0} and fm['forms_seen'] == [10091]
+        assert fm['wild'] == {'id': 19, 'form': 10091, 'balls': BALLS, 'shiny': True, 'alpha': True, 'tries': 0, 'mark': 'alpha'} and fm['forms_seen'] == [10091]
         assert throw(fm, ENCOUNTER_EVERY, Pick(10091)) == 'caught'
         assert fm['box'][0]['shiny'] and fm['box'][0]['alpha'] and art_of(fm['box'][0]) == 'form:shiny/10091'
         assert [m['id'] for m in fm['box']] == [10091] and fm['forms'] == [10091] and fm['caught'] == c0 and fm['partner'] == 0
@@ -4166,6 +4346,29 @@ def selftest():
     # 검색어 글자 판정 — 방향키·Enter·Tab·Esc 는 글자가 아니고, 영문·한글·숫자는 글자
     assert not any(typed_char(k) for k in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_ENTER, 9, 10, 13, 27, -1))
     assert all(typed_char(ord(c)) for c in 'aZ9가ㄱ.')
+    # 서식지 — 고른 곳의 타입만(타입 모르면 거르지 않음), 나올 게 없으면 탐색이 None
+    TYPES.clear(); TYPES.update({1: [12, 4], 4: [10], 7: [11], 25: [13], 133: [1]})
+    hb = new_state()
+    assert in_habitat(hb, 4) and wild_odds(hb)
+    hb['habitat'] = 'water'
+    assert habitat(hb)[1] == '물가' and in_habitat(hb, 7) and not in_habitat(hb, 4) and in_habitat(hb, 999999)
+    assert {n for n, _ in wild_odds(hb)} <= {n for n in DEX if TYPES.get(n) in (None, [11])} and 7 in {n for n, _ in wild_odds(hb)}
+    TYPES.clear()
+    # 증표 — MARK_RATE 밖이면 없음, 안이면 하나(우두머리 증표는 뽑히지 않음) · 칭호
+    assert roll_mark(type('R', (), {'random': lambda s: 0.5})()) is None
+    assert roll_mark(type('R', (), {'random': lambda s: 0.0, 'choices': lambda s, k, weights: [k[weights.index(0) - 1]]})()) in MARKS
+    assert MARK_WEIGHT['alpha'] == 0 and titled('ferocious', '피카츄').endswith('피카츄') and titled(None, 'x') == 'x'
+    mw = {**new_state(), 'wild': {'id': 25, 'balls': 3, 'mark': 'rare'}}
+    assert throw(mw, 0, type('R', (), {'random': lambda s: 0.0})()) == 'caught' and mw['box'][-1]['mark'] == 'rare'
+    # 리본 — 한 번만, 동료가 알림 · 닉네임
+    rb = {**new_state(), 'box': [{'id': 25, 'xp': 0, 'iv': [15] * 5 + [14]}, {'id': 1, 'xp': 0, 'nick': '뽀삐'}], 'partner': 0}
+    assert give_ribbon(rb, [0, 1, 1], 'champ3') == 2 and give_ribbon(rb, [0], 'champ3') == 0
+    assert rb['box'][1]['ribbons'] == ['champ3'] and rb['news'][-1]['kind'] == 'ribbon' and speech(rb, 0, awake=set())[0].startswith('팀 2마리')
+    assert mon_name(rb['box'][1]) == '뽀삐' and bag_text(rb['box'][1], 40).startswith('뽀삐') and 1 in [i for i in pick_list(rb, '뽀')]
+    rb['items'] = {'gcap': 1}  # 금색 병뚜껑으로 여섯이 모두 15 — 노력 리본
+    k_ = next(k for k, o in enumerate(change_options(rb, 0)) if o[0] == ('ivmax', 5))
+    assert change(rb, 0, k_) == ('ivmax', 5) and 'effort' in rb['box'][0]['ribbons']
+    assert all(RIBBONS[r][0].endswith('-ribbon') for r in RIBBONS) and art_id('ribbon:effort-ribbon') == 'ribbon:effort-ribbon'
     # 만남 화면 ↑↓ — 던질 수 있는 볼 사이를 바로 오가고 끝에서 멈춘다(전설엔 몬스터볼·슈퍼볼을 건너뜀)
     wb = new_state(); wb['wild'] = {'id': 25, 'balls': 0}; wb['balls'], wb['super'], wb['hyper'], wb['master'] = 3, 0, 2, 1
     U, D = curses.KEY_UP, curses.KEY_DOWN
