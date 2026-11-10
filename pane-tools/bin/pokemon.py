@@ -3873,6 +3873,15 @@ def selftest():
                                                                                _pokedata._item_dir(a) == '' for a in MEDAL_ART.values())
     ol = _pokedata.outline([[(0, 0, 0, 255)]])
     assert len(ol) == 3 and ol[0][0] == (255, 255, 255, 255) and ol[1][1] == (0, 0, 0, 255) and _pokedata.edge_white(ol) == 1.0
+    import tempfile  # 옆으로 긴 그림(120×30)은 높이 칸 안에 — 폭이 높이를 넘지 않고 위아래가 빈다
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as _f:
+        _f.write(_pokedata.encode_png([[(9, 9, 9, 255)] * 120 for _ in range(30)]))
+    _l = _pokedata._local
+    _pokedata._local = lambda n: _f.name
+    _sp = _pokedata.strip([1], 44)
+    _pokedata._local = _l
+    os.unlink(_f.name)
+    assert len(_sp) == 44 and len(_sp[0]) == 44 and _sp[0][0][3] == 0 and _sp[22][0][3] == 255
     _s = _pokedata.strip  # grid: 4개씩 끊어 쌓고, 짧은 줄은 투명으로 채운다
     _pokedata.strip = lambda ids, hh, gap=4: [[(1, 1, 1, 255)] * (len(ids) * 3)] * hh
     _gg = _pokedata.grid(['a'] * 6, 10, 4, gap=2)

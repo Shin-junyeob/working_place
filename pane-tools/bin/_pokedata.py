@@ -459,8 +459,11 @@ def strip(ids, height, gap=4):
             px = crop(decode_png(f.read()))
         if px and isinstance(n, str) and n.startswith('item:') and edge_white(px) < 0.5:
             px = outline(px)
-        if px:
-            parts.append(resize(px, height))
+        if px:  # 높이 칸 안에 맞춘다 — 옆으로 긴 그림(칼로스 페어리 배지 120×30)을 높이에 맞추면 네 배로 넓어져 줄이 넘쳤다
+            hh = min(height, max(1, round(height * len(px) / len(px[0]))))
+            r = resize(px, hh)
+            pad = [[(0, 0, 0, 0)] * len(r[0])]
+            parts.append(pad * ((height - hh) // 2) + r + pad * (height - hh - (height - hh) // 2))
     if not parts:
         return None
     blank = (0, 0, 0, 0)
