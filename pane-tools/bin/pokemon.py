@@ -3859,7 +3859,13 @@ def selftest():
     for g in (1, 8, 9):
         cn = _pokedata.charm_numeral(star, g)
         assert len(cn) == 1 and len(cn[0]) == 13 and (255, 196, 32, 255) in cn[0], g  # 한 줄짜리 별은 잘려도 숫자가 든다
-    assert MEDAL_ART['gen3'] == 'shiny-charm-3' and _pokedata._src('item:shiny-charm-3') == 'items/shiny-charm-3'
+    assert MEDAL_ART['gen3'] == 'shiny-charm-3' and _pokedata._src('item:shiny-charm-3') == 'items/gen5/shiny-charm-3'
+    # 훈장 도구 그림: gen9 → gen8 → gen5 순서로 찾은 폴더에서(없으면 바로 아래), 흰 테두리가 없으면 두른다(2026-11-10 사용자)
+    assert _pokedata._src('item:poke-ball') == 'items/gen5/poke-ball' and _pokedata._src('item:rusted-sword') == 'items/gen8/rusted-sword'
+    assert _pokedata._src('item:galarica-twig') == 'items/galarica-twig' and all(a in _pokedata.ITEM_DIR or a.startswith('shiny-charm-') or
+                                                                               _pokedata._item_dir(a) == '' for a in MEDAL_ART.values())
+    ol = _pokedata.outline([[(0, 0, 0, 255)]])
+    assert len(ol) == 3 and ol[0][0] == (255, 255, 255, 255) and ol[1][1] == (0, 0, 0, 255) and _pokedata.edge_white(ol) == 1.0
     assert art_id('catch1') == 'item:poke-ball' and art_id('gym:1-0') == _pokedata.BADGE + 1 and art_id('conquer1') == 'item:poke-flute'
     assert not {art_id(b) for b, _, _, _ in BADGES} & {art_id(f'gym:{g}-{i}') for g in range(1, 10) for i in range(8)}  # 훈장과 배지는 다른 그림
     # 체육관: 팀 최대 6 · 탐색 2회 · 처음 이기면 배지+하이퍼볼, 다시 이기면 경험치만 · 8관 모두면 지방 정복 훈장과 알
