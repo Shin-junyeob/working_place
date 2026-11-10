@@ -393,6 +393,9 @@ def _src(n):
     """그림 번호 → 이 PC 의 sprites/ 아래 이름. 'item:<이름>' 은 도구 그림(훈장), 'form:<번호>' 는 리전폼(번호가 10000 을
     넘어 이로치 번호와 겹치므로 글자로) · 배지 · 이로치 · 기본 순."""
     if isinstance(n, str):
+        if n.startswith(('ribbon:', 'mark:')):  # 리본·증표(9세대 그림) — 포켓몬 상세 화면
+            kind, nm = n.split(':', 1)
+            return f'{kind}s/generation-ix/{nm}'
         return n[5:] if n.startswith('form:') else f'items/{_item_dir(n[5:])}{n[5:]}'
     return f'badges/{n - BADGE}' if n > BADGE else f'shiny/{n - SHINY}' if n > SHINY else str(n)
 
@@ -405,7 +408,8 @@ def img_id(n):
 def _url(n):
     """그림 번호 → PokeAPI/sprites 주소. 포켓몬·이로치는 sprites/pokemon/ 아래, 배지·도구는 sprites/ 바로 아래."""
     src = _src(n)
-    return SPRITE_URL.format(src).replace('/pokemon/badges/', '/badges/').replace('/pokemon/items/', '/items/')
+    return SPRITE_URL.format(src).replace('/pokemon/badges/', '/badges/').replace('/pokemon/items/', '/items/') \
+        .replace('/pokemon/ribbons/', '/ribbons/').replace('/pokemon/marks/', '/marks/')
 
 
 def resize(px, height):
@@ -472,7 +476,7 @@ def strip(ids, height, gap=4):
             return None
         with open(path, 'rb') as f:
             px = crop(decode_png(f.read()))
-        if px and isinstance(n, str) and n.startswith('item:') and edge_white(px) < 0.5:
+        if px and isinstance(n, str) and n.startswith(('item:', 'ribbon:', 'mark:')) and edge_white(px) < 0.5:
             px = outline(px)
         if px:  # 높이 칸 안에 맞춘다 — 옆으로 긴 그림(칼로스 페어리 배지 120×30)을 높이에 맞추면 네 배로 넓어져 줄이 넘쳤다
             hh = min(height, max(1, round(height * len(px) / len(px[0]))))
