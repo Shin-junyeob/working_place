@@ -1959,6 +1959,11 @@ def send_away(st, idxs):
     return len(gone), k
 
 
+def tidy_key(st, i):
+    """중복 정리에서 x 로 뺀 포켓몬을 알아보는 열쇠 — 키를 누를 때마다 저장 파일을 다시 읽어 객체가 바뀌므로, 가방 번호와 내용으로."""
+    return i, json.dumps(st['box'][i], sort_keys=True)
+
+
 def tidy_targets(st):
     """[정리]로 보낼 가방 번호 — 같은 종(이로치 빼고)이 둘 이상이면 개체값이 가장 좋은 것, 배틀 경험치가 가장 많은 것,
     진화 경험치가 가장 많은 것만 남긴다(동료·팀은 send_away 가 지킨다)."""
@@ -2245,6 +2250,7 @@ def main(scr):
     searching = False  # 이름 찾기 입력 중인가 — F 로 켜고 Enter(검색어 유지)·Esc(지움)로 끈다(2026-11-05 사용자)
     gcol, gsub, gtop = 0, 0, 0  # 체육관 화면: 커서가 있는 열(0 왼쪽 · 1 오른쪽) · 오른쪽에서 고른 줄 · 오른쪽 맨 위 줄
     tm, tcol = 0, 0  # 교환 화면: 왼쪽에서 고른 일(0 박사에게 · 1 중복 정리 · 2 볼 바꾸기) · 커서가 있는 열 — 오른쪽 줄은 sel·top
+    tidy_skip = set()  # 중복 정리에서 x 로 뺀 포켓몬(tidy_key) — 교환 화면에 있는 동안만, 보내면 비운다(2026-11-10 사용자)
     bcat, bcol = 0, 0  # 훈장 화면: 왼쪽에서 고른 분류 · 커서가 있는 열 — 오른쪽 줄은 sel·top
     order, bag_sort = [], _lang.get('bag_sort', 0) % len(SORTS)  # 교환: 보이는 순서(가방 번호들) · 정렬  # confirm: 한 번 더 누르면 보낼 것  # 고른 체육관 · 추천 (체육관, 팀, 승률) · 배틀 재생 · 승률 캐시
     focus = None  # 고른 버튼(act) — 방향키로 옮기고 Enter 로 누른다. 단축키는 q(닫기)만 남겼다(2026-10-21)
@@ -2768,7 +2774,8 @@ def main(scr):
                 put(scr, h - 1, x, L('↑↓ 능력치 · ←→ 개수', '↑↓ stat · ←→ how many'), curses.A_DIM)
         elif view == 'trade':  # 2026-11-05 사용자: 체육관처럼 두 열 — 왼쪽 박사에게 · 중복 정리 · 볼 바꾸기, 오른쪽에 그 내용
             order = bag_order(st, None, bag_sort)  # 박사에게 쪽의 보이는 순서(가방 번호들) — 고른 줄로 가방 번호를 찾는다
-            tidy = tidy_targets(st)
+            tidy_all = tidy_targets(st)
+            tidy = [i for i in tidy_all if tidy_key(st, i) not in tidy_skip]  # x 로 뺀 것은 남긴다
             lw = max(12, min(16, w // 4))  # 왼쪽 메뉴는 짧다 — 오른쪽 이름 자리를 넓게
             rx = lw + 2
             rw = w - rx - 1
@@ -2776,6 +2783,7 @@ def main(scr):
             put(scr, 1, 1, msg or (
                 L(f'↑↓ 고르기 · Tab 정렬 {SORTS[bag_sort][0]} · Enter 두 번 보내기 · ← q 돌아가기', f'↑↓ pick · Tab sort {SORTS[bag_sort][1]} · Enter twice to send · ← q back') if tcol and tm == 0 else
                 L('↑↓ 고르기 · Enter 바꾸기 · ← q 돌아가기', '↑↓ pick · Enter swap · ← q back') if tcol and tm == 2 else
+                L('↑↓ 고르기 · x 빼기/넣기 · Enter 두 번 보내기 · ← q 돌아가기', '↑↓ pick · x keep/send · Enter twice to send · ← q back') if tcol and tm == 1 else
                 L('↑↓ 고르기 · → 안으로 · Enter · q 돌아가기', '↑↓ pick · → into it · Enter · q back')), curses.A_DIM)
             menu = [L('박사에게', 'Professor'), L(f'중복 정리 {len(tidy)}', f'Tidy {len(tidy)}'), L('볼 바꾸기', 'Swap balls')]
             for k, label in enumerate(menu):
@@ -2798,11 +2806,19 @@ def main(scr):
                 elif tcol:
                     put(scr, h - 2, rx, fit(iv_text(st['box'][rows[sel][0]]), rw), curses.A_DIM)
             elif tm == 1:  # 보낼 것 미리보기 — 같은 종이 둘 이상이면 개체값·배틀 경험치·진화 경험치가 가장 좋은 것만 남긴다
-                y = para(scr, 2, L(f'같은 종 중 가장 좋은 것만 남기고 {len(tidy)}마리를 보낸다 — Enter 두 번',
-                                   f'Keeps the best of each species and sends {len(tidy)} — Enter twice') if tidy else
+                kept = len(tidy_all) - len(tidy)
+                y = para(scr, 2, L(f'같은 종 중 가장 좋은 것만 남기고 {len(tidy)}마리를 보낸다' + (f'(뺀 것 {kept})' if kept else '') + ' — → 로 목록 · x 빼기 · Enter 두 번',
+                                   f'Keeps the best of each species and sends {len(tidy)}' + (f' ({kept} kept)' if kept else '') + ' — → list · x keep · Enter twice') if tidy_all else
                          L('정리할 것이 없다 — 같은 종이 둘 이상일 때 가장 좋은 것만 남긴다.', 'Nothing to tidy — only duplicates are sent.'), rw + rx, curses.A_DIM, rx)
-                for k, i in enumerate(tidy[:max(0, h - 2 - y)]):
-                    put(scr, y + k, rx, fit('  ' + bag_text(st['box'][i], rw - 2), rw))
+                room = max(1, h - 2 - y)
+                sel = max(0, min(sel, len(tidy_all) - 1))
+                top = max(0, min(min(max(top, sel - room + 1), sel), max(0, len(tidy_all) - room)))
+                for k, i in enumerate(tidy_all[top:top + room]):
+                    skip = tidy_key(st, i) in tidy_skip
+                    cur = tcol and top + k == sel
+                    text = fit(('✕ ' if skip else '  ') + bag_text(st['box'][i], rw - 9) + (L('  남김', '  keep') if skip else ''), rw)
+                    put(scr, y + k, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (curses.A_DIM if skip else 0))
+                    btns.append((y + k, rx, w - 1, ('trrow', top + k)))
             else:  # 볼 바꾸기 — 한 단계 위 볼로
                 sel = max(0, min(sel, len(TRADES) - 1))
                 for k, (src, dst, cost) in enumerate(TRADES):
@@ -2966,9 +2982,15 @@ def main(scr):
                 key = -1
         if view == 'trade':  # 두 열 — ←→ 열 · 왼쪽 ↑↓ 는 일 고르기 · 오른쪽 ↑↓ 는 목록(lists) · q·Esc 는 오른쪽이면 왼쪽으로
             if key == curses.KEY_RIGHT:
-                if not tcol and tm != 1:
+                if not tcol and (tm != 1 or tidy_targets(st)):  # 중복 정리도 목록 안으로 — x 로 뺄 것을 고른다(2026-11-10 사용자)
                     tcol, sel, top, confirm = 1, 0, 0, None
                 key = -1
+            elif key in (ord('x'), ord('X')) and tm == 1 and tcol:  # 이 포켓몬은 보내지 않고 남긴다(다시 누르면 다시 보낸다)
+                ta = tidy_targets(st)
+                if ta:
+                    kk = tidy_key(st, ta[max(0, min(sel, len(ta) - 1))])
+                    tidy_skip ^= {kk}
+                confirm, msg, key = None, '', -1
             elif key == curses.KEY_LEFT:
                 tcol, confirm, msg, key = 0, None, '', -1
             elif not tcol and key in (curses.KEY_UP, curses.KEY_DOWN):
@@ -3078,7 +3100,7 @@ def main(scr):
             act = None
         if act in ('send', 'tidy') and view == 'trade' and picked is not None:
             i = picked
-            idxs = [i] if act == 'send' else tidy_targets(st)
+            idxs = [i] if act == 'send' else [j for j in tidy_targets(st) if tidy_key(st, j) not in tidy_skip]
             what = (act, tuple(idxs))
             m = st['box'][i]
             if act == 'send' and (i == st['partner'] or i in st.get('team', []) or m.get('shiny') or m.get('alpha') or made(m)):
@@ -3094,7 +3116,7 @@ def main(scr):
             else:
                 k, balls = send_away(st, idxs)
                 save(st)
-                rec, confirm = None, None
+                rec, confirm, tidy_skip = None, None, set()  # 가방 번호가 당겨졌으니 뺀 표시도 비운다
                 msg = L(f'박사에게 {k}마리를 보냈다! 몬스터볼 +{balls}', f'Sent {k} to the Professor! Poké Balls +{balls}')
         elif act is not None and not (isinstance(act, tuple) and act[0] == 'userow'):  # 가방 사용도 두 번 눌러야 — 그 확인은 지우지 않는다
             confirm = None
@@ -3226,7 +3248,7 @@ def main(scr):
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
         if act in ('dex', 'box', 'trade'):
             view, top, dg, msg, sel = 'bag' if act == 'box' else act, 0, opened_gen(st), '', 0  # 가방은 아이템 화면(2026-11-05)
-            tm, tcol = 0, 0
+            tm, tcol, tidy_skip = 0, 0, set()
         elif isinstance(act, tuple) and act[0] == 'medleft':  # 훈장 왼쪽 열 클릭 — 그 분류로
             bcat, bcol, sel, top, msg = act[1], 0, 0, 0, ''
         elif isinstance(act, tuple) and act[0] == 'tradeleft':  # 교환 왼쪽 열 클릭 — 그 일로
