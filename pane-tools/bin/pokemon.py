@@ -1503,19 +1503,20 @@ def owned(st, key):
     return key in st.get('gym', {}) if key.startswith('gym:') else key in st['badges']
 
 
-def badge_art(st, keys, y, x, rows):
-    """훈장·배지 그림들을 한 장으로 (y, x) 에 rows 줄 높이로 놓을 그림 — main 이 화면을 그린 뒤 놓는다. 못 그리면 None."""
+def badge_art(st, keys, y, x, rows, per_row=0):
+    """훈장·배지 그림들을 한 장으로 (y, x) 에 rows 줄 높이로 놓을 그림(per_row 를 주면 그 개수씩 줄을 나눠 쌓는다)
+    — main 이 화면을 그린 뒤 놓는다. 못 그리면 None."""
     if not keys or not (SIXEL or KITTY):
         return None
     ids = [art_id(k) for k in keys]
     cw_, ch_ = _gfx.cell_px()
-    img = _pokedata.strip_image(ids, int(rows * ch_), 'six' if SIXEL else 'png')
+    img = _pokedata.strip_image(ids, int(rows * ch_), 'six' if SIXEL else 'png', per_row)
     if not img:
         return None
     cols = math.ceil(img[1] / cw_)
     if SIXEL:
-        return ('six', y, x, ('badges', tuple(ids), rows), img[0], cols, rows)
-    return ('kitty', y, x, 100000 + zlib.crc32(repr(ids).encode()) % 100000, img[0], cols, rows)
+        return ('six', y, x, ('badges', tuple(ids), rows, per_row), img[0], cols, rows)
+    return ('kitty', y, x, 100000 + zlib.crc32(repr((ids, per_row)).encode()) % 100000, img[0], cols, rows)
 
 
 def bag_text(m, room):
@@ -2583,8 +2584,7 @@ def main(scr):
             top = max(0, min(min(max(top, sel - body + 1), sel), len(left) - body))
             lw = max(14, min(26, w // 3))  # 왼쪽 열 폭
             rx = lw + 2  # 오른쪽 열이 시작하는 칸
-            show_art = w >= 70
-            rw = w - rx - 1 - (14 if show_art else 0)  # 오른쪽 글 폭 — 배지 그림 자리는 비운다
+            rw = w - rx - 1  # 오른쪽 글 폭
             put(scr, 1, 1, msg or (L('↑↓ 관 · ← 세대로 · Enter 도전 준비 · P 장식 · q 세대로', '↑↓ gym · ← back · Enter prepare · P show · q back') if gcol else
                                    L('↑↓ 고르기 · → 세대 안으로 · Enter · q 돌아가기', '↑↓ pick · → into the generation · Enter · q back')), curses.A_DIM)
             for k, (kind, g) in enumerate(left[top:top + body]):
@@ -2619,11 +2619,18 @@ def main(scr):
                     text = fit(('▶ ' if cur else '  ') + text, rw)
                     put(scr, y, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if won else curses.A_DIM))
                     btns.append((y, rx, w - 1, ('gym', (gg, i))))
+                ay = 2 + min(len(right), body - 1)
                 if 'L' not in [i for _, i in right]:
-                    put(scr, 2 + min(len(right), body - 1), rx, fit(L('  사천왕 — 8관을 다 이기면', '  Elite Four — after all 8'), rw), curses.A_DIM)
-                if show_art and right and gcol:
-                    g_, i_ = right[gsub]
-                    art = badge_art(st, [f'champ{g_}' if i_ == 'L' else f'gym:{g_}-{i_}'], 3, w - 14, 4)
+                    put(scr, ay, rx, fit(L('  사천왕 — 8관을 다 이기면', '  Elite Four — after all 8'), rw), curses.A_DIM)
+                    ay += 1
+                # 이긴 관의 배지는 목록 아래에(2026-11-10 사용자) — 4개씩 두 줄로 쌓아 크게, 폭·높이에 맞을 때까지 줄이고 2줄도 안 되면 생략
+                won_keys = [f'gym:{g}-{i}' for i in range(8) if f'gym:{g}-{i}' in st.get('gym', {})]
+                per = 4 if len(won_keys) > 4 else 0
+                for rows in range(min(9 if per else 4, h - 3 - ay), 1, -1):
+                    art = badge_art(st, won_keys, ay + 1, rx + 2, rows, per)
+                    if not art or art[5] <= rw - 2:
+                        break
+                    art = None
             else:  # 레이드 · 배틀 타워는 오른쪽에 설명만 — Enter 로 바로 도전 준비
                 tw = tower_state(st)
                 para(scr, 2, L(f'이번 주 레이드 — {name(raid_boss(st)[1])} ({g}세대 전설). 모든 세대가 출전한다. Enter 로 도전 준비.',
@@ -3866,6 +3873,11 @@ def selftest():
                                                                                _pokedata._item_dir(a) == '' for a in MEDAL_ART.values())
     ol = _pokedata.outline([[(0, 0, 0, 255)]])
     assert len(ol) == 3 and ol[0][0] == (255, 255, 255, 255) and ol[1][1] == (0, 0, 0, 255) and _pokedata.edge_white(ol) == 1.0
+    _s = _pokedata.strip  # grid: 4개씩 끊어 쌓고, 짧은 줄은 투명으로 채운다
+    _pokedata.strip = lambda ids, hh, gap=4: [[(1, 1, 1, 255)] * (len(ids) * 3)] * hh
+    _gg = _pokedata.grid(['a'] * 6, 10, 4, gap=2)
+    _pokedata.strip = _s
+    assert len(_gg) == 10 and len(_gg[0]) == 12 and _gg[6][5][3] == 255 and _gg[6][6][3] == 0 and _gg[4][0][3] == 0
     assert art_id('catch1') == 'item:poke-ball' and art_id('gym:1-0') == _pokedata.BADGE + 1 and art_id('conquer1') == 'item:poke-flute'
     assert not {art_id(b) for b, _, _, _ in BADGES} & {art_id(f'gym:{g}-{i}') for g in range(1, 10) for i in range(8)}  # 훈장과 배지는 다른 그림
     # 체육관: 팀 최대 6 · 탐색 2회 · 처음 이기면 배지+하이퍼볼, 다시 이기면 경험치만 · 8관 모두면 지방 정복 훈장과 알
