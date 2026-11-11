@@ -1378,28 +1378,13 @@ def dex_hint(st, n):
     return L('야생', 'wild')
 
 
-def dex_summary(st, g, w=None):
-    """'야생에서 남은 것 N · 진화로만 M · 전설·환상 K · 지금 풀숲: A·B·??? 외 N종' — 그 세대가 지금 세대일 때만 풀숲 후보.
-    w 칸에 들어가는 만큼만 이름을 싣고 나머지는 '외 N종'(후보가 수십 종이면 잘렸다, 2026-11-11 사용자)."""
+def dex_summary(st, g):
+    """'야생에서 남은 것 N · 진화로만 M · 전설·환상 K' — 풀숲 후보 이름은 뺐다(못 본 종은 ??? 라 오류처럼 보였다, 2026-11-11 사용자)."""
     left = [n for n in DEX if gen(n) == g and n not in st['caught']]
     leg = sum(1 for n in left if DEX[n][5])
     evo = sum(1 for n in left if not DEX[n][5] and not wild_ok(n))
-    wild = len(left) - leg - evo
-    out = L(f'야생에서 남은 것 {wild} · 진화로만 {evo} · 전설·환상 {leg}', f'Wild left {wild} · evolve-only {evo} · legendary {leg}')
-    if wild_pool(st) and gen(wild_pool(st)[0]) == g:
-        now = [n for n, w in wild_odds(st) if w == 1]
-        if now:
-            names = [name(n) if n in st['seen'] else '???' for n in now]
-            tail = lambda k: (L(' · 지금 풀숲: ', ' · in the grass now: ') + '·'.join(names[:k])  # noqa: E731
-                              + (L(f' 외 {len(names) - k}종', f' +{len(names) - k}') if k < len(names) else '')
-                              if k else L(f' · 지금 풀숲 {len(names)}종', f' · {len(names)} in the grass'))
-            if w and memo_w(out + tail(0)) > w:  # 좁으면 앞부분을 줄여 풀숲 자리를 낸다
-                out = L(f'야생 {wild} · 진화 {evo} · 전설 {leg}', f'wild {wild} · evo {evo} · legend {leg}')
-            k = len(names)
-            while w and k and memo_w(out + tail(k)) > w:  # 이름이 하나도 안 들어가면 종 수만
-                k -= 1
-            out += tail(k)
-    return out
+    return L(f'야생에서 남은 것 {len(left) - leg - evo} · 진화로만 {evo} · 전설·환상 {leg}',
+             f'Wild left {len(left) - leg - evo} · evolve-only {evo} · legendary {leg}')
 
 
 def use_candy(st, t, rng=random, i=None):
@@ -3222,7 +3207,7 @@ def main(scr):
             if not rows:
                 put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.', f'Locked — complete the Gen {dg - 1} Pokédex to open it.'))
             if rows:
-                put(scr, h - 2, 1, fit(dex_summary(st, dg, w - 2), w - 2), curses.A_DIM)
+                put(scr, h - 2, 1, fit(dex_summary(st, dg), w - 2), curses.A_DIM)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation'), curses.A_DIM)
         acts = [b[3] for b in navbtns]
@@ -4227,15 +4212,8 @@ def selftest():
     assert L('전설', 'legendary') in dex_hint(dh, 150) and dex_hint(dh, 19) == L('야생', 'wild')
     left1 = [n for n in DEX if gen(n) == 1 and n != 1]
     sm = dex_summary(dh, 1)
-    nums = [int(x) for x in re.findall(r'\d+', sm.split(L('지금', 'in the'))[0])]
+    nums = [int(x) for x in re.findall(r'\d+', sm)]
     assert sum(nums) == len(left1), (sm, len(left1))
-    # 풀숲 후보가 많아도 폭 안에 — 들어가는 만큼 이름, 나머지는 '외 N종'
-    fw = {**new_state(), 'box': [{'id': n, 'xp': 0} for n in DEX if gen(n) == 1]}  # 다 가방에 있으면 후보 전체(수십 종)
-    fw['seen'] = [n for n in DEX if gen(n) == 1]
-    s50 = dex_summary(fw, 1, 50)
-    assert memo_w(s50) <= 50 and L('지금 풀숲', 'in the grass') in s50, s50
-    s90 = dex_summary(fw, 1, 90)
-    assert memo_w(s90) <= 90 and L(' 외 ', ' +') in s90 and len(dex_summary(fw, 1)) > 300, s90  # w 없으면 전부
     # 장식 배지: 받은 것만, 최대 SHOWCASE_MAX 개, 다시 고르면 뺀다 · 진행도
     sc = new_state()
     filler = [f'gen{g}' for g in range(1, 8)]  # 앞의 다섯과 합쳐 12개를 채울 것
