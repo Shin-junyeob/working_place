@@ -2520,6 +2520,7 @@ def main(scr):
                 return
             continue
         fresh = not st.get('reward_since') or st.get('super_earned') is None
+        extra0 = st.get('extra', 0)
         got, born = reward(st), hatch(st, t)
         raid_release(st)
         badges = check_badges(st)
@@ -2528,7 +2529,8 @@ def main(scr):
         if born:
             msg = L('알이 부화했다! ', 'Eggs hatched! ') + ', '.join(('✨' if sh else '') + name(n) for n, sh in born)
         if got:
-            msg = L(f'오늘 여러 세션이 일을 내보냈다! 슈퍼볼 {got}개를 받았다.', f'Sessions shipped work! Got {got} Great Ball(s).')
+            k = st.get('extra', 0) - extra0  # 일한 보상은 탐색(2026-11-11) — 슈퍼볼 문구가 남아 있었다
+            msg = L(f'오늘 여러 세션이 일을 내보냈다! 탐색 기회 +{k}!', f'Sessions shipped work! +{k} explores!')
         if badges:  # 방금 한 일의 문구(합체 등)는 남기고 뒤에 붙인다
             msg = (msg + ' · ' if msg else '') + L('훈장을 받았다: ', 'New medal: ') + ', '.join(badge_name(b) for b in badges)
         h, w = scr.getmaxyx()
