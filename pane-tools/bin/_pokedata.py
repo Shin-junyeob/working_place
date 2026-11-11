@@ -10,8 +10,10 @@ sprites/ 아래(<번호>.png · shiny/ · badges/)에 받는다. 코드에는 �
 import colorsys
 import csv
 import curses
+import hashlib
 import io
 import json
+import marshal
 import os
 import struct
 import threading
@@ -550,15 +552,50 @@ def egg_image(km, height, kind='six'):
     return _sprites[key]
 
 
-def strip_image(ids, height, kind='six', per_row=0):
-    """strip()(per_row 를 주면 grid()) 을 Sixel (문자열, 가로, 세로) 또는 PNG (바이트, 가로, 세로) 로 — 같은 조합은 다시 만들지 않는다."""
+STRIP_VER = 1  # 훈장·배지 그림 만드는 법(strip·grid·outline·charm_numeral)을 바꾸면 올린다 — 디스크에 둔 옛 그림을 버린다
+_building = set()
+
+
+def strip_image(ids, height, kind='six', per_row=0, wait=False):
+    """strip()(per_row 를 주면 grid()) 을 Sixel (문자열, 가로, 세로) 또는 PNG (바이트, 가로, 세로) 로 — 같은 조합은 다시 만들지 않는다.
+    배지 9줄짜리 한 장이 4~6초 걸려(Scale2x·Sixel 이 순수 파이썬) 체육관을 열 때마다 화면이 멈췄다(2026-11-11 사용자) —
+    그래서 뒤에서 만들고(준비 전엔 None, 다음 화면 갱신에 나온다) 다 만든 것은 sprites/strips/ 에 남겨 다음 실행이 바로 쓴다.
+    wait 면 그 자리에서 만든다(시험용)."""
     key = ('strip', tuple(ids), height, kind, per_row)
-    if key not in _sprites:
-        px = grid(ids, height, per_row) if per_row else strip(ids, height)
-        if px is None:
-            return None  # 아직 받는 중 — 다음에 다시
-        _sprites[key] = encode_sixel(px, height) if kind == 'six' else (encode_png(px), len(px[0]), len(px))
-    return _sprites[key]
+    if key in _sprites:
+        return _sprites[key]
+    path = f'{SPRITES}/strips/{hashlib.sha1(repr((STRIP_VER, key)).encode()).hexdigest()}.{kind}'
+    try:
+        with open(path, 'rb') as f:
+            _sprites[key] = marshal.load(f)
+        return _sprites[key]
+    except (OSError, ValueError, EOFError, TypeError):
+        pass
+
+    def make():
+        try:
+            px = grid(ids, height, per_row) if per_row else strip(ids, height)
+            if px is None:
+                return  # 원본 그림을 아직 받는 중 — 다음에 다시
+            val = encode_sixel(px, height) if kind == 'six' else (encode_png(px), len(px[0]), len(px))
+            _sprites[key] = val
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f'{path}.{os.getpid()}.tmp'
+            with open(tmp, 'wb') as f:
+                marshal.dump(val, f)
+            os.replace(tmp, path)  # 다른 허브가 반쯤 쓴 파일을 읽지 않게
+        except Exception:
+            pass  # 못 만들어도 화면은 그림 없이 간다
+        finally:
+            _building.discard(key)
+
+    if wait:
+        make()
+        return _sprites.get(key)
+    if key not in _building:
+        _building.add(key)
+        threading.Thread(target=make, daemon=True).start()
+    return None
 
 
 ROMAN = ('I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX')
