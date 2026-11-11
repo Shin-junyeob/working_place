@@ -2592,7 +2592,8 @@ def main(scr):
             today = datetime.now().astimezone().strftime('%Y-%m-%d')
             done = len(shipped().get(today, ()))
             wk_gain = WEEKEND_EXPLORES if datetime.now().astimezone().weekday() >= 5 else WORK_EXPLORES
-            weekly_line = weekly_text(st) + ' · ' + (L(f'오늘 탐색 +{wk_gain} ✔', f'+{wk_gain} explore today ✔') if today in st['rewarded'] else
+            weekly_line = weekly_text(st)  # 주간 과제와 오늘 일한 보상은 줄을 나눈다(2026-11-11 사용자 — 한 문단이라 섞여 보였다)
+            today_line = (L(f'오늘 탐색 +{wk_gain} ✔', f'+{wk_gain} explore today ✔') if today in st['rewarded'] else
                                                      L(f'오늘 push·PR·배포 {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}', f'push/PR/deploy today {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}')) \
                 + L(f' · 연속 {streak(st, today)}일', f' · {streak(st, today)}-day streak')
             balls_line = L(f'몬스터볼\xa0{st["balls"]} · 슈퍼볼\xa0{st["super"]} · 하이퍼볼\xa0{st["hyper"]} · 마스터볼\xa0{st["master"]}',
@@ -2608,7 +2609,7 @@ def main(scr):
             bw = lambda lb: memo_w(f'[{lb.removesuffix(" q") if w < 50 else lb}]') + 1 if tight else memo_w(f'[ {lb} ]') + 2  # noqa: E731 — button() 과 같은 폭
             btn_rows = wrap_widths([bw(lb) for lb, _ in side], w) if x0 >= w else []
             tw = max(10, lw - 1)  # 아래 글은 버튼 바로 앞 칸까지(2026-11-10 사용자 배치 — 22·24줄 패널 47칸)
-            text_n = sum(len(fold(s, tw)) for s in (weekly_line, balls_line, ('💬 ' + msg) if msg else '') if s)
+            text_n = sum(len(fold(s, tw)) for s in (weekly_line, today_line, balls_line, ('💬 ' + msg) if msg else '') if s)
             below = len(btn_rows) + len(eggs) * egg_h + text_n
             cw3 = max(10, (x0 - 1) // 3)
             graphics = w >= 44 and (SIXEL or KITTY)
@@ -2647,8 +2648,8 @@ def main(scr):
                 y += egg_h
             y = max(y, last - text_n)
             stop = h - len(btn_rows)  # 아래 글은 버튼 줄 위에서 멈춘다 — 모자라면 볼·메시지를 먼저, 주간 과제는 남는 만큼
-            for text, attr in ((balls_line, 0), (('💬 ' + msg) if msg else '', 0), (weekly_line, curses.A_DIM)) if h - y < below - len(btn_rows) \
-                    else ((weekly_line, curses.A_DIM), (balls_line, 0), (('💬 ' + msg) if msg else '', 0)):
+            for text, attr in ((balls_line, 0), (('💬 ' + msg) if msg else '', 0), (weekly_line, curses.A_DIM), (today_line, curses.A_DIM)) \
+                    if h - y < below - len(btn_rows) else ((weekly_line, curses.A_DIM), (today_line, curses.A_DIM), (balls_line, 0), (('💬 ' + msg) if msg else '', 0)):
                 for line in fold(text, tw) if text else []:
                     if y >= stop:
                         break
