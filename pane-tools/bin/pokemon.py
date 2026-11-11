@@ -2933,9 +2933,11 @@ def main(scr):
                 # 이긴 관의 배지는 목록 아래에(2026-11-10 사용자) — 4개씩 두 줄로 쌓아 크게, 폭·높이에 맞을 때까지 줄이고 2줄도 안 되면 생략
                 won_keys = [f'gym:{g}-{i}' for i in range(8) if f'gym:{g}-{i}' in st.get('gym', {})]
                 per = 4 if len(won_keys) > 4 else 0
-                for rows in range(min(9 if per else 4, h - 3 - ay), 1, -1):
+                # Sixel 은 SIXEL_SCALE 배 크게 그려진다 — 빼먹어 9줄 배지가 14줄로 화면 아래를 넘었다(2026-11-11, 회사 PC)
+                sx = SIXEL_SCALE if SIXEL else 1
+                for rows in range(min(9 if per else 4, int((h - 3 - ay) / sx)), 1, -1):
                     art = badge_art(st, won_keys, ay + 1, rx + 2, rows, per)
-                    if not art or art[5] <= rw - 2:
+                    if not art or art[5] * sx <= rw - 2:
                         break
                     art = None
             else:  # 레이드 · 배틀 타워는 오른쪽에 설명만 — Enter 로 바로 도전 준비
@@ -4237,6 +4239,18 @@ def selftest():
         cn = _pokedata.charm_numeral(star, g)
         assert len(cn) == 1 and len(cn[0]) == 13 and (255, 196, 32, 255) in cn[0], g  # 한 줄짜리 별은 잘려도 숫자가 든다
     assert MEDAL_ART['gen3'] == 'shiny-charm-3' and _pokedata._src('item:shiny-charm-3') == 'items/gen5/shiny-charm-3'
+    # 훈장·배지 한 장은 뒤에서 만들고 디스크에 남긴다 — 다음 실행(메모리 비움)은 기다리지 않고 바로
+    real_sp, real_strip = _pokedata.SPRITES, _pokedata.strip
+    try:
+        _pokedata.SPRITES, _pokedata.strip = tempfile.mkdtemp(), lambda ids, h, gap=4: [[(9, 9, 9, 255)] * 2] * h
+        made_ = _pokedata.strip_image(['x'], 2, 'png', wait=True)
+        assert made_ and made_[1:] == (2, 2)
+        _pokedata._sprites.clear()
+        assert _pokedata.strip_image(['x'], 2, 'png') == made_  # 디스크에서
+        _pokedata._sprites.clear()
+        assert _pokedata.strip_image(['y'], 2, 'png') is None  # 처음 보는 조합은 뒤에서 — 그 자리에선 None
+    finally:
+        _pokedata.SPRITES, _pokedata.strip = real_sp, real_strip
     # 훈장 도구 그림: gen9 → gen8 → gen5 순서로 찾은 폴더에서(없으면 바로 아래), 흰 테두리가 없으면 두른다(2026-11-10 사용자)
     assert _pokedata._src('item:poke-ball') == 'items/gen5/poke-ball' and _pokedata._src('item:rusted-sword') == 'items/gen8/rusted-sword'
     assert _pokedata._src('item:galarica-twig') == 'items/galarica-twig' and all(a in _pokedata.ITEM_DIR or a.startswith('shiny-charm-') or
