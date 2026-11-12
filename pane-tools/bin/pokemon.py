@@ -32,7 +32,7 @@
   따르고, 그 모습의 타입·종족값으로 싸운다. 분리는 없다(2026-10-30).
 - 특수 모습(SPECIALS — 메가진화·원시회귀·울트라버스트·거다이맥스·모습 바꾸기·합체): 세대가 열리면 그 포켓몬 + 그 모습 아이템('stone:<모습>' —
   메가스톤·구슬·울트라네크로Z·모습별 다이수프·도구)으로 바뀐다(change_options · change). 아이템은 모두 쓰면 사라진다(2026-11-12 사용자).
-  아이템 얻기: ① 그 종 연구 완료 — 모습마다 1개, 한 번만(give_stones) ② 모습 레이드 포인트 → [교환](form_exchange, 모자라면 타워 BP).
+  아이템 얻기: ① 그 종 연구 완료 — 모습마다 1개, 한 번만, 환생 0회차만(give_stones) ② 모습 레이드 포인트 → [교환](form_exchange, 모자라면 타워 BP).
   옛 범용 다이수프(soup)는 아무 거다이맥스에나. 가방에서 아이템 → 포켓몬(item_targets). 도감 항목이라 환생에 모두 필요(rebirth_goals). 이로치는 이로치 그림,
   연구는 그 모습 도감에 따로(만들기 1 · 배틀 승리). 메가 지가르데는 도트 그림이 없어 HOME 그림(_pokedata._fetch).
 - 모습 바꾸기(ALT_FORMS — 데오키시스·쉐이미·기라티나·로토무·메로엣타·지가르데·영물폼·후파·자시안/자마젠타·디아루가/펄기아 오리진, SPECIALS 의 'alt'):
@@ -742,7 +742,7 @@ def load(root=ROOT):
             if m['id'] in FUSIONS:
                 _mark(st, 'specials', m['id'])
         for n in st.get('researched', []):  # 연구 완료로 새로 받게 된 것 — 모습별 다이수프·구슬, 아직 없는 모습 바꾸기 도구
-            if n in DEX:
+            if n in DEX and not st.get('rebirth'):  # 연구 아이템은 0회차만
                 give_stones(st, n, ('gmax', 'primal'))
                 for p, (s, kind, *_) in SPECIALS.items():
                     if s == n and kind == 'alt' and not items.get(f'stone:{p}'):
@@ -1326,13 +1326,14 @@ def research_done(st, n):
 
 
 def research_award(st, n):
-    """과제를 다 채웠는데 아직 완료 전이면 연구 완료 — 도감 ★, RESEARCH_PRIZE, 그 종의 특수 모습 아이템(모습마다 1). 이번에 완료했나."""
+    """과제를 다 채웠는데 아직 완료 전이면 연구 완료 — 도감 ★, RESEARCH_PRIZE, 그 종의 특수 모습 아이템(모습마다 1, 환생 0회차만). 이번에 완료했나."""
     if not research_done(st, n) or n in st.setdefault('researched', []):
         return False
     st['researched'].append(n)
     st[RESEARCH_PRIZE[0]] += RESEARCH_PRIZE[1]
     tell(st, 'research', str(n))
-    give_stones(st, n)
+    if not st.get('rebirth'):  # 아이템은 0회차에만 — 환생 뒤엔 진행이 빨라 레이드 RP 로만(2026-11-12 사용자, 속도 조절)
+        give_stones(st, n)
     return True
 
 
@@ -4684,6 +4685,10 @@ def selftest():
         for _ in range(RESEARCH_CATCH):
             research_bump(mg, 6, 'c')
         assert mg['items'] == {'stone:10034': 1, 'stone:10035': 1, 'stone:10196': 1}  # 더 잡아도 또 주지 않는다
+        r1 = {**new_state(), 'rebirth': 1}  # 환생 1회차부터는 연구 완료로 아이템을 주지 않는다(★·슈퍼볼은 그대로)
+        for key in 'ccccc' + 'www':
+            research_bump(r1, 6, key)
+        assert 6 in r1['researched'] and r1['items'] == {} and r1[RESEARCH_PRIZE[0]] == new_state()[RESEARCH_PRIZE[0]] + RESEARCH_PRIZE[1]
         assert item_name('stone:10196') == L(f'다이수프({name(10196)})', f'Max Soup ({name(10196)})')
         mw = new_state()
         for key in 'c' + 'www' + 'c' * RESEARCH_CATCH:
