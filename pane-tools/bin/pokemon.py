@@ -1515,13 +1515,19 @@ def fmt_tok(n):
     return f'{n / 1e6:.2f}M' if n >= 1e6 else f'{n / 1e3:.0f}k' if n >= 1e3 else str(n)
 
 
+def dex_total(st):
+    """도감 전체 (채운 칸, 전체 칸) — 종 + 리전폼 + 특수 모습(2026-11-12 사용자 — 특수 모습도 도감 항목)."""
+    return (len(set(st['caught']) & set(DEX)) + len(set(st.get('forms', [])) & set(FORMS)) + len(set(st.get('specials', [])) & set(SPECIALS)),
+            len(DEX) + len(FORMS) + len(SPECIALS))
+
+
 def dex_text(st):
-    g, caught = (opened_gen(st) if current_gen(st) else None), set(st['caught'])
+    g, (have_all, total) = (opened_gen(st) if current_gen(st) else None), dex_total(st)
     if g is None:
-        return L(f'도감 완성! {len(caught)}/{len(DEX)}', f'Pokédex complete! {len(caught)}/{len(DEX)}')
-    have = sum(1 for n in caught if gen(n) == g)
-    return L(f'도감 {g}세대 {have}/{GEN_SIZE[g]} · 전체 {len(caught)}/{len(DEX)}',
-             f'Dex Gen {g} {have}/{GEN_SIZE[g]} · total {len(caught)}/{len(DEX)}')
+        return L(f'도감 완성! {have_all}/{total}', f'Pokédex complete! {have_all}/{total}')
+    have = sum(1 for n in set(st['caught']) if gen(n) == g)
+    return L(f'도감 {g}세대 {have}/{GEN_SIZE[g]} · 전체 {have_all}/{total}',
+             f'Dex Gen {g} {have}/{GEN_SIZE[g]} · total {have_all}/{total}')
 
 
 def evo_status(st, t):
@@ -1674,7 +1680,8 @@ def draw_info(scr, st, n, h, w, gold):
         curses.A_DIM)
     if unseen:
         d, sh = None, False
-        hint = dex_hint(st, n) if n in DEX else L('리전폼 — 그 종의 세대가 지나면 이전 세대 탐색에서', 'regional form — older-generation explores, once its generation is behind you') if form else ''
+        hint = dex_hint(st, n) if n in DEX else L('리전폼 — 그 종의 세대가 지나면 이전 세대 탐색에서', 'regional form — older-generation explores, once its generation is behind you') if form else \
+            L(f'{name(sp(n))}의 특수 모습 — 만들면 드러난다', f'special form of {name(sp(n))} — make it to reveal it') if spec else ''
         put(scr, 2, 1, fit(hint or L('만나면 이름과 모습이 드러난다.', 'Meet it to reveal it.'), w - 2), curses.A_DIM)
     y = 3
     if (form or spec) and not d:
@@ -1695,14 +1702,15 @@ def draw_info(scr, st, n, h, w, gold):
             put(scr, 3, 1, L('잡으면 키·몸무게·도감 설명을 볼 수 있다.', 'Catch it to see its size and Pokédex entry.'), curses.A_DIM)
     room, gray = h - 3 - (y + 1), 2 if unseen else False
     # 이로치를 잡았으면 보통·이로치 그림을 나란히(2026-11-09 사용자 — 전엔 이로치만 보여 보통 색을 볼 수 없었다)
-    sids = [f'form:{n}'] if form else [n, n + _pokedata.SHINY] if sh else [n]
+    # 리전폼·합체·특수 모습은 'form:번호' — 숫자 그대로 넘기면 10000 위라 이로치 그림(히트로토무 10008 → 이로치 어니부기)이 나왔다(2026-11-12)
+    sids = [art_of(n)] + ([art_of({'id': n, 'shiny': True})] if sh else [])
     if len(sids) > 1:
         room -= 1  # 그림 아래 '보통 · ✨이로치' 줄
     if room < 4:
         return None
     half, art = (w - 2) // len(sids), None
     for k, sid in enumerate(sids):
-        ok, a = info_pic(scr, sid, gray, y + 1, 1 + k * half, half, room, 300000 + n if form else sid)
+        ok, a = info_pic(scr, sid, gray, y + 1, 1 + k * half, half, room, _pokedata.img_id(sid))
         if not ok:
             put(scr, y + 1, 1, L('그림 받는 중…', 'Loading the picture…'), curses.A_DIM)
             return None
@@ -2863,8 +2871,8 @@ def main(scr):
             alphas = sum(1 for m in st['box'] if m.get('alpha'))
             ribbons = sum(len(m.get('ribbons', [])) for m in st['box'])
             rows = [(L('이번 회차', 'This run'), [L(f'{r["start"]} 시작 · {days}일째', f'started {r["start"]} · day {days}'),
-                                              L(f'도감 {len(set(st["caught"]) & set(DEX))}/{len(DEX)} · 세대 {opened_gen(st)}/{GENS} · 챔피언 {len(st.get("league", {}))}',
-                                                f'Dex {len(set(st["caught"]) & set(DEX))}/{len(DEX)} · Gen {opened_gen(st)}/{GENS} · Champion {len(st.get("league", {}))}'),
+                                              L(f'도감 {dex_total(st)[0]}/{dex_total(st)[1]} · 세대 {opened_gen(st)}/{GENS} · 챔피언 {len(st.get("league", {}))}',
+                                                f'Dex {dex_total(st)[0]}/{dex_total(st)[1]} · Gen {opened_gen(st)}/{GENS} · Champion {len(st.get("league", {}))}'),
                                               L(f'이로치 {len(st["shiny"])} · 우두머리 {alphas} · 리본 {ribbons}', f'Shinies {len(st["shiny"])} · Alphas {alphas} · Ribbons {ribbons}')]),
                     (L('누적', 'All time'), [L(f'잡은 포켓몬 {life.get("caught", 0) + r["caught"]:,} · 이로치 {life.get("shiny", 0) + len(st["shiny"])} · 전설·환상 {life.get("legend", 0) + legends_caught(st)}',
                                              f'Caught {life.get("caught", 0) + r["caught"]:,} · Shinies {life.get("shiny", 0) + len(st["shiny"])} · Legends {life.get("legend", 0) + legends_caught(st)}'),
@@ -3345,8 +3353,7 @@ def main(scr):
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             for k, (p, text) in enumerate(rows[top:top + body]):
-                if p in have_sp:
-                    btns.append((2 + k, 1, w - 1, ('info', p)))
+                btns.append((2 + k, 1, w - 1, ('info', p)))
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ← 리전폼', '↑↓ move · Enter details · ← regional'), curses.A_DIM)
@@ -3546,7 +3553,7 @@ def main(scr):
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             dg, top, sel = max(1, min(GENS + 1 + bool(SPECIALS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 뒤의 두 쪽은 리전폼 · 특수 모습
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
-            seen = [p for p in SPECIALS if p in st.get('specials', [])] if info in SPECIALS else \
+            seen = list(SPECIALS) if info in SPECIALS else \
                 list(FORMS) if info in FORMS else \
                 [n for n in DEX if gen(n) == gen(info)]  # 같은 세대(리전폼은 리전폼) 전부 앞뒤로 — 못 본 것은 실루엣(2026-11-11)
             info = seen[(seen.index(info) + (1 if key == curses.KEY_RIGHT else -1)) % len(seen)]
@@ -3561,7 +3568,7 @@ def main(scr):
         if key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
             if view == 'dex' and dg == GENS + 2:
                 p = list(SPECIALS)[min(sel, len(SPECIALS) - 1)] if SPECIALS else None  # 자료를 못 받았으면 빈 쪽
-                act = ('info', p) if p in st.get('specials', []) else None
+                act = ('info', p) if p else None  # 못 만든 모습도 실루엣으로(일반 도감처럼)
             elif view == 'dex' and dg > GENS:
                 p = list(FORMS)[min(sel, len(FORMS) - 1)] if FORMS else None
                 act = ('info', p) if p else None  # 못 본 리전폼도 실루엣으로
@@ -4648,6 +4655,8 @@ def selftest():
     assert fuse_options(fu, 0) == [] and fuse_options(fu, 1) == [(10022, 2)]  # 레시라무(4)는 동료라 못 쓰고, 재료는 팀 밖·개체값 낮은 것
     assert change_options(fu, 1) == [(10022, ('mon', 2), True, '')] and change(fu, 1, 0) == 10022
     assert fu['items']['stone:10022'] == 0 and 10022 in fu['specials']  # 도구도 사라진다 · 합체 모습도 도감 항목(2026-11-12)
+    assert dex_total(fu) == (len(set(fu['caught']) & set(DEX)) + 1, len(DEX) + len(FORMS) + len(SPECIALS))  # 도감 전체 칸에 특수 모습도
+    assert art_of(10008) == 'form:10008' and art_of({'id': 10008, 'shiny': True}) == 'form:shiny/10008'  # 상세 그림 — 이로치 어니부기가 나왔다
     assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1] and fu['box'][1]['iv'] == [9] * 6
     assert fu['box'][2]['iv'] == [15] * 6  # 좋은 제크로무는 남는다 · 개체값은 기본(큐레무) 것
     assert fu['partner'] == 3 and fu['team'] == [1, 2] and fu['box'][1]['bxp'] == 120  # 번호 당김 · 본체 경험치 유지
