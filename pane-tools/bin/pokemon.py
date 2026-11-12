@@ -33,7 +33,7 @@
 - 특수 모습(SPECIALS — 메가진화·원시회귀·울트라버스트·거다이맥스): 세대가 열리면(6·7·8·9) 그 포켓몬 + 아이템(메가스톤은 연구 완료,
   구슬은 레이드 포획, 다이수프는 레이드 승리)으로 영구히 바뀐다(change_options · change). 가방에서 아이템 → 포켓몬(item_targets). 이로치는 이로치 그림,
   연구는 그 모습 도감에 따로(만들기 1 · 배틀 승리). 메가 지가르데는 도트 그림이 없어 HOME 그림(_pokedata._fetch).
-- 모습 바꾸기(ALT_FORMS — 데오키시스·쉐이미·기라티나·로토무·영물폼·후파·자시안/자마젠타·디아루가/펄기아 오리진, SPECIALS 의 'alt'):
+- 모습 바꾸기(ALT_FORMS — 데오키시스·쉐이미·기라티나·로토무·메로엣타·지가르데·영물폼·후파·자시안/자마젠타·디아루가/펄기아 오리진, SPECIALS 의 'alt'):
   그 종 연구를 끝내면 도구(그라시데아꽃 등)를 받고, 세대가 열리면 바꾼다. 도구는 써도 남고 같은 도구로 기본 모습으로 되돌린다(로토무는 가전끼리 바로).
 - 연구 레벨: 종마다 잡기 RESEARCH_CATCH(전설·환상·진화로만 얻는 종 1 — 진화해서 얻어도 잡기) · 진화 1(진화형이 있으면) · 배틀 승리 RESEARCH_WIN 을 채우면 도감 ★ 와
   RESEARCH_PRIZE(research_bump). 우두머리: 탐색의 ALPHA_RATE 로 붉은 눈의 큰 개체 — 포획률 절반, 볼 ALPHA_TRIES 번 안에 못 잡으면
@@ -189,6 +189,9 @@ ALT_FORMS = {10001: (386, 3, '데오키시스(어택폼)', 'Deoxys (Attack)', '�
              10010: (479, 4, '프로스트로토무', 'Frost Rotom', '냉장고', 'Refrigerator'),
              10011: (479, 4, '스핀로토무', 'Fan Rotom', '선풍기', 'Electric Fan'),
              10012: (479, 4, '커트로토무', 'Mow Rotom', '잔디깎기', 'Lawn Mower'),
+             10018: (648, 5, '메로엣타(스텝폼)', 'Meloetta (Pirouette)', '고대의노래', 'Relic Song'),
+             10181: (718, 6, '지가르데(10%폼)', 'Zygarde (10%)', '지가르데큐브(10%폼)', 'Zygarde Cube (10%)'),
+             10120: (718, 6, '지가르데(퍼펙트폼)', 'Zygarde (Complete)', '지가르데큐브(퍼펙트폼)', 'Zygarde Cube (Complete)'),
              10019: (641, 5, '토네로스(영물폼)', 'Tornadus (Therian)', '비추는거울(토네로스)', 'Reveal Glass (Tornadus)'),
              10020: (642, 5, '볼트로스(영물폼)', 'Thundurus (Therian)', '비추는거울(볼트로스)', 'Reveal Glass (Thundurus)'),
              10021: (645, 5, '랜드로스(영물폼)', 'Landorus (Therian)', '비추는거울(랜드로스)', 'Reveal Glass (Landorus)'),
@@ -2536,7 +2539,7 @@ def main(scr):
             load_forms()
         except Exception:
             pass
-    if not SPECIALS:  # 특수 모습 목록 — 같은 방식
+    if 10301 not in SPECIALS:  # 특수 모습 목록 — 같은 방식. 메가 지가르데 없는 옛 파일도 다시 받는다(전엔 비었을 때만 받아 옛 파일이 남았다)
         try:
             _pokedata.ensure_specials()
             load_specials()
