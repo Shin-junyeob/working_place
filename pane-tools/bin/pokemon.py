@@ -446,7 +446,7 @@ NICK_MAX = 12  # 닉네임 최대 글자 수
 # 출발 보급(마스터볼 1 · 하이퍼볼 5).
 REBIRTH_TOWER, REBIRTH_SHINY_CAP, REBIRTH_ALPHA = 100, 5, 2
 REBIRTH_SUPPLY = (('master', 1), ('hyper', 5))
-KEEP_ON_REBIRTH = ('used', 'extra', 'rewarded', 'reward_since', 'super_earned', 'weekly', 'habitat', 'forms_boxed', 'news', 'life', 'runs')
+KEEP_ON_REBIRTH = ('used', 'extra', 'rewarded', 'reward_since', 'super_earned', 'weekly', 'habitat', 'forms_boxed', 'news', 'life', 'runs', 'acq2')  # acq2: 획득 재설계 이전은 한 번만
 
 
 def run_stat(st, today=None):
@@ -3300,7 +3300,7 @@ def main(scr):
             have_sp, og, items = st.get('specials', []), opened_gen(st), st.get('items', {})  # made 라 부르면 made() 를 가려 [박사에게]가 꺼졌다
             rows = []
             for p, (s_, kind, g, *_) in SPECIALS.items():
-                key = 'soup' if kind == 'gmax' else f'stone:{p}'
+                key = f'stone:{p}'  # 거다이맥스도 모습마다(2026-11-12)
                 rows.append((p, ('● ' if p in have_sp else '  ') + f'{s_:04d} ' + name(p) + (' ★' if p in st.get('researched', []) else '')
                              + ('' if p in have_sp else '   · ' + (
                     L(f'{g}세대가 열리면', f'opens with Gen {g}') if og < g else L(f'{item_name(key)} {items.get(key, 0)}개', f'{item_name(key)} ×{items.get(key, 0)}')))))
