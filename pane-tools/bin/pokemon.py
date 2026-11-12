@@ -31,7 +31,7 @@
   블리자포스·레이스포스 하나를 재료로 써서(사라진다 — 팀 밖·개체값 낮은 것부터) 합체 모습이 된다. 레벨·개체값은 기본(큐레무 등)을
   따르고, 그 모습의 타입·종족값으로 싸운다. 분리는 없다(2026-10-30).
 - 특수 모습(SPECIALS — 메가진화·원시회귀·울트라버스트·거다이맥스·모습 바꾸기·합체): 세대가 열리면 그 포켓몬 + 그 모습 아이템('stone:<모습>' —
-  메가스톤·구슬·울트라네크로Z·모습별 다이수프·도구)으로 바뀐다(change_options · change). 아이템은 모두 쓰면 사라진다(2026-11-12 사용자).
+  메가스톤·구슬·울트라네크로Z·모습별 다이수프·도구)으로 바뀐다(change_options · change). 기본 종(합체는 본체) 연구를 마쳐야 한다. 아이템은 모두 쓰면 사라진다(2026-11-12 사용자).
   아이템 얻기: ① 그 종 연구 완료 — 모습마다 1개, 한 번만, 환생 0회차만(give_stones) ② 모습 레이드 포인트 → [교환](form_exchange, 모자라면 타워 BP).
   옛 범용 다이수프(soup)는 아무 거다이맥스에나. 가방에서 아이템 → 포켓몬(item_targets). 도감 항목이라 환생에 모두 필요(rebirth_goals). 이로치는 이로치 그림,
   연구는 그 모습 도감에 따로(만들기 1 · 배틀 승리). 메가 지가르데는 도트 그림이 없어 HOME 그림(_pokedata._fetch).
@@ -2148,11 +2148,12 @@ def _drop(st, gone):
 def change_options(st, i):
     """가방 i 번째가 바뀔 수 있는 모습들 [(모습, 재료, 할 수 있나, 못 하는 까닭)] — 재료는 ('mon', 가방 번호)(합체 상대) 또는
     ('item', 키). 레벨·경험치·개체값은 그대로 이어진다. 아이템(합체 도구 포함)은 쓰면 사라진다(2026-11-12 사용자).
+    조건: 그 세대가 열림 · 기본 종 연구 완료(need_research) · 그 모습 아이템.
     합체·메가 등은 되돌릴 수 없다 — 모습 바꾸기(ALT_FORMS)만 바뀐 모습에 기본 모습으로 되돌리는 칸이 붙는다(같은 도구 하나 더)."""
     m, out, items = st['box'][i], [], st.get('items', {})
     for f, j in fuse_options(st, i):  # 합체 도구(그 합체 모습 것)가 있어야 — 연구 완료나 [교환]에서
-        tool = items.get(f'stone:{f}', 0) > 0
-        out.append((f, ('mon', j), tool, '' if tool else L(f'{item_name(f"stone:{f}")} 없음', f'no {item_name(f"stone:{f}")}')))
+        why = need_research(st, m['id']) or ('' if items.get(f'stone:{f}', 0) > 0 else L(f'{item_name(f"stone:{f}")} 없음', f'no {item_name(f"stone:{f}")}'))
+        out.append((f, ('mon', j), not why, why))
     now_alt = m['id'] in ALT_FORMS
     for p, (s, kind, g, *_) in SPECIALS.items():
         if kind == 'fuse':  # 합체는 위에서(재료가 포켓몬)
@@ -2165,8 +2166,8 @@ def change_options(st, i):
         key = f'stone:{p}'
         if kind == 'gmax' and not items.get(key) and items.get('soup'):  # 그 모습 다이수프가 없으면 옛 범용 다이수프
             key = 'soup'
-        why = L(f'{g}세대가 열리면', f'opens with Gen {g}') if opened_gen(st) < g else \
-            '' if items.get(key, 0) > 0 else L('재료 없음', 'no material')
+        why = L(f'{g}세대가 열리면', f'opens with Gen {g}') if opened_gen(st) < g else need_research(st, s) or \
+            ('' if items.get(key, 0) > 0 else L('재료 없음', 'no material'))
         out.append((p, ('item', key), not why, why))
     if now_alt:  # 기본 모습으로 — 지금 모습의 도구로
         key = f'stone:{m["id"]}'
@@ -2176,6 +2177,11 @@ def change_options(st, i):
     for kind, key in (('iv', 'cap'), ('ivmax', 'gcap')):
         out += [((kind, k), ('item', key), True, '') for k in range(6) if iv[k] < 15 and items.get(key, 0) > 0]
     return out
+
+
+def need_research(st, s):
+    """특수 모습으로 바꾸려면 기본 종(합체는 본체) 연구를 마쳐야 한다(2026-11-12 사용자) — 못 했으면 까닭, 했으면 ''."""
+    return '' if s in st.get('researched', []) else L(f'{name(s)} 연구를 마치면', f'finish {name(s)}\'s research')
 
 
 def opt_name(f):
@@ -4651,7 +4657,7 @@ def selftest():
     fu['box'] = [{'id': 25, 'xp': 0, 'iv': [1] * 6}, {'id': 646, 'xp': 5, 'bxp': 120, 'iv': [9] * 6},
                  {'id': 644, 'xp': 0, 'iv': [1] * 6}, {'id': 644, 'xp': 0, 'iv': [15] * 6}, {'id': 643, 'xp': 0, 'iv': [2] * 6}]
     fu['partner'], fu['team'] = 4, [1, 3]
-    assert change_options(fu, 1)[0][2] is False and L('없음', 'no') in change_options(fu, 1)[0][3]  # 도구가 없으면 못 한다
+    assert change_options(fu, 1)[0][2] is False and L('연구', 'research') in change_options(fu, 1)[0][3]  # 큐레무 연구를 마쳐야(2026-11-12)
     for key in 'c' + 'www':  # 큐레무 연구를 끝내면 유전자쐐기 — 합체 모습마다 하나(2026-11-12)
         research_bump(fu, 646, key)
     assert fu['items'] == {'stone:10022': 1, 'stone:10023': 1} and [k for k, _ in bag_items(fu)] == ['stone:10022', 'stone:10023']
@@ -4703,6 +4709,8 @@ def selftest():
         ul = new_state()
         ul['box'], ul['items'] = [{'id': 10155, 'xp': 0}], {'stone:10157': 1}
         unlock(ul, 7)
+        assert change(ul, 0, 0) is None  # 네크로즈마 연구 전 — 아이템이 있어도 못 바꾼다
+        ul['researched'].append(800)
         assert change(ul, 0, 0) == 10157 and name(10157) == L('울트라네크로즈마', 'Ultra Necrozma')
         pr = new_state()  # 구슬도 연구 완료로(레이드 포획 때 주던 것은 뺐다 — 2026-11-12)
         raid_state(pr)
