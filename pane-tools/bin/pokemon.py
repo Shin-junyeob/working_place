@@ -43,7 +43,7 @@
 - 레이드(체육관 왼쪽 열 맨 위, 모두 탐색 RAID_COST · HP ×RAID_HP · 개체값 15 · 그 세대 8관 레벨 +2 · 모든 세대 팀):
   전설 'R' — 날마다(raid_key) 열린 세대의 전설 하나(raid_boss), 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다),
   잡든 놓치든 그날은 끝. 이기고 못 만난 보스는 날이 바뀌어도 한 번 나온다(raid_state 의 late — 기록의 'week' 칸이 날짜 키).
-  모습 'M'·'X'·'A'(FORM_RAIDS — 메가 / 거다이맥스 / 다른 모습) — 기본 종을 잡았고 세대가 열린 모습과(raid_forms) 그 모습으로 싸운다
+  [레이드] 한 줄 안에 전설·메가진화·거다이맥스·다른 모습(gym_right 'R'). 모습 'M'·'X'·'A'(FORM_RAIDS, 목록 화면 view 'raids') — 기본 종을 잡았고 세대가 열린 모습과(raid_forms) 그 모습으로 싸운다
   (거다이맥스는 종족값이 기본과 같아 ×GMAX_BOOST). 이기면 그 모습 포인트 RAID_WIN_PTS · 지면 RAID_LOSE_PTS(st['rpts'], 모습마다 따로).
 - 배틀 타워(챔피언 뒤, 체육관 목록의 'T' 줄): 팀 앞 TOWER_SIZE 마리, 시작할 때만 탐색 TOWER_COST 번, 지기 전까지 연승
   (tower_state · tower_opp — 상대는 7연승마다 레벨 +TOWER_LV_STEP·개체값 +1, 상한 없음). TOWER_PRIZES 마다 볼과 병뚜껑, TOWER_BP 마다 BP(st['bp']).
@@ -110,12 +110,13 @@ ALPHA_RATE, ALPHA_IV, ALPHA_TRIES = 0.01, 12, 3  # 우두머리: 탐색 100번�
 ALPHA_BOOST = 1.1  # 우두머리 배틀 능력치 배수(2026-11-06 사용자)
 # 레이드 보스 HP 배수 · 레이드볼 · 도전 1번에 쓰는 탐색. 레이드는 모든 세대가 나간다 — 모든 세대 최종 진화형 중 고른 팀을 보스 레벨에 맞춰
 # 1~3세대 전설 17마리로 잰 승률(2026-10-30): ×40 개체값 7 49%·15 57%, ×48 40%·49%, ×56 28%·28%
-RAID_HP, RAID_BALLS, RAID_COST = 36, 3, 2  # ×48 은 너무 높고 ×24 는 너무 쉽다(2026-11-12 사용자) — 모든 레이드 ×36
+RAID_HP, RAID_BALLS, RAID_COST = 48, 3, 2  # 모든 레이드 같은 배수 — ×36 은 해 보니 바로 100%(2026-11-12 사용자, 다시 ×48)
 # 모습 레이드(2026-11-12 사용자 설계): 메가 M · 거다이맥스 X · 다른 모습 A — 상대가 그 모습. 이기면 그 모습 포인트 RAID_WIN_PTS,
 # 져도 RAID_LOSE_PTS(범위 안 무작위). FORM_PRICE 포인트로 [교환]에서 그 모습 아이템 1개 — 모자라면 타워 BP 로 채운다.
 # 거다이맥스 모습은 종족값이 기본과 같아 보스 능력치에 GMAX_BOOST 배(레이드다운 강함 — 메가·다른 모습은 그 모습 종족값이 이미 다르다).
 RAID_WIN_PTS, RAID_LOSE_PTS, FORM_PRICE, GMAX_BOOST = (20, 30), (1, 10), 100, 1.2
-FORM_RAIDS = {'M': ('메가 레이드', 'Mega raid'), 'X': ('거다이맥스 레이드', 'Gigantamax raid'), 'A': ('다른 모습 레이드', 'Form raid')}
+FORM_RAIDS = {'M': ('메가진화 레이드', 'Mega raid'), 'X': ('거다이맥스 레이드', 'Gigantamax raid'), 'A': ('다른 모습 레이드', 'Form raid')}
+RAID_SUB = {'M': ('메가진화', 'Mega Evolution'), 'X': ('거다이맥스', 'Gigantamax'), 'A': ('다른 모습', 'Other forms')}  # [레이드] 안의 칸 이름
 TOWER_BP = (10, 5)  # 배틀 타워 10연승마다 BP 5 — [교환]에서 모습 포인트에 보탠다
 # 배틀 타워(챔피언 뒤): 팀 앞 TOWER_SIZE 마리로 지기 전까지 연승. 시작할 때만 탐색 TOWER_COST 번. 상대는 7연승마다 한 단계 —
 # 레벨 TOWER_LV0 + 단계 × TOWER_LV_STEP(상한 없이 — 다 키운 팀도 언젠가 진다), 개체값 6 + 단계(15까지). 7번째·49번째는 강한 상대.
@@ -2308,6 +2309,13 @@ def raid_forms(st, kind):
     return [p for p, (s, _, g, *_) in SPECIALS.items() if raid_kind(p) == kind and g <= og and s in st['caught']]
 
 
+def raid_lock(st, kind):
+    """모습 레이드에 나올 모습이 없을 때 까닭 — '6세대가 열리면' · '기본 포켓몬을 잡으면'."""
+    gs = [g for p, (_, _, g, *_) in SPECIALS.items() if raid_kind(p) == kind]
+    g = min(gs, default=0)
+    return L(f'{g}세대가 열리면', f'opens with Gen {g}') if gs and opened_gen(st) < g else L('기본 포켓몬을 잡으면', 'catch the base Pokémon')
+
+
 def raid_level(g):
     """레이드 보스 레벨 — 그 세대 8관 레벨 + 2."""
     return 12 + 7 * 7 + (min(g, GENS) - 1) * 5 + _battle.OPP_LV_BONUS + 2
@@ -2342,16 +2350,18 @@ def gym_rows(st):
 
 
 def gym_left(st):
-    """체육관 화면 왼쪽 열 [('R', 세대) · ('M'·'X'·'A', 0) · ('T', 0) · ('G', 세대)] — 전설 레이드 · 모습 레이드(나올 모습이 있으면) ·
+    """체육관 화면 왼쪽 열 [('R', 전설 세대) · ('T', 0) · ('G', 세대)] — [레이드](안에 전설·메가진화·거다이맥스·다른 모습) ·
     배틀 타워 · 열린 세대들(2026-11-05 · 11-12 사용자)."""
     raid = raid_boss(st)
-    return ([('R', raid[0])] if raid and not raid_state(st)['done'] else []) + [(k, 0) for k in FORM_RAIDS if raid_forms(st, k)] + \
-        ([('T', 0)] if st.get('league') else []) + [('G', g) for g in gym_gens(st)]
+    return [('R', raid[0] if raid else 0)] + ([('T', 0)] if st.get('league') else []) + [('G', g) for g in gym_gens(st)]
 
 
 def gym_right(st, g, kind='G'):
     """체육관 화면 오른쪽 열 — g 세대 1~8관, 8관을 모두 이기면 사천왕·챔피언 [(세대, 관 또는 'L')].
-    모습 레이드(kind 'M'·'X'·'A')면 그 레이드의 모습들 [(모습, kind)]."""
+    kind 'R' 이면 [레이드] 안의 네 칸 [(세대, 'R') 전설(오늘 보스가 있으면) · (0, 'M'·'X'·'A')],
+    모습 레이드(kind 'M'·'X'·'A')면 그 레이드의 모습들 [(모습, kind)] — 레이드 목록 화면(view 'raids')."""
+    if kind == 'R':
+        return ([(g, 'R')] if raid_boss(st) else []) + [(0, k) for k in FORM_RAIDS]
     if kind in FORM_RAIDS:
         return [(p, kind) for p in raid_forms(st, kind)]
     return [(g, i) for i in range(8)] + ([(g, 'L')] if f'conquer{g}' in st['badges'] else [])
@@ -2556,6 +2566,7 @@ def main(scr):
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
     gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None
+    rkind, gkeep = 'M', (0, 0)  # 레이드 목록 화면의 레이드 · 들어오기 전 체육관 화면 자리(왼쪽 줄, 오른쪽 칸)
     chg = None  # 변신 화면이 다루는 가방 번호
     ukey, chg_from, chg_only = None, 'bag', []  # 가방에서 고른 아이템 · 바꾸기 화면에서 돌아갈 곳
     ball_pick = None  # 만남 화면에서 고른 볼(던지기 전까지는 고르기만)
@@ -3009,14 +3020,14 @@ def main(scr):
             lw = max(14, min(26, w // 3))  # 왼쪽 열 폭
             rx = lw + 2  # 오른쪽 열이 시작하는 칸
             rw = w - rx - 1  # 오른쪽 글 폭
-            put(scr, 1, 1, msg or (L('↑↓ 관 · ← 세대로 · Enter 도전 준비 · P 장식 · q 세대로', '↑↓ gym · ← back · Enter prepare · P show · q back') if gcol else
+            on_raid = bool(left) and left[max(0, min(sel, len(left) - 1))][0] == 'R'
+            put(scr, 1, 1, msg or (L('↑↓ 레이드 · ← 돌아가기 · Enter 고르기', '↑↓ raid · ← back · Enter pick') if gcol and on_raid else
+                                   L('↑↓ 관 · ← 세대로 · Enter 도전 준비 · P 장식 · q 세대로', '↑↓ gym · ← back · Enter prepare · P show · q back') if gcol else
                                    L('↑↓ 고르기 · → 세대 안으로 · Enter · q 돌아가기', '↑↓ pick · → into the generation · Enter · q back')), curses.A_DIM)
             for k, (kind, g) in enumerate(left[top:top + body]):
                 cur = top + k == sel
                 if kind == 'R':
-                    label = L(f'레이드 {name(raid_boss(st)[1])}', f'Raid {name(raid_boss(st)[1])}') + (' ✔' if raid_state(st)['won'] else '')
-                elif kind in FORM_RAIDS:
-                    label = L(*{'M': ('메가 레이드', 'Mega raid'), 'X': ('거다이맥스', 'G-Max raid'), 'A': ('다른 모습', 'Form raid')}[kind])  # 좁은 열 — 개수는 오른쪽에
+                    label = L('레이드', 'Raids')
                 elif kind == 'T':
                     tw = tower_state(st)
                     label = L(f'배틀 타워 {tw["streak"]}/{tw["best"]}', f'Tower {tw["streak"]}/{tw["best"]}')
@@ -3027,16 +3038,26 @@ def main(scr):
                 put(scr, 2 + k, 1, (('▶ ' if cur else '  ') + fit(label, lw - 3)).ljust(lw) if cur and not gcol else ('▶ ' if cur else '  ') + fit(label, lw - 3), attr)
                 btns.append((2 + k, 1, lw, ('gymleft', top + k)))
             kind, g = left[sel] if left else ('G', 1)
-            if kind in FORM_RAIDS:  # 모습 레이드 — 나올 모습들과 모은 포인트(FORM_PRICE 점에 아이템 1개)
-                right = gym_right(st, g, kind)
+            if kind == 'R':  # [레이드] — 전설 · 메가진화 · 거다이맥스 · 다른 모습(2026-11-12 사용자 배치)
+                right = gym_right(st, g, 'R')
                 gsub = max(0, min(gsub, len(right) - 1))
-                gtop = max(0, min(min(max(gtop, gsub - body + 1), gsub), len(right) - body))
-                for k, (p, _) in enumerate(right[gtop:gtop + body]):
-                    y, cur = 2 + k, gcol and gtop + k == gsub
-                    pts = st.get('rpts', {}).get(str(p), 0)
-                    text = fit(('▶ ' if cur else '  ') + name(p) + f'  {pts}/{FORM_PRICE}', rw)
-                    put(scr, y, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if pts else curses.A_DIM))
-                    btns.append((y, rx, w - 1, ('gym', (p, kind))))
+                for k, (gg, rk) in enumerate(right):
+                    y, cur = 2 + k, gcol and k == gsub
+                    if rk == 'R':
+                        rs = raid_state(st)
+                        text, live = L(f'전설 — {name(raid_boss(st)[1])}', f'Legendary — {name(raid_boss(st)[1])}') + \
+                            (L(' · 오늘 끝', ' · done today') if rs['done'] else ' ✔' if rs['won'] else ''), not rs['done']
+                        btns.append((y, rx, w - 1, ('gym', (gg, 'R'))))
+                    else:
+                        n = len(raid_forms(st, rk))
+                        text, live = L(*RAID_SUB[rk]) + (f' {n}' if n else L(f' · {raid_lock(st, rk)}', f' · {raid_lock(st, rk)}')), bool(n)
+                        btns.append((y, rx, w - 1, ('raidlist', rk)))
+                    text = fit(('▶ ' if cur else '  ') + text, rw)
+                    put(scr, y, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if live else curses.A_DIM))
+                para(scr, 3 + len(right), L(f'모두 탐색 {RAID_COST}회 · HP ×{RAID_HP} · 모든 세대 출전. 모습 레이드는 이기면 포인트 '
+                                            f'{RAID_WIN_PTS[0]}~{RAID_WIN_PTS[1]}(지면 {RAID_LOSE_PTS[0]}~{RAID_LOSE_PTS[1]}) — {FORM_PRICE}점을 [교환]에서 아이템으로.',
+                                            f'{RAID_COST} explores each · HP ×{RAID_HP} · any generation. Form raids give {RAID_WIN_PTS[0]}-{RAID_WIN_PTS[1]} pts '
+                                            f'({RAID_LOSE_PTS[0]}-{RAID_LOSE_PTS[1]} on a loss) — trade {FORM_PRICE} for the item.'), rw + rx, curses.A_DIM, rx)
             elif kind == 'G':
                 right = gym_right(st, g)
                 gsub = max(0, min(gsub, len(right) - 1))
@@ -3079,6 +3100,21 @@ def main(scr):
             x = button(h - 1, 1, L('도전 준비', 'prepare'), 'gym_sel')
             x = button(h - 1, x, L('장식 P', 'show P'), 'pin_gym')
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
+        elif view == 'raids':  # 레이드 목록(메가진화·거다이맥스·다른 모습) — 모습과 모은 포인트, Enter 로 도전 준비
+            rows = raid_forms(st, rkind)
+            put(scr, 1, 1, fit(msg or L(f'{FORM_RAIDS[rkind][0]} {len(rows)} · {FORM_PRICE}점에 아이템 1개 · ↑↓ · Enter 도전 준비 · q',
+                                        f'{FORM_RAIDS[rkind][1]} {len(rows)} · {FORM_PRICE} pts per item · ↑↓ · Enter prepare · q'), w - 2), curses.A_DIM)
+            body = h - 3
+            sel = max(0, min(sel, len(rows) - 1))
+            top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
+            for k, p in enumerate(rows[top:top + body]):
+                cur = top + k == sel
+                pts, have = st.get('rpts', {}).get(str(p), 0), st.get('items', {}).get(f'stone:{p}', 0)
+                text = fit(('▶ ' if cur else '  ') + f'{name(p)}  {pts}/{FORM_PRICE}' + (L(f' · 아이템 {have}', f' · item {have}') if have else '')
+                           + (' ●' if p in st.get('specials', []) else ''), w - 2)
+                put(scr, 2 + k, 1, text.ljust(w - 2) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if pts else curses.A_DIM))
+                btns.append((2 + k, 1, w - 1, ('gym', (p, rkind))))
+            button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
         elif view == 'gym':
             g, i = gsel
             opp = gym_opp(BATTLE, g, i, st)
@@ -3387,7 +3423,7 @@ def main(scr):
             if not fresh_st.get('_broken'):
                 st = fresh_st
         act = {ord('q'): 'back' if view != 'main' else 'close', 27: 'back' if view != 'main' else 'close'}.get(key)
-        lists = view in ('trade', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
+        lists = view in ('trade', 'change', 'dex', 'badges', 'gyms', 'slotpick', 'bag', 'use', 'raids')  # ↑↓ 는 목록 줄을, ←→ 는 아래 버튼을 고른다
         if view == 'mon' and naming is not None:  # 이름 짓는 중 — 글자는 이름으로(q 도), Enter 저장 · Esc 취소
             if key == 27:
                 naming, act, key = None, None, -1
@@ -3443,7 +3479,7 @@ def main(scr):
                 cap_n, confirm = 1, None
         if view == 'gyms':  # 두 열 — ←→ 로 열을 오가고, 오른쪽에선 ↑↓ 가 관을 고른다. q·Esc 는 오른쪽이면 왼쪽으로
             left = gym_left(st)
-            on_gen = bool(left) and left[max(0, min(sel, len(left) - 1))][0] in ('G', *FORM_RAIDS)
+            on_gen = bool(left) and left[max(0, min(sel, len(left) - 1))][0] in ('G', 'R')
             if key == curses.KEY_RIGHT:
                 if on_gen and not gcol:
                     gcol, gsub, gtop = 1, 0, 0
@@ -3537,6 +3573,9 @@ def main(scr):
                 act = ('bagitem', sel)
             elif view == 'use':
                 act = ('userow', sel)
+            elif view == 'raids':  # 레이드 목록 — 고른 모습의 도전 준비로
+                rows = raid_forms(st, rkind)
+                act = ('gym', (rows[max(0, min(sel, len(rows) - 1))], rkind)) if rows else None
             elif view == 'fight':
                 act = 'back'  # 기록을 끝까지 → 한 번 더 누르면 나간다
             elif view != 'info':
@@ -3546,14 +3585,15 @@ def main(scr):
         if act in ('gym_sel', 'pin_gym'):  # 왼쪽이 세대면 오른쪽 열로 들어가고, 오른쪽이면 그 관 · 레이드·타워는 바로
             left = gym_left(st)
             kind, g = left[max(0, min(sel, len(left) - 1))] if left else ('G', 1)
-            if kind in FORM_RAIDS:  # 모습 레이드 — 오른쪽 열로 들어가서 모습을 고른다(장식은 없다)
-                right = gym_right(st, g, kind)
-                if act == 'pin_gym' or not right:
+            if kind == 'R':  # [레이드] — 오른쪽 열(네 칸)로 들어가서, 전설은 도전 준비 · 나머지는 레이드 목록(장식은 없다)
+                right = gym_right(st, g, 'R')
+                if act == 'pin_gym':
                     act = None
                 elif not gcol:
                     act, gcol, gsub, gtop = None, 1, 0, 0
                 else:
-                    act = ('gym', right[max(0, min(gsub, len(right) - 1))])
+                    gi = right[max(0, min(gsub, len(right) - 1))]
+                    act = ('gym', gi) if gi[1] == 'R' else ('raidlist', gi[1])
             elif kind == 'G' and not gcol:
                 act = ('pin', f'champ{g}') if act == 'pin_gym' else None
                 if act is None:
@@ -3808,7 +3848,7 @@ def main(scr):
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
-            back_to = {'info': 'dex', 'gym': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'trainer' if pslot == -2 else 'main', 'use': 'bag', 'bag': 'main', 'mon': 'slotpick',
+            back_to = {'info': 'dex', 'gym': 'raids' if gsel and gsel[1] in FORM_RAIDS else 'gyms', 'raids': 'gyms', 'fight': 'gym', 'change': chg_from, 'slotpick': 'trainer' if pslot == -2 else 'main', 'use': 'bag', 'bag': 'main', 'mon': 'slotpick',
                        'trainer': 'main', 'reborn': 'slotpick'}.get(view, 'main')  # 한 단계 위로
             if view == 'mon':
                 msg, naming = '', None
@@ -3816,7 +3856,18 @@ def main(scr):
                 sel, top, msg, confirm = max(0, min(bag_sel, len(bag_items(st)) - 1)), 0, '', None
             elif view == 'change' and chg_from == 'use':  # 능력치·개수 고르기에서 나오면 고르던 포켓몬으로 — 쓰기 확인 문구는 지운다
                 sel, top, cap_n, msg, confirm = use_sel, 0, 1, '', None
+            if view == 'raids':  # 체육관의 [레이드] 칸으로
+                sel, gsub, gcol = gkeep[0], gkeep[1], 1
+            elif view == 'gym' and back_to == 'raids':  # 레이드 목록의 그 모습 줄로
+                rows = raid_forms(st, rkind)
+                sel, top = rows.index(gsel[0]) if gsel[0] in rows else 0, 0
             view = back_to
+        elif isinstance(act, tuple) and act[0] == 'raidlist':  # [레이드] 안의 메가진화·거다이맥스·다른 모습 → 그 레이드 목록
+            if raid_forms(st, act[1]):
+                gkeep = (sel, [k for _, k in gym_right(st, 0, 'R')].index(act[1]))
+                view, rkind, sel, top, msg = 'raids', act[1], 0, 0, ''
+            else:
+                msg = L(f'{RAID_SUB[act[1]][0]} 레이드는 {raid_lock(st, act[1])} 나온다.', f'{RAID_SUB[act[1]][1]} raids — {raid_lock(st, act[1])}.')
         elif isinstance(act, tuple) and act[0] == 'gymleft':  # 체육관 왼쪽 열 클릭 — 그 줄로(세대면 오른쪽에 관들이 바뀐다)
             sel, gcol, gsub, gtop = act[1], 0, 0, 0
         elif isinstance(act, tuple) and act[0] == 'gym':
@@ -4741,19 +4792,20 @@ def selftest():
     assert raid_boss(dl, days[0]) == raid_boss(dl, days[0]) and len({raid_boss(dl, d) for d in days}) > 1
     assert raid_key(datetime(2026, 11, 12, 9)) == '2026-11-12' and raid_state(dl, days[0])['week'] == days[0]
     assert raid_state(dl, days[1])['week'] == days[1] and not dl['raid']['won']
-    # 모습 레이드: 기본 종을 잡았고 세대가 열린 모습만 · 상대는 그 모습(HP ×36, 거다이맥스는 능력치 ×GMAX_BOOST) ·
+    # 모습 레이드: 기본 종을 잡았고 세대가 열린 모습만 · 상대는 그 모습(HP ×48, 거다이맥스는 능력치 ×GMAX_BOOST) ·
     # 이기면 20~30 · 지면 1~10 · 탐색 2회 · [교환] 100점(모자라면 BP) · 타워 10연승마다 BP 5
     real_sp = dict(SPECIALS)
     SPECIALS.clear()
     SPECIALS.update({10034: (6, 'mega', 6, 'x', ''), 10196: (6, 'gmax', 8, '', ''), 10008: (479, 'alt', 4, '', '')})
     try:
         fr = unlock(new_state(), 6)
-        assert raid_forms(fr, 'M') == [] and ('M', 0) not in gym_left(fr)  # 리자몽을 아직 안 잡았다
+        assert raid_forms(fr, 'M') == [] and raid_lock(fr, 'M') == L('기본 포켓몬을 잡으면', 'catch the base Pokémon')  # 리자몽을 아직 안 잡았다
+        assert [k for k, _ in gym_left(fr)].count('R') == 1 and [k for _, k in gym_right(fr, 1, 'R')] == ['R', 'M', 'X', 'A']  # [레이드] 한 줄, 안에 네 칸
         fr['caught'] += [6, 7]
-        assert raid_forms(fr, 'M') == [10034] and raid_forms(fr, 'X') == [] and ('M', 0) in gym_left(fr)  # 거다이맥스는 8세대
+        assert raid_forms(fr, 'M') == [10034] and raid_forms(fr, 'X') == [] and raid_lock(fr, 'X') == L('8세대가 열리면', 'opens with Gen 8')
         assert gym_right(fr, 0, 'M') == [(10034, 'M')]
-        assert gym_opp(None, 10034, 'M', fr) == [(10034, raid_level(6), (15,) * 6, 36, 1)]
-        assert gym_opp(None, 10196, 'X', fr)[0][4] == GMAX_BOOST and RAID_HP == 36
+        assert gym_opp(None, 10034, 'M', fr) == [(10034, raid_level(6), (15,) * 6, 48, 1)]
+        assert gym_opp(None, 10196, 'X', fr)[0][4] == GMAX_BOOST and RAID_HP == 48  # 모든 레이드 ×48(2026-11-12 사용자)
         fr['box'], fr['team'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 6}], [0]
         gf = {'stats': {10034: [1] * 6, 7: [200] * 6}, 'types': {10034: [16], 7: [11]}, 'eff': {}, 'tnames': {}}
         used0 = fr['used']
