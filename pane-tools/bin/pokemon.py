@@ -44,7 +44,7 @@
   전설 'R' — 날마다(raid_key) 열린 세대의 전설 하나(raid_boss), 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다),
   잡든 놓치든 그날은 끝. 이기고 못 만난 보스는 날이 바뀌어도 한 번 나온다(raid_state 의 late — 기록의 'week' 칸이 날짜 키).
   [레이드] 한 줄 안에 전설·메가진화·거다이맥스·다른 모습(gym_right 'R'). 모습 'M'·'X'·'A'(FORM_RAIDS, 목록 화면 view 'raids') — 기본 종을 잡았고 세대가 열린 모습과(raid_forms) 그 모습으로 싸운다
-  (거다이맥스는 종족값이 기본과 같아 ×GMAX_BOOST). 이기면 그 모습 포인트 RAID_WIN_PTS · 지면 RAID_LOSE_PTS(st['rpts'], 모습마다 따로).
+  (거다이맥스는 종족값이 기본과 같아 ×GMAX_BOOST). 이기면 그 모습 RP(레이드 포인트) RAID_WIN_PTS · 지면 RAID_LOSE_PTS(st['rpts'], 모습마다 따로) — 교환 값은 RP, BP 는 모자란 만큼만.
 - 배틀 타워(챔피언 뒤, 체육관 목록의 'T' 줄): 팀 앞 TOWER_SIZE 마리, 시작할 때만 탐색 TOWER_COST 번, 지기 전까지 연승
   (tower_state · tower_opp — 상대는 7연승마다 레벨 +TOWER_LV_STEP·개체값 +1, 상한 없음). TOWER_PRIZES 마다 볼과 병뚜껑, TOWER_BP 마다 BP(st['bp']).
   병뚜껑(cap 은색 · gcap 금색)은 가방에서 쓰는 특훈 — 고른 개체값(여섯 중) 하나 +1 / 15로(change_options 의 ('iv', k) · ('ivmax', k)).
@@ -3062,9 +3062,9 @@ def main(scr):
                         btns.append((y, rx, w - 1, ('raidlist', rk)))
                     text = fit(('▶ ' if cur else '  ') + text, rw)
                     put(scr, y, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if live else curses.A_DIM))
-                para(scr, 3 + len(right), L(f'모두 탐색 {RAID_COST}회 · HP ×{RAID_HP} · 모든 세대 출전. 모습 레이드는 이기면 포인트 '
-                                            f'{RAID_WIN_PTS[0]}~{RAID_WIN_PTS[1]}(지면 {RAID_LOSE_PTS[0]}~{RAID_LOSE_PTS[1]}) — {FORM_PRICE}점을 [교환]에서 아이템으로.',
-                                            f'{RAID_COST} explores each · HP ×{RAID_HP} · any generation. Form raids give {RAID_WIN_PTS[0]}-{RAID_WIN_PTS[1]} pts '
+                para(scr, 3 + len(right), L(f'모두 탐색 {RAID_COST}회 · HP ×{RAID_HP} · 모든 세대 출전. 모습 레이드는 이기면 그 모습 RP(레이드 포인트) '
+                                            f'{RAID_WIN_PTS[0]}~{RAID_WIN_PTS[1]}(지면 {RAID_LOSE_PTS[0]}~{RAID_LOSE_PTS[1]}) — RP {FORM_PRICE}을 [교환]에서 아이템으로.',
+                                            f'{RAID_COST} explores each · HP ×{RAID_HP} · any generation. Form raids give {RAID_WIN_PTS[0]}-{RAID_WIN_PTS[1]} RP (raid points) '
                                             f'({RAID_LOSE_PTS[0]}-{RAID_LOSE_PTS[1]} on a loss) — trade {FORM_PRICE} for the item.'), rw + rx, curses.A_DIM, rx)
             elif kind == 'G':
                 right = gym_right(st, g)
@@ -3110,15 +3110,15 @@ def main(scr):
             button(h - 1, x, L('돌아가기 q', 'back q'), 'back')
         elif view == 'raids':  # 레이드 목록(메가진화·거다이맥스·다른 모습) — 모습과 모은 포인트, Enter 로 도전 준비
             rows = raid_forms(st, rkind)
-            put(scr, 1, 1, fit(msg or L(f'{FORM_RAIDS[rkind][0]} {len(rows)} · {FORM_PRICE}점에 아이템 1개 · ↑↓ · Enter 도전 준비 · q',
-                                        f'{FORM_RAIDS[rkind][1]} {len(rows)} · {FORM_PRICE} pts per item · ↑↓ · Enter prepare · q'), w - 2), curses.A_DIM)
+            put(scr, 1, 1, fit(msg or L(f'{FORM_RAIDS[rkind][0]} {len(rows)} · RP {FORM_PRICE}에 아이템 1개 · ↑↓ · Enter 도전 준비 · q',
+                                        f'{FORM_RAIDS[rkind][1]} {len(rows)} · {FORM_PRICE} RP per item · ↑↓ · Enter prepare · q'), w - 2), curses.A_DIM)
             body = h - 3
             sel = max(0, min(sel, len(rows) - 1))
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             for k, p in enumerate(rows[top:top + body]):
                 cur = top + k == sel
                 pts, have = st.get('rpts', {}).get(str(p), 0), st.get('items', {}).get(f'stone:{p}', 0)
-                text = fit(('▶ ' if cur else '  ') + f'{name(p)}  {pts}/{FORM_PRICE}' + (L(f' · 아이템 {have}', f' · item {have}') if have else '')
+                text = fit(('▶ ' if cur else '  ') + f'{name(p)}  RP {pts}/{FORM_PRICE}' + (L(f' · 아이템 {have}', f' · item {have}') if have else '')
                            + (' ●' if p in st.get('specials', []) else ''), w - 2)
                 put(scr, 2 + k, 1, text.ljust(w - 2) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if pts else curses.A_DIM))
                 btns.append((2 + k, 1, w - 1, ('gym', (p, rkind))))
@@ -3135,8 +3135,8 @@ def main(scr):
                               if i == 'T' else L(f'{g}세대 사천왕·챔피언 — 5연전', f'Gen {g} Elite Four — 5 battles') if i == 'L' else
                               L(f'오늘의 레이드 — {name(opp[0][0])} ({g}세대 전설, HP ×{RAID_HP})',
                                 f'Today\'s raid — {name(opp[0][0])} (Gen {g} legendary, HP ×{RAID_HP})') if i == 'R' else
-                              L(f'{FORM_RAIDS[i][0]} — {name(g)} (HP ×{RAID_HP}) · 포인트 {st.get("rpts", {}).get(str(g), 0)}/{FORM_PRICE}',
-                                f'{FORM_RAIDS[i][1]} — {name(g)} (HP ×{RAID_HP}) · {st.get("rpts", {}).get(str(g), 0)}/{FORM_PRICE} pts') if i in FORM_RAIDS else
+                              L(f'{FORM_RAIDS[i][0]} — {name(g)} (HP ×{RAID_HP}) · RP {st.get("rpts", {}).get(str(g), 0)}/{FORM_PRICE}',
+                                f'{FORM_RAIDS[i][1]} — {name(g)} (HP ×{RAID_HP}) · RP {st.get("rpts", {}).get(str(g), 0)}/{FORM_PRICE}') if i in FORM_RAIDS else
                               L(f'{g}세대 {i + 1}관 — {tn(_battle.GYMS[g][i][0])[0]} 타입', f'Gen {g} gym {i + 1} — {tn(_battle.GYMS[g][i][0])[1]} type'))
                      + (L(f'  ✔ {won}\xa0승리', f'  ✔ won\xa0{won}') if won else ''), w, curses.A_BOLD)
             if i == 'L':  # 사천왕 4명(타입)과 챔피언 — 한 명씩, 길면 접는다
@@ -3220,7 +3220,7 @@ def main(scr):
                 fp = battle_now.get('pts')
                 bpg = L(f' BP +{TOWER_BP[1]} ·', f' BP +{TOWER_BP[1]} ·') if tower and tower[0] and tower[0] % TOWER_BP[0] == 0 else ''
                 res = (L('승리! ', 'You won! ') if battle_now['won'] else L('패배… ', 'Defeat… ')) + \
-                    L(f'포인트 +{fp[0]} (지금 {fp[1]}/{FORM_PRICE}) ·', f'+{fp[0]} pts (now {fp[1]}/{FORM_PRICE}) ·') + gain if fp else \
+                    L(f'RP +{fp[0]} (지금 {fp[1]}/{FORM_PRICE}) ·', f'RP +{fp[0]} (now {fp[1]}/{FORM_PRICE}) ·') + gain if fp else \
                     (L(f'승리! {tower[0]}연승!', f'Won! {tower[0]} in a row!') + bpg + (L(' 보상: ', ' Prize: ') + ', '.join(prize) + ' ·' if prize else '') + gain
                        if battle_now['won'] else L(f'패배… 연승 끝 (최고 {tower[1]}연승)', f'Defeat… streak over (best {tower[1]})') + gain) if tower else \
                     (L('승리! ', 'You won! ') + (L(f'[{badge_name(battle_now["key"])}]을 받았다!' if battle_now['key'].startswith('champ') else f'[{badge_name(battle_now["key"])}]를 받았다!',
@@ -3316,19 +3316,21 @@ def main(scr):
                     btns.append((y + k, rx, w - 1, ('trrow', top + k)))
             elif tm == 3:  # 포인트 교환 — 모습 레이드 포인트(+ 타워 BP) FORM_PRICE → 그 모습 아이템(2026-11-12 사용자)
                 rows = form_rows(st)
-                put(scr, 2, rx, fit(L(f'BP {st.get("bp", 0)} · {FORM_PRICE}점에 아이템 1개 (모자라면 BP 로)',
-                                      f'BP {st.get("bp", 0)} · {FORM_PRICE} pts per item (BP fills the gap)'), rw), curses.A_DIM)
+                # 교환 값은 RP(모습 레이드 포인트) — BP(배틀 타워)는 모자란 만큼만 채운다(2026-11-12 사용자: 'BP 100점에 1개'로 읽혔다)
+                y_ = para(scr, 2, L(f'RP(레이드 포인트) {FORM_PRICE}으로 그 모습 아이템 1개. 모자란 RP 는 BP(배틀 타워)로 채운다 · 가진 BP {st.get("bp", 0)}',
+                                    f'{FORM_PRICE} RP (raid points) buys that form\'s item; Battle Tower BP fills any gap · BP {st.get("bp", 0)}'), rw + rx, curses.A_DIM, rx)
+                lb = max(1, body - (y_ - 2))  # 설명 아래 남은 줄
                 sel = max(0, min(sel, len(rows) - 1))
-                top = max(0, min(min(max(top, sel - body + 2), sel), len(rows) - body + 1))
-                for k, p in enumerate(rows[top:top + body - 1]):
+                top = max(0, min(min(max(top, sel - lb + 1), sel), len(rows) - lb))
+                for k, p in enumerate(rows[top:top + lb]):
                     cur = tcol and top + k == sel
                     pts, key = st['rpts'][str(p)], f'stone:{p}'
-                    text = fit(f'{pts:>3}' + L(f'점 {name(p)} · 가진 {st.get("items", {}).get(key, 0)}', f' {name(p)} · have {st.get("items", {}).get(key, 0)}'), rw)
-                    put(scr, 3 + k, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if pts + st.get('bp', 0) >= FORM_PRICE else curses.A_DIM))
-                    btns.append((3 + k, rx, w - 1, ('fexch', top + k)))
+                    text = fit(f'RP {pts:>3} ' + L(f'{name(p)} · 가진 {st.get("items", {}).get(key, 0)}', f'{name(p)} · have {st.get("items", {}).get(key, 0)}'), rw)
+                    put(scr, y_ + k, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if pts + st.get('bp', 0) >= FORM_PRICE else curses.A_DIM))
+                    btns.append((y_ + k, rx, w - 1, ('fexch', top + k)))
                 if not rows:
-                    para(scr, 3, L('포인트가 없다 — 체육관의 메가·거다이맥스·다른 모습 레이드에서 모은다.',
-                                   'No points yet — earn them in the Mega, Gigantamax and Form raids at the gyms.'), rw + rx, curses.A_DIM, rx)
+                    para(scr, y_, L('RP 가 없다 — 체육관 [레이드]의 메가진화·거다이맥스·다른 모습에서 모은다.',
+                                   'No RP yet — earn it in the Mega, Gigantamax and Form raids under [Raids] at the gyms.'), rw + rx, curses.A_DIM, rx)
             else:  # 볼 바꾸기 — 한 단계 위 볼로
                 sel = max(0, min(sel, len(TRADES) - 1))
                 for k, (src, dst, cost) in enumerate(TRADES):
@@ -3684,10 +3686,10 @@ def main(scr):
                 ok = form_exchange(st, p)
                 if ok:
                     save(st)
-                msg = L(f'{item_name(f"stone:{p}")}를 받았다! (남은 {st["rpts"][str(p)]}점 · BP {st.get("bp", 0)})',
-                        f'Got {item_name(f"stone:{p}")}! ({st["rpts"][str(p)]} pts left · BP {st.get("bp", 0)})') if ok else \
-                    L(f'{FORM_PRICE}점이 있어야 한다 (지금 {st["rpts"][str(p)]}점 + BP {st.get("bp", 0)})',
-                      f'You need {FORM_PRICE} (have {st["rpts"][str(p)]} + BP {st.get("bp", 0)})')
+                msg = L(f'{item_name(f"stone:{p}")}를 받았다! (남은 RP {st["rpts"][str(p)]} · BP {st.get("bp", 0)})',
+                        f'Got {item_name(f"stone:{p}")}! (RP {st["rpts"][str(p)]} left · BP {st.get("bp", 0)})') if ok else \
+                    L(f'RP {FORM_PRICE}이 있어야 한다 — 지금 RP {st["rpts"][str(p)]} + 채울 BP {st.get("bp", 0)}',
+                      f'You need {FORM_PRICE} RP — have {st["rpts"][str(p)]} RP + {st.get("bp", 0)} BP to fill')
             act = None
         if isinstance(act, tuple) and act[0] == 'swap':
             src, dst, cost = TRADES[act[1]]
