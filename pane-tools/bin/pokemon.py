@@ -33,6 +33,8 @@
 - 특수 모습(SPECIALS — 메가진화·원시회귀·울트라버스트·거다이맥스): 세대가 열리면(6·7·8·9) 그 포켓몬 + 아이템(메가스톤은 연구 완료,
   구슬은 레이드 포획, 다이수프는 레이드 승리)으로 영구히 바뀐다(change_options · change). 가방에서 아이템 → 포켓몬(item_targets). 이로치는 이로치 그림,
   연구는 그 모습 도감에 따로(만들기 1 · 배틀 승리). 메가 지가르데는 도트 그림이 없어 HOME 그림(_pokedata._fetch).
+- 모습 바꾸기(ALT_FORMS — 데오키시스·쉐이미·기라티나·로토무·영물폼·후파·자시안/자마젠타·디아루가/펄기아 오리진, SPECIALS 의 'alt'):
+  그 종 연구를 끝내면 도구(그라시데아꽃 등)를 받고, 세대가 열리면 바꾼다. 도구는 써도 남고 같은 도구로 기본 모습으로 되돌린다(로토무는 가전끼리 바로).
 - 연구 레벨: 종마다 잡기 RESEARCH_CATCH(전설·환상·진화로만 얻는 종 1 — 진화해서 얻어도 잡기) · 진화 1(진화형이 있으면) · 배틀 승리 RESEARCH_WIN 을 채우면 도감 ★ 와
   RESEARCH_PRIZE(research_bump). 우두머리: 탐색의 ALPHA_RATE 로 붉은 눈의 큰 개체 — 포획률 절반, 볼 ALPHA_TRIES 번 안에 못 잡으면
   도망, 잡으면 개체값 최소 ALPHA_IV · 배틀 능력치 ×ALPHA_BOOST(alpha_x) · 박사에게·정리로 안 보낸다. 레이드: 주마다 열린 세대의 전설 하나(raid_boss)가 체육관 목록 맨 위 — 모든 세대 팀으로 HP
@@ -175,6 +177,27 @@ SPECIAL_EXTRA = {'male': ('수컷', 'Male'), 'female': ('암컷', 'Female'), 'or
                  'amped': ('하이한 모습', 'Amped'), 'low-key': ('로우한 모습', 'Low Key')}
 ULTRA_BASE = (10155, 10156)  # 울트라네크로즈마는 합체한 네크로즈마(황혼의 갈기·새벽의 날개)에서
 PRIMAL_ORB = {382: ('쪽빛구슬', 'Blue Orb'), 383: ('주홍구슬', 'Red Orb')}
+# 도구로 바꾸는 모습(원작, 2026-11-12 사용자 '다 넣자') — 모습 번호 → (종, 열리는 세대, 이름, 영어, 도구, 영어).
+# 메가와 달리 도구는 써도 남고, 같은 도구로 기본 모습으로 되돌린다(로토무는 가전끼리 바로). 도구는 그 종 연구를 끝내면 하나씩.
+ALT_FORMS = {10001: (386, 3, '데오키시스(어택폼)', 'Deoxys (Attack)', '운석(어택폼)', 'Meteorite (Attack)'),
+             10002: (386, 3, '데오키시스(디펜스폼)', 'Deoxys (Defense)', '운석(디펜스폼)', 'Meteorite (Defense)'),
+             10003: (386, 3, '데오키시스(스피드폼)', 'Deoxys (Speed)', '운석(스피드폼)', 'Meteorite (Speed)'),
+             10006: (492, 4, '쉐이미(스카이폼)', 'Shaymin (Sky)', '그라시데아꽃', 'Gracidea'),
+             10007: (487, 4, '기라티나(오리진폼)', 'Giratina (Origin)', '백금옥', 'Griseous Orb'),
+             10008: (479, 4, '히트로토무', 'Heat Rotom', '전자레인지', 'Microwave'),
+             10009: (479, 4, '워시로토무', 'Wash Rotom', '세탁기', 'Washing Machine'),
+             10010: (479, 4, '프로스트로토무', 'Frost Rotom', '냉장고', 'Refrigerator'),
+             10011: (479, 4, '스핀로토무', 'Fan Rotom', '선풍기', 'Electric Fan'),
+             10012: (479, 4, '커트로토무', 'Mow Rotom', '잔디깎기', 'Lawn Mower'),
+             10019: (641, 5, '토네로스(영물폼)', 'Tornadus (Therian)', '비추는거울(토네로스)', 'Reveal Glass (Tornadus)'),
+             10020: (642, 5, '볼트로스(영물폼)', 'Thundurus (Therian)', '비추는거울(볼트로스)', 'Reveal Glass (Thundurus)'),
+             10021: (645, 5, '랜드로스(영물폼)', 'Landorus (Therian)', '비추는거울(랜드로스)', 'Reveal Glass (Landorus)'),
+             10086: (720, 6, '굴레를 벗어난 후파', 'Hoopa Unbound', '굴레의항아리', 'Prison Bottle'),
+             10188: (888, 8, '자시안(검왕)', 'Zacian (Crowned)', '녹슨검', 'Rusted Sword'),
+             10189: (889, 8, '자마젠타(방패왕)', 'Zamazenta (Crowned)', '녹슨방패', 'Rusted Shield'),
+             10245: (483, 8, '디아루가(오리진폼)', 'Dialga (Origin)', '큰금강옥', 'Adamant Crystal'),
+             10246: (484, 8, '펄기아(오리진폼)', 'Palkia (Origin)', '큰백옥', 'Lustrous Globe'),
+             10249: (905, 8, '러브로스(영물폼)', 'Enamorus (Therian)', '비추는거울(러브로스)', 'Reveal Glass (Enamorus)')}
 
 
 def load_specials():
@@ -184,7 +207,13 @@ def load_specials():
             SPECIALS.update({p: (n, kind, g, letter, extra) for p, n, kind, g, letter, extra in json.load(f) if n in DEX})
     except (OSError, ValueError):
         return False
+    SPECIALS.update({p: (n, 'alt', g, '', '') for p, (n, g, *_) in ALT_FORMS.items() if n in DEX})
     return True
+
+
+def alt_key(key):
+    """'stone:<모습>' 이 써도 남는 모습 바꾸기 도구(ALT_FORMS)인가."""
+    return key.startswith('stone:') and int(key[6:]) in ALT_FORMS
 
 
 def sp(n):
@@ -608,6 +637,8 @@ def name(n):
     """종 이름 — 리전폼 번호면 '알로라 라타타'처럼(한국어 폼 이름은 PokeAPI 에 일부만 있어 지방 이름을 붙여 만든다)."""
     if n in FUSIONS:
         return L(FUSIONS[n][2], FUSIONS[n][3])
+    if n in ALT_FORMS:
+        return L(ALT_FORMS[n][2], ALT_FORMS[n][3])
     if n in SPECIALS:  # '메가리자몽 X' · '거다이맥스 우라오스(연격의 태세)' · '원시 가이오가' · '울트라네크로즈마'
         s, kind, _, letter, extra = SPECIALS[n]
         ex = SPECIAL_EXTRA.get(extra, (extra, extra)) if extra else None
@@ -681,6 +712,8 @@ def load(root=ROOT):
             r = st['research'].setdefault(str(n), {})
             r['c'] = max(1, r.get('c', 0))
             research_award(st, n)
+    for n in st.get('researched', []):  # 모습 바꾸기 도구를 넣기 전(2026-11-12)에 연구를 끝낸 종 — 지금 준다
+        give_alt_tools(st, n)
     for i, m in enumerate(st['box']):  # 개체값을 넣기 전(2026-10-28)에 잡은 것 — 저장될 때까지 같은 값이 나오게 자리·종으로 고정
         floor = max(IV_FLOOR if DEX[sp(m['id'])][5] else 0, ALPHA_IV if m.get('alpha') else 0)
         if 'iv' not in m:
@@ -1149,6 +1182,8 @@ def form_note(n):
         s, region = FORMS[n][0], REGION[FORMS[n][1].split('-')[0]]
         return L(f'{name(s)}의 {region[0]} 모습', f'{region[1]} form of {name(s)}')
     s, kind = SPECIALS[n][0], SPECIALS[n][1]
+    if kind == 'alt':
+        return L(f'{name(s)}의 다른 모습 — 도구: {ALT_FORMS[n][4]}', f'Alternate form of {name(s)} — tool: {ALT_FORMS[n][5]}')
     k = {'ultra': ('울트라버스트', 'Ultra Burst'), 'primal': ('원시회귀', 'Primal Reversion')}.get(kind, SPECIAL_KIND[kind])
     return L(f'{name(s)}의 {k[0]} 모습', f'{k[1]} form of {name(s)}')
 
@@ -1200,6 +1235,8 @@ def item_name(key):
     if key.startswith('fuse:'):
         return L(*FUSE_ITEMS[int(key[5:])])
     p = int(key.split(':')[1])
+    if p in ALT_FORMS:
+        return L(ALT_FORMS[p][4], ALT_FORMS[p][5])
     s, kind, _, letter, extra = SPECIALS.get(p, (0, '', 0, '', ''))
     if kind == 'primal':
         return L(*PRIMAL_ORB[s])
@@ -1220,6 +1257,15 @@ def give_fuse_tool(st, n):
     if n in FUSE_ITEMS and not st.get('items', {}).get(key):
         give_item(st, key)
         tell(st, 'item', key)
+
+
+def give_alt_tools(st, n):
+    """n 의 모습 바꾸기 도구(ALT_FORMS)들 — 가진 건 건너뛴다(써도 남는 도구라 하나면 된다)."""
+    keys = [f'stone:{p}' for p, (s, kind, *_) in SPECIALS.items() if s == n and kind == 'alt' and not st.get('items', {}).get(f'stone:{p}')]
+    for key in keys:
+        give_item(st, key)
+    if keys:
+        tell(st, 'item', ','.join(keys))
 
 
 def give_stones(st, n):
@@ -1254,6 +1300,7 @@ def research_award(st, n):
     tell(st, 'research', str(n))
     give_stones(st, n)  # 첫 메가스톤
     give_fuse_tool(st, n)  # 큐레무·네크로즈마·버드렉스 — 합체 도구(한 번, 쓴 뒤에도 남는다)
+    give_alt_tools(st, n)  # 쉐이미·로토무 … — 모습 바꾸기 도구(같은 방식)
     return True
 
 
@@ -2055,20 +2102,29 @@ def _drop(st, gone):
 
 def change_options(st, i):
     """가방 i 번째가 바뀔 수 있는 모습들 [(모습, 재료, 할 수 있나, 못 하는 까닭)] — 재료는 ('mon', 가방 번호)(합체 상대) 또는
-    ('item', 키). 모두 되돌릴 수 없다: 합체 상대·아이템은 사라지고, 레벨·경험치·개체값은 그대로 이어진다."""
+    ('item', 키). 레벨·경험치·개체값은 그대로 이어진다. 합체·메가 등은 되돌릴 수 없고 재료가 사라진다 — 모습 바꾸기(ALT_FORMS)만
+    도구가 남고, 바뀐 모습에는 기본 모습으로 되돌리는 칸이 붙는다."""
     m, out = st['box'][i], []
     tool_key = f'fuse:{m["id"]}'
     tool, tool_name = st.get('items', {}).get(tool_key, 0) > 0, item_name(tool_key) if m['id'] in FUSE_ITEMS else ''
     for f, j in fuse_options(st, i):  # 합체 도구가 있어야 — 그 기본 포켓몬 연구를 끝내면 받는다
         out.append((f, ('mon', j), tool, '' if tool else L(f'{tool_name} 없음 — {name(m["id"])} 연구를 끝내면 받는다',
                                                            f'no {tool_name} — finish {name(m["id"])}\'s research')))
+    now_alt = m['id'] in ALT_FORMS
     for p, (s, kind, g, *_) in SPECIALS.items():
-        if (m['id'] not in ULTRA_BASE) if kind == 'ultra' else m['id'] != s:
+        if kind == 'alt':  # 기본 모습에서, 또는 같은 종의 다른 모습에서(로토무 가전끼리)
+            if p == m['id'] or sp(m['id']) != s or not (m['id'] == s or now_alt):
+                continue
+        elif (m['id'] not in ULTRA_BASE) if kind == 'ultra' else m['id'] != s:
             continue
         key = 'soup' if kind == 'gmax' else f'stone:{p}'
         why = L(f'{g}세대가 열리면', f'opens with Gen {g}') if opened_gen(st) < g else \
             '' if st.get('items', {}).get(key, 0) > 0 else L('재료 없음', 'no material')
         out.append((p, ('item', key), not why, why))
+    if now_alt:  # 기본 모습으로 — 지금 모습의 도구로
+        key = f'stone:{m["id"]}'
+        has = st.get('items', {}).get(key, 0) > 0
+        out.append((sp(m['id']), ('item', key), has, '' if has else L('재료 없음', 'no material')))
     iv, items = iv_of(m), st.get('items', {})  # 병뚜껑(배틀 타워 상) — 특훈: 은색은 고른 하나 +1, 금색은 고른 하나를 15로(2026-11-06 사용자)
     for kind, key in (('iv', 'cap'), ('ivmax', 'gcap')):
         out += [((kind, k), ('item', key), True, '') for k in range(6) if iv[k] < 15 and items.get(key, 0) > 0]
@@ -2107,9 +2163,11 @@ def change(st, i, k, n=1):
         i = _drop(st, {ref})[i]  # 합체 상대는 사라진다(2026-10-30 — 분리 없음, 다른 모습은 재료를 다시 모아서)
         st['fusions'] = st.get('fusions', 0) + 1
     else:
-        st['items'][ref] -= 1
-        _mark(st, 'specials', f)
-        research_bump(st, f, 'm')
+        if not alt_key(ref):  # 모습 바꾸기 도구는 남는다
+            st['items'][ref] -= 1
+        if f in SPECIALS:  # 기본 모습으로 되돌릴 때는 도감·연구에 세지 않는다
+            _mark(st, 'specials', f)
+            research_bump(st, f, 'm')
     st['box'][i]['id'] = f
     return f
 
@@ -3437,7 +3495,9 @@ def main(scr):
                 cn = max(1, min(cap_n, cap_max(st, chg, opts[k][0]))) if isinstance(opts[k][0], tuple) and opts[k][0][0] == 'iv' else 1
                 msg = L(f'{opt_name(opts[k][0]).split(" ")[0]} — {item_name(opts[k][1][1])} {cn}개를 쓴다. 한 번 더 누르면 특훈한다',
                         f'{opt_name(opts[k][0]).split(" ")[0]} — uses {cn} {item_name(opts[k][1][1])}. Press again') \
-                    if isinstance(opts[k][0], tuple) else L(f'{opt_name(opts[k][0])}(으)로 바꾼다 — 재료는 사라지고 되돌릴 수 없다. 한 번 더 누르면 바뀐다',
+                    if isinstance(opts[k][0], tuple) else L(f'{opt_name(opts[k][0])}(으)로 바꾼다 — 도구는 남고 다시 바꿀 수 있다. 한 번 더 누르면 바뀐다',
+                        f'Change into {opt_name(opts[k][0])} — the tool stays and you can change back. Press again') \
+                    if alt_key(opts[k][1][1]) else L(f'{opt_name(opts[k][0])}(으)로 바꾼다 — 재료는 사라지고 되돌릴 수 없다. 한 번 더 누르면 바뀐다',
                         f'Change into {opt_name(opts[k][0])} — the material is used up and it can\'t be undone. Press again')
             else:
                 mon, before = st['box'][chg], name(st['box'][chg]['id'])
@@ -3514,7 +3574,8 @@ def main(scr):
                     view, chg, chg_from, chg_only, sel, top, msg, confirm, cap_n = 'change', i, 'use', ks, 0, 0, '', None, 1
                 elif confirm != ('use', ukey, i):  # 되돌릴 수 없으니 한 번 더
                     confirm = ('use', ukey, i)
-                    msg = L(f'{before}에게 {item_name(ukey)} — 한 번 더 누르면 쓴다(되돌릴 수 없다)', f'{item_name(ukey)} on {before} — press again (can\'t be undone)')
+                    msg = L(f'{before}에게 {item_name(ukey)} — 한 번 더 누르면 쓴다(도구는 남는다)', f'{item_name(ukey)} on {before} — press again (the tool stays)') \
+                        if alt_key(ukey) else L(f'{before}에게 {item_name(ukey)} — 한 번 더 누르면 쓴다(되돌릴 수 없다)', f'{item_name(ukey)} on {before} — press again (can\'t be undone)')
                 else:
                     confirm = None
                     if ukey == 'candy':
@@ -4472,6 +4533,22 @@ def selftest():
             research_bump(mg, 10034, 'w')
         assert research_done(mg, 10034) and 10034 in mg['researched'] and mg['research']['6'].get('w') == 3  # 리자몽 기록은 그대로
         assert art_of({'id': 10034, 'shiny': True}) == 'form:shiny/10034' and art_of({'id': 10034}) == 'form:10034'
+        # 모습 바꾸기: 연구 완료 → 도구(하나씩) · 세대가 열려야 · 도구는 남고 · 가전끼리 바로 · 기본 모습으로 되돌린다
+        SPECIALS.update({10008: (479, 'alt', 4, '', ''), 10009: (479, 'alt', 4, '', '')})
+        ro = new_state()
+        ro['box'], ro['partner'] = [{'id': 479, 'xp': 0}], 0
+        assert [(f, ok) for f, _, ok, _ in change_options(ro, 0)] == [(10008, False), (10009, False)]
+        for key in 'c' * research_goals(479)['c'] + 'w' * RESEARCH_WIN:
+            research_bump(ro, 479, key)
+        assert ro['items'] == {'stone:10008': 1, 'stone:10009': 1} and item_name('stone:10008') == L('전자레인지', 'Microwave')
+        assert change(ro, 0, 0) is None  # 4세대가 아직
+        unlock(ro, 4)
+        assert change(ro, 0, 0) == 10008 and ro['items']['stone:10008'] == 1 and name(10008) == L('히트로토무', 'Heat Rotom')
+        assert [f for f, *_ in change_options(ro, 0)] == [10009, 479]
+        assert change(ro, 0, 0) == 10009 and change(ro, 0, 1) == 479 and ro['specials'] == [10008, 10009]
+        assert ro['items'] == {'stone:10008': 1, 'stone:10009': 1} and not made(ro['box'][0])
+        give_alt_tools(ro, 479)
+        assert ro['items'] == {'stone:10008': 1, 'stone:10009': 1}  # 가진 도구는 또 주지 않는다
     finally:
         SPECIALS.clear()
         SPECIALS.update(real_sp)
