@@ -166,7 +166,7 @@ Choose in the hub's **setup** (`s` — ↑↓ and `Enter`/`Space` to pick, `r` t
 | | e.g. `dev:0.0` / `cmux:0` | follow whichever Claude session is open in that pane |
 | `feedTarget` | e.g. `dev:0.2` | `/mods` also opens the activity feed there when that pane is an idle shell (a feed already running there is left alone) |
 
-![The same options while installing](docs/images/install-config.png)
+![The same options in /plugin → Installed → pane-tools → Configure (also shown while installing)](docs/images/install-config.png)
 
 ## Data on disk
 
