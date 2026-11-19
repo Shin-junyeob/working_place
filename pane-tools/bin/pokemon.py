@@ -2577,6 +2577,10 @@ def fx_mode():
     return 'off' if v == 'off' else 'full' if v == 'full' or not SIXEL else 'lite'
 
 
+FX_CYCLE = {'auto': 'full', 'full': 'off', 'off': 'auto'}  # 배틀 화면 x — 자동 → 전체 → 끔 → 자동(2026-11-19 사용자)
+FX_LABEL = {'auto': ('자동', 'auto'), 'full': ('전체', 'full'), 'off': ('끔', 'off')}
+
+
 def marked_cols(line, word):
     """line 안 word 의 시작 칸(한글 2칸) — 없으면 None."""
     i = line.find(word) if word else -1
@@ -3363,7 +3367,8 @@ def main(scr):
                                   L('허브로 q', 'to hub q') if battle_now['won'] and not battle_now.get('pts') else L('다시 준비 q', 'retry q'))
                        if k >= len(ev) else L('돌아가기 q', 'back q'), 'back')
             if k < len(ev):
-                put(scr, h - 1, x, L('Enter 끝까지 · x 연출 ', 'Enter skip · x effects ') + (L('켬', 'on') if fx_mode() != 'off' else L('끔', 'off')), curses.A_DIM)
+                fxv = _lang.get('battle_fx', 'auto')
+                put(scr, h - 1, x, L('Enter 끝까지 · x 연출 ', 'Enter skip · x effects ') + L(*FX_LABEL.get(fxv, FX_LABEL['auto'])), curses.A_DIM)
         elif view == 'info':
             art = draw_info(scr, st, info, h, w, gold)
             if info in DEX or info in SPECIALS:
@@ -3572,8 +3577,8 @@ def main(scr):
                     scr.timeout(max(60, 600 - int((time.time() - t0) * 1000)))
 
         key = getkey(scr, 2000)
-        if view == 'fight' and key in (ord('x'), ord('X')):  # 연출 켜기/끄기 — PC 설정 battle_fx(auto ↔ off)
-            _lang.put('battle_fx', 'off' if fx_mode() != 'off' else 'auto')
+        if view == 'fight' and key in (ord('x'), ord('X')):  # 연출 단계 — PC 설정 battle_fx: 자동 → 전체 → 끔
+            _lang.put('battle_fx', FX_CYCLE.get(_lang.get('battle_fx', 'auto'), 'auto'))
             key = -1
         if key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_PPAGE, curses.KEY_NPAGE):
             curses.flushinp()  # 화면을 그리는 게 느릴 때 쌓인 방향키를 버린다 — 손을 떼도 계속 움직였다(2026-11-05)
@@ -4831,6 +4836,7 @@ def selftest():
     assert fight_line(('send', 'me', 6, 50, 150, 1.12)).endswith(L('컨디션 좋음!', 'in great shape!'))
     assert fight_line(('send', 'foe', 6, 50, 150, 0.88)).endswith(L('컨디션 나쁨…', 'off its game…')) and fight_line(('send', 'me', 6, 50, 150, 1.0)) == L(f'가라, {name(6)}!', f'Go, {name(6)}!')
     assert marked_cols('리자몽의 화염방사! 효과', '화염방사') == 9 and marked_cols('abc', 'x') is None and marked_cols('abc', '') is None
+    assert [FX_CYCLE[v] for v in ('auto', 'full', 'off')] == ['full', 'off', 'auto'] and set(FX_LABEL) == set(FX_CYCLE)  # x 세 단계
     real_get, real_six = _lang.get, SIXEL  # 연출 설정: auto 면 Sixel 에선 색만(lite) · 아니면 full · off 는 끔
     try:
         for six, v, want in ((False, 'auto', 'full'), (True, 'auto', 'lite'), (True, 'full', 'full'), (False, 'off', 'off')):
