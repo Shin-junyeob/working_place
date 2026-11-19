@@ -2549,6 +2549,40 @@ MOVE_NAMES = {1: (('몸통박치기', 'Tackle'), ('누르기', 'Body Slam'), ('�
               18: (('매지컬샤인', 'Dazzling Gleam'), ('치근거리기', 'Play Rough'), ('문포스', 'Moonblast'))}
 
 
+# 배틀 연출(2026-11-19 사용자 — '중' 단계까지): 색(기술 이름 타입 색 · "효과가 굉장했다" 강조)은 늘, 프레임(맞은 쪽 상태 상자
+# 깜빡임 · HP 막대가 3프레임에 걸쳐 줄기 · 상자 위 타입 글자)은 battle_fx 가 full 일 때. 그림 칸에는 아무것도 안 그린다.
+# tmux + Sixel 은 글자가 바뀔 때마다 그림이 지워져(sixel_touch 주석) 프레임마다 깜빡이니 auto 면 Sixel 에선 색만 — full 로 강제할 수 있다.
+TYPE_COLOR = {1: 250, 2: 166, 3: 111, 4: 134, 5: 179, 6: 137, 7: 106, 8: 98, 9: 152, 10: 202, 11: 33, 12: 77, 13: 220,
+              14: 205, 15: 117, 16: 63, 17: 95, 18: 218}  # 256색 — 원작 타입 색에 가깝게
+TYPE_BASIC = {10: 1, 2: 1, 11: 4, 15: 6, 3: 6, 12: 2, 7: 2, 13: 3, 5: 3, 6: 3, 14: 5, 18: 5, 4: 5, 8: 5, 16: 4, 17: 0, 9: 7, 1: 7}  # 8색 터미널
+FX_GLYPH = {10: '^', 11: '~', 12: '"', 13: '/', 15: '+', 14: '@', 16: '>', 17: '#', 18: '*', 8: '?', 2: '!', 3: 'v', 5: '=', 6: 'o', 7: ',', 4: '%', 9: '|', 1: '*'}
+TYPE_PAIR0, FX_FRAMES, FX_FRAME_S = 40, 3, 0.11
+
+
+def init_type_colors():
+    """타입 색 짝 TYPE_PAIR0 + 타입 — 색 짝이 모자란 터미널이면 그냥 둔다(색 연출 없이 굵게만)."""
+    if curses.COLOR_PAIRS <= TYPE_PAIR0 + 18:
+        return
+    for t, c in TYPE_COLOR.items():
+        curses.init_pair(TYPE_PAIR0 + t, c if curses.COLORS >= 256 else TYPE_BASIC[t], -1)
+
+
+def type_attr(t):
+    return (curses.color_pair(TYPE_PAIR0 + t) if t in TYPE_COLOR and curses.COLOR_PAIRS > TYPE_PAIR0 + 18 else 0) | curses.A_BOLD
+
+
+def fx_mode():
+    """배틀 연출 — 'off'(없음) · 'full'(색 + 프레임) · 'lite'(색만). 설정 battle_fx: auto(기본 — Sixel 이면 lite) · full · off."""
+    v = _lang.get('battle_fx', 'auto')
+    return 'off' if v == 'off' else 'full' if v == 'full' or not SIXEL else 'lite'
+
+
+def marked_cols(line, word):
+    """line 안 word 의 시작 칸(한글 2칸) — 없으면 None."""
+    i = line.find(word) if word else -1
+    return None if i < 0 else sum(map(memo.cw, line[:i]))
+
+
 def move_name(n, t):
     """종 n 이 타입 t 로 칠 때의 기술 이름 — 그 타입 대표 기술 중 종마다 하나(늘 같은 것). 모르는 타입이면 ''."""
     names = MOVE_NAMES.get(t)
@@ -2623,12 +2657,12 @@ def frame(scr, y, x, hh, ww, attr=curses.A_DIM):
     put(scr, y + hh - 1, x, '╰' + '─' * (ww - 2) + '╯', attr)
 
 
-def hp_box(scr, y, x, ww, n, lv, hp, top, mine):
+def hp_box(scr, y, x, ww, n, lv, hp, top, mine, rev=False):
     """배틀 상태 상자 — 이름·레벨, HP 막대(반 넘으면 녹색 · 5분의 1 넘으면 노랑 · 그 밑 빨강), 내 쪽만 숫자(원작처럼). 차지한 줄 수."""
     hh = 5 if mine else 4
     frame(scr, y, x, hh, ww)
     lvt = f'Lv{lv}'
-    put(scr, y + 1, x + 2, fit(name(n), ww - 5 - len(lvt)), curses.A_BOLD)
+    put(scr, y + 1, x + 2, fit(name(n), ww - 5 - len(lvt)), curses.A_BOLD | (curses.A_REVERSE if rev else 0))  # rev: 맞은 순간 깜빡임
     put(scr, y + 1, x + ww - 2 - len(lvt), lvt)
     frac = hp / top if top else 0
     color = curses.color_pair(1 if frac > 0.5 else 2 if frac > 0.2 else 3)
@@ -2649,6 +2683,7 @@ def main(scr):
     curses.start_color()
     curses.use_default_colors()
     feed.init_colors()
+    init_type_colors()
     gold = curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD  # 이로치 이름 — 256색 220(#ffd700)
     view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
@@ -2748,6 +2783,7 @@ def main(scr):
         art = None
         if view == 'fight' and battle_now['k'] < len(battle_now['ev']):
             battle_now['k'] += 1
+            scr.timeout(600)  # 프레임 연출이 줄여 둔 대기를 되돌린다
             _gfx.sixel_touch()  # 기록이 한 줄 늘 때마다 tmux 가 패널을 다시 그려 Sixel 그림을 지운다 — 30초 아끼지 말고 다시 놓는다
         scr.erase()
         title = L(f' 포켓몬 · 누적 {fmt_tok(t)} 토큰 · ', f' Pokémon · {fmt_tok(t)} tokens total · ') + dex_text(st)
@@ -3268,12 +3304,17 @@ def main(scr):
             half = (mb - 1) // 2  # 1 ~ half: 상대 쪽 · half+1 ~ mb-1: 내 쪽
             bw = max(18, min(28, w // 2 - 1))
             spots = {'foe': (1, 1), 'me': (mb - 5, w - 1 - bw)}
+            battle_now['geo'] = (spots, bw)  # 프레임 연출이 같은 자리에 다시 그린다
+            hit = ev[k - 1] if 0 < k <= len(ev) and ev[k - 1][0] == 'hit' else None
+            pend = hit and fx_mode() == 'full' and battle_now.get('fx_k') != k  # 프레임 연출 전 — 맞은 쪽 HP 는 맞기 전 값으로
             pics = []
             for side in ('foe', 'me'):
                 if side not in now:
                     continue
                 n, hp, top_, lv_ = now[side]
                 top_ = top_ or _battle.Mon(BATTLE, n, lv_).st[0]
+                if pend and side == ('foe' if hit[1] == 'me' else 'me'):
+                    hp = (fight_state(ev, k - 1).get(side) or [None, None])[1]
                 hp_box(scr, *spots[side], bw, n, lv_, top_ if hp is None else hp, top_, side == 'me')
                 # 그림 자리 — 상대는 상자 오른쪽 빈 곳 가운데, 나는 상자 왼쪽 빈 곳 가운데
                 x0, x1 = (bw + 2, w - 1) if side == 'foe' else (1, w - 2 - bw)
@@ -3307,13 +3348,22 @@ def main(scr):
                     if battle_now['won'] else L('패배…', 'Defeat…') + gain
                 talk = [(line, True) for line in fold(res, max(10, w - 4))[:2]]  # 길면 두 줄로(Lv↑ 이름이 잘렸다)
             frame(scr, mb, 0, 4, w)
+            marks = []  # 색 연출 — 마지막 기록의 기술 이름(타입 색)과 효과 문구
+            if hit and fx_mode() != 'off' and k < len(ev) + 1:
+                marks = [(move_name(hit[2], hit[8]) if len(hit) > 8 else '', type_attr(hit[8]) if len(hit) > 8 else 0),
+                         (L('효과가 굉장했다!', "It's super effective!"), curses.color_pair(3) | curses.A_BOLD),
+                         (L('효과가 별로인 듯하다…', "It's not very effective…"), curses.A_DIM)]
             for j, (line, strong) in enumerate(talk):  # 마지막 기록(접힌 줄 모두)은 굵게
                 put(scr, mb + 1 + j, 2, line, curses.A_BOLD if strong else 0)
+                for word, attr in marks if strong else ():
+                    c0 = marked_cols(line, word)
+                    if c0 is not None:
+                        put(scr, mb + 1 + j, 2 + c0, word, attr)
             x = button(h - 1, 1, (L('다음 상대 q', 'next q') if battle_now['won'] and battle_now.get('tower') else
                                   L('허브로 q', 'to hub q') if battle_now['won'] and not battle_now.get('pts') else L('다시 준비 q', 'retry q'))
                        if k >= len(ev) else L('돌아가기 q', 'back q'), 'back')
             if k < len(ev):
-                put(scr, h - 1, x, L('Enter 끝까지', 'Enter skip'), curses.A_DIM)
+                put(scr, h - 1, x, L('Enter 끝까지 · x 연출 ', 'Enter skip · x effects ') + (L('켬', 'on') if fx_mode() != 'off' else L('끔', 'off')), curses.A_DIM)
         elif view == 'info':
             art = draw_info(scr, st, info, h, w, gold)
             if info in DEX or info in SPECIALS:
@@ -3501,8 +3551,30 @@ def main(scr):
             _gfx.sixel_show(*art[1:])
         elif art:
             _gfx.kitty_show(*art[1:])
+        if view == 'fight' and 'geo' in battle_now:  # 프레임 연출 — 새로 맞은 기록 한 번, 쓴 시간만큼 다음 대기를 줄여 0.6초 간격 유지
+            k_, ev_ = battle_now['k'], battle_now['ev']
+            hit = ev_[k_ - 1] if 0 < k_ <= len(ev_) and ev_[k_ - 1][0] == 'hit' else None
+            if hit and fx_mode() == 'full' and battle_now.get('fx_k') != k_:
+                battle_now['fx_k'] = k_
+                side = 'foe' if hit[1] == 'me' else 'me'
+                was = fight_state(ev_, k_ - 1).get(side)
+                if was and len(hit) > 8:
+                    (spots, bw), t0 = battle_now['geo'], time.time()
+                    n_, hp0, _, lv_ = was
+                    hp0 = hit[7] if hp0 is None else hp0
+                    for f in range(FX_FRAMES):
+                        hp_box(scr, *spots[side], bw, n_, lv_, round(hp0 - (hp0 - hit[6]) * (f + 1) / FX_FRAMES), hit[7], side == 'me', rev=f == 0)
+                        put(scr, spots[side][0], spots[side][1] + 2, (FX_GLYPH.get(hit[8], '*') * (2 * f + 2))[:bw - 4], type_attr(hit[8]))
+                        scr.refresh()
+                        time.sleep(FX_FRAME_S)
+                    hp_box(scr, *spots[side], bw, n_, lv_, hit[6], hit[7], side == 'me')  # 테두리를 다시 그려 글자 효과를 지운다
+                    scr.refresh()
+                    scr.timeout(max(60, 600 - int((time.time() - t0) * 1000)))
 
         key = getkey(scr, 2000)
+        if view == 'fight' and key in (ord('x'), ord('X')):  # 연출 켜기/끄기 — PC 설정 battle_fx(auto ↔ off)
+            _lang.put('battle_fx', 'off' if fx_mode() != 'off' else 'auto')
+            key = -1
         if key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_PPAGE, curses.KEY_NPAGE):
             curses.flushinp()  # 화면을 그리는 게 느릴 때 쌓인 방향키를 버린다 — 손을 떼도 계속 움직였다(2026-11-05)
         if key != -1:
@@ -4758,6 +4830,15 @@ def selftest():
     assert fight_line(('hit', 'me', 6, 9, 30, 1, 70, 100)).startswith(L(f'{name(6)}의 공격', f'{name(6)} attacks'))  # 옛 기록
     assert fight_line(('send', 'me', 6, 50, 150, 1.12)).endswith(L('컨디션 좋음!', 'in great shape!'))
     assert fight_line(('send', 'foe', 6, 50, 150, 0.88)).endswith(L('컨디션 나쁨…', 'off its game…')) and fight_line(('send', 'me', 6, 50, 150, 1.0)) == L(f'가라, {name(6)}!', f'Go, {name(6)}!')
+    assert marked_cols('리자몽의 화염방사! 효과', '화염방사') == 9 and marked_cols('abc', 'x') is None and marked_cols('abc', '') is None
+    real_get, real_six = _lang.get, SIXEL  # 연출 설정: auto 면 Sixel 에선 색만(lite) · 아니면 full · off 는 끔
+    try:
+        for six, v, want in ((False, 'auto', 'full'), (True, 'auto', 'lite'), (True, 'full', 'full'), (False, 'off', 'off')):
+            globals()['SIXEL'] = six
+            _lang.get = lambda k, d=None, v=v: v if k == 'battle_fx' else real_get(k, d)
+            assert fx_mode() == want, (six, v)
+    finally:
+        _lang.get, globals()['SIXEL'] = real_get, real_six
     assert dex_total(fu) == (len(set(fu['caught']) & set(DEX)) + 1, len(DEX) + len(FORMS) + len(SPECIALS))  # 도감 전체 칸에 특수 모습도
     assert art_of(10008) == 'form:10008' and art_of({'id': 10008, 'shiny': True}) == 'form:shiny/10008'  # 상세 그림 — 이로치 어니부기가 나왔다
     assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1] and fu['box'][1]['iv'] == [9] * 6
