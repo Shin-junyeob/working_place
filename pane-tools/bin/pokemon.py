@@ -22,7 +22,7 @@
   ~/.claude/jobs 의 timeline), 주말이면 +WEEKEND_EXPLORES. 그런 날이 STREAK_DAYS 일 연속이면 탐색 +STREAK_BONUS 더 — 쉰 주말은
   연속을 끊지 않고, 일한 주말은 하루로 센다.
 - 알: 야생 포켓몬을 잡을 때 EGG_CATCH 확률로 하나(최대 EGG_MAX), 지방 정복 때 하나. 알마다 받은 때(base)부터 따로 자라고, 메인 화면에 한 줄씩(egg_lines). 종류(egg_km, 2·5·7·10·12km)에 따라 덤을 더 준다(EGG_KM_BONUS · EGG_KM_SHINY).
-- 주간 과제: 주마다(월요일) WEEKLY 에서 하나 — 이루면 WEEKLY_PRIZE.
+- 주간 과제: 주마다(월요일) WEEKLY 에서 하나 — 이루면 WEEKLY_PRIZE. 일일 과제: 날마다 DAILY 에서 하나 — 이루면 탐색 +DAILY_PRIZE(daily · bump 가 함께 센다).
 - 리전폼(알로라·가라르·히스이·팔데아 모습, FORMS): 이전 세대 탐색(OLD_GEN_RATE)에 그 종의 세대가 지난 폼이 함께 나온다.
   잡으면 가방에 폼 번호(FORMS 의 키, 10000 위)로 들어가 진화·레벨·배틀을 한다 — 종족값·타입은 그 모습 것(battle.json),
   세대·진화 단계는 원래 종으로(sp). 같은 지방 모습으로 진화하고(evo_next), 지방 전용 진화형(REGIONAL_EVO)도 있다.
@@ -135,6 +135,10 @@ EGG_CATCH, EGG_MAX, EGG_STEP = 0.1, 3, 5000  # 잡을 때 알을 함께 얻을 �
 WEEKLY = [('catch', 8, '포켓몬 {n}마리 잡기', 'Catch {n} Pokémon'), ('explore', 15, '풀숲 {n}번 탐색', 'Explore {n} times'),
           ('gym', 5, '체육관·사천왕 {n}번 이기기', 'Win {n} gym/league battles'), ('evolve', 2, '{n}번 진화시키기', 'Evolve {n} times'),
           ('ship', 4, 'push·PR·배포한 날 {n}일', 'Ship on {n} days'), ('hatch', 1, '알 {n}개 부화', 'Hatch {n} egg(s)')]
+# 일일 과제(2026-11-19 사용자) — 날마다 하나, 하루 안에 채울 만한 것만(알 부화·push 일수는 주간에). 보상은 탐색 기회 DAILY_PRIZE
+DAILY = [('catch', 3, '포켓몬 {n}마리 잡기', 'Catch {n} Pokémon'), ('explore', 5, '풀숲 {n}번 탐색', 'Explore {n} times'),
+         ('gym', 1, '체육관·사천왕 {n}번 이기기', 'Win {n} gym/league battle'), ('evolve', 1, '{n}번 진화시키기', 'Evolve {n} time')]
+DAILY_PRIZE = 1
 WEEKLY_PRIZE = [('hyper', 2), ('super', 3), ('candy', 1)]  # 일주일에 한 번이라 후하게 · 이상한사탕은 매주 1개(동료 즉시 진화)
 EGG_SHINY = 1 / 64
 # 알에서 포켓몬과 함께 나오는 덤 — (볼 종류, 개수, 확률%) (2026-10-21 정함)
@@ -447,7 +451,7 @@ NICK_MAX = 12  # 닉네임 최대 글자 수
 # 출발 보급(마스터볼 1 · 하이퍼볼 5).
 REBIRTH_TOWER, REBIRTH_SHINY_CAP, REBIRTH_ALPHA = 100, 5, 2
 REBIRTH_SUPPLY = (('master', 1), ('hyper', 5))
-KEEP_ON_REBIRTH = ('used', 'extra', 'rewarded', 'reward_since', 'super_earned', 'weekly', 'habitat', 'forms_boxed', 'news', 'life', 'runs', 'acq2')  # acq2: 획득 재설계 이전은 한 번만
+KEEP_ON_REBIRTH = ('used', 'extra', 'rewarded', 'reward_since', 'super_earned', 'weekly', 'habitat', 'forms_boxed', 'news', 'life', 'runs', 'acq2', 'daily')  # acq2: 획득 재설계 이전은 한 번만
 
 
 def run_stat(st, today=None):
@@ -1074,6 +1078,8 @@ def speech(st, t, now=None, folder=feed.JOBS, awake=None):
             k = int(n['arg'] or WORK_EXPLORES)
             return (L(f'주말 부스트! {pn}(이)가 신나서 탐색 기회 +{k}!', f'Weekend boost! {pn} is excited: +{k} explores!') if k > WORK_EXPLORES else
                     L(f'오늘도 일했다! {pn}(이)가 신나서 탐색 기회 +{k}!', f'Shipped today! {pn} is excited: +{k} explore!')), False
+        if n['kind'] == 'daily':
+            return L(f'일일 과제 달성! {pn}(이)가 신나서 탐색 기회 +{DAILY_PRIZE}!', f'Daily challenge done! {pn} is excited: +{DAILY_PRIZE} explore!'), False
         if n['kind'] == 'weekly':
             ko = '·'.join(ball_name(b, c)[0] for b, c in WEEKLY_PRIZE)
             en = ', '.join(ball_name(b, c)[1] for b, c in WEEKLY_PRIZE)
@@ -1421,8 +1427,38 @@ def weekly(st, key=None):
     return w
 
 
-def bump(st, kind, k=1, key=None):
-    """kind 일이 일어났다 — 이번 주 과제가 그 종류면 세고, 목표를 채우면 상을 준다."""
+def day_key(now=None):
+    """'2026-11-19' — 자정에 바뀐다(일일 과제)."""
+    return (now or datetime.now().astimezone()).strftime('%Y-%m-%d')
+
+
+def daily(st, key=None):
+    """오늘 과제 {'key','kind','n','done'} — 날이 바뀌었으면 새로 고른다(날짜로 정해져 두 PC 가 같은 과제)."""
+    key = key or day_key()
+    dy = st.get('daily')
+    if not dy or dy.get('key') != key:
+        dy = st['daily'] = {'key': key, 'kind': DAILY[zlib.crc32(('day:' + key).encode()) % len(DAILY)][0], 'n': 0, 'done': False}
+    return dy
+
+
+def daily_text(st):
+    dy = daily(st)
+    _, goal, ko, en = next(x for x in DAILY if x[0] == dy['kind'])
+    if dy['done']:
+        return L(f'일일 과제 완료 ✔ — {ko.format(n=goal)} (탐색 +{DAILY_PRIZE})', f'Daily done ✔ — {en.format(n=goal)} (+{DAILY_PRIZE} explore)')
+    return L(f'일일 과제: {ko.format(n=goal)} {min(dy["n"], goal)}/{goal} — 보상: 탐색 +{DAILY_PRIZE}',
+             f'Daily: {en.format(n=goal)} {min(dy["n"], goal)}/{goal} — prize: +{DAILY_PRIZE} explore')
+
+
+def bump(st, kind, k=1, key=None, day=None):
+    """kind 일이 일어났다 — 오늘·이번 주 과제가 그 종류면 세고, 목표를 채우면 상을 준다."""
+    dy = daily(st, day)
+    if dy['kind'] == kind and not dy['done']:
+        dy['n'] += k
+        if dy['n'] >= next(g for kd, g, _, _ in DAILY if kd == kind):
+            dy['done'] = True
+            st['extra'] = st.get('extra', 0) + DAILY_PRIZE  # 받은 탐색은 tickets 에 더해진다
+            tell(st, 'daily')
     w = weekly(st, key)
     if w['kind'] != kind or w['done']:
         return
@@ -2730,7 +2766,7 @@ def main(scr):
             today = datetime.now().astimezone().strftime('%Y-%m-%d')
             done = len(shipped().get(today, ()))
             wk_gain = WEEKEND_EXPLORES if datetime.now().astimezone().weekday() >= 5 else WORK_EXPLORES
-            weekly_line = weekly_text(st)  # 주간 과제와 오늘 일한 보상은 줄을 나눈다(2026-11-11 사용자 — 한 문단이라 섞여 보였다)
+            weekly_line, daily_line = weekly_text(st), daily_text(st)  # 주간 과제와 오늘 일한 보상은 줄을 나눈다(2026-11-11 사용자 — 한 문단이라 섞여 보였다)
             today_line = (L(f'오늘 탐색 +{wk_gain} ✔', f'+{wk_gain} explore today ✔') if today in st['rewarded'] else
                                                      L(f'오늘 push·PR·배포 {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}', f'push/PR/deploy today {min(done, SUPER_SESSIONS)}/{SUPER_SESSIONS}')) \
                 + L(f' · 연속 {streak(st, today)}일', f' · {streak(st, today)}-day streak')
@@ -2747,7 +2783,7 @@ def main(scr):
             bw = lambda lb: memo_w(f'[{lb.removesuffix(" q") if w < 50 else lb}]') + 1 if tight else memo_w(f'[ {lb} ]') + 2  # noqa: E731 — button() 과 같은 폭
             btn_rows = wrap_widths([bw(lb) for lb, _ in side], w) if x0 >= w else []
             tw = max(10, lw - 1)  # 아래 글은 버튼 바로 앞 칸까지(2026-11-10 사용자 배치 — 22·24줄 패널 47칸)
-            text_n = sum(len(fold(s, tw)) for s in (weekly_line, today_line, balls_line, ('💬 ' + msg) if msg else '') if s)
+            text_n = sum(len(fold(s, tw)) for s in (weekly_line, daily_line, today_line, balls_line, ('💬 ' + msg) if msg else '') if s)
             below = len(btn_rows) + len(eggs) * egg_h + text_n
             cw3 = max(10, (x0 - 1) // 3)
             graphics = w >= 44 and (SIXEL or KITTY)
@@ -2786,8 +2822,8 @@ def main(scr):
                 y += egg_h
             y = max(y, last - text_n)
             stop = h - len(btn_rows)  # 아래 글은 버튼 줄 위에서 멈춘다 — 모자라면 볼·메시지를 먼저, 주간 과제는 남는 만큼
-            for text, attr in ((balls_line, 0), (('💬 ' + msg) if msg else '', 0), (weekly_line, curses.A_DIM), (today_line, curses.A_DIM)) \
-                    if h - y < below - len(btn_rows) else ((weekly_line, curses.A_DIM), (today_line, curses.A_DIM), (balls_line, 0), (('💬 ' + msg) if msg else '', 0)):
+            for text, attr in ((balls_line, 0), (('💬 ' + msg) if msg else '', 0), (weekly_line, curses.A_DIM), (daily_line, curses.A_DIM), (today_line, curses.A_DIM)) \
+                    if h - y < below - len(btn_rows) else ((weekly_line, curses.A_DIM), (daily_line, curses.A_DIM), (today_line, curses.A_DIM), (balls_line, 0), (('💬 ' + msg) if msg else '', 0)):
                 for line in fold(text, tw) if text else []:
                     if y >= stop:
                         break
@@ -4428,6 +4464,23 @@ def selftest():
     bump(wk, kind, key='2026-W43')
     assert wk['hyper'] == 2  # 두 번 주지 않는다
     assert weekly(wk, '2026-W44')['n'] == 0 and not wk['weekly']['done']  # 다음 주는 새 과제
+    # 일일 과제: 날짜로 정해지고, 그 종류만 세며, 채우면 탐색 +DAILY_PRIZE 한 번 · 다음 날은 새 과제(2026-11-19 사용자)
+    dq = new_state()
+    dy = daily(dq, '2026-11-19')
+    kind, goal = dy['kind'], next(g for k, g, _, _ in DAILY if k == dy['kind'])
+    other = next(k for k, *_ in DAILY if k != kind)
+    t0 = tickets(dq, 0)
+    bump(dq, other, day='2026-11-19')
+    assert dq['daily']['n'] == 0
+    for _ in range(goal):
+        bump(dq, kind, day='2026-11-19')
+    assert dq['daily']['done'] and dq['extra'] == DAILY_PRIZE and tickets(dq, 0) == t0 + DAILY_PRIZE
+    assert any(n['kind'] == 'daily' for n in dq['news'])
+    bump(dq, kind, day='2026-11-19')
+    assert dq['extra'] == DAILY_PRIZE  # 두 번 주지 않는다
+    assert daily(dq, '2026-11-20')['n'] == 0 and not dq['daily']['done']  # 다음 날은 새 과제
+    assert len({daily(new_state(), f'2026-12-{d:02d}')['kind'] for d in range(1, 29)}) > 1  # 날마다 바뀐다
+    assert daily_text(dq).startswith(L('일일 과제', 'Daily'))
     sw = new_state()
     sw['rewarded'], sw['weekly'] = ['2026-10-19', '2026-10-20', '2026-10-25', '2026-10-26'], {'key': '2026-W43', 'kind': 'ship', 'n': 0, 'done': False}
     assert weekly(sw, '2026-W43')['n'] == 3  # ship 은 보상받은 날 중 이번 주(월~일) 날짜 수
