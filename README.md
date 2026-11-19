@@ -4,18 +4,18 @@
 
 ![The mods hub next to a Claude session](docs/images/hub.png)
 
-Every screen switches between English and Korean with the hub's `[ 한/EN ]` button.
+Every screen switches between English and Korean with the hub's `[ 한/EN ]` button (or `l`). **The default is Korean** until you switch once — the choice is saved in `settings.json`.
 
 ## What's inside
 
 | Plugin / mode | What it does |
 |---|---|
 | `pane-tools` | `/mods` opens the **hub** — even while the session is busy. Gauges, a partner Pokémon with a speech bubble, the awake sessions, and one button per mode. |
-| ├ `feed` | **Session activity** — when each `claude agents` session finishes ✔, asks ▲ or starts ●, newest first, with its one-line summary. |
-| ├ `memo` | A memo for the session. **send** queues it until the session is idle, then submits it. One memo per session. |
-| ├ `tetris` | Tetris with hold (`c`). Draws a half-height board in short panes. |
+| ├ `feed` | **Session activity** — when each `claude agents` session finishes ✔, fails ✖, asks ▲ or starts ●, newest first, with its one-line summary. ↑↓ scroll, `q` closes. It reads `~/.claude/jobs/*/timeline.jsonl` and restarts itself when `feed.py` changes. |
+| ├ `memo` | A memo for the session. **send** (`Ctrl+S`) queues it until the session is idle, then submits it; `Esc`/`Ctrl+Q` closes. One memo per session. If a sent memo waits too long it tells you to run `/reload-plugins` in that session. |
+| ├ `tetris` | Tetris with hold (`c`), a ghost piece, `Space` hard drop, `p` pause and `r` to restart after game over. In a tmux pane shorter than 22 rows it grows the pane to 24 rows while you play and puts it back afterwards; the half-height board is only the last resort. |
 | └ `pokemon` | Catch, evolve and battle with the tokens you spend — a fan-made game, see the [notice](#pokémon--unofficial-fan-project). |
-| `long-run-watch` | Estimates how long a Bash command will take (median of its last runs, or "(about 30 min)" in the description), shows it in the status line and warns when it overruns. |
+| `long-run-watch` | Estimates how long a tool call will take (median of its last 5 runs that took over 30 s, or "(about 30 min)" in the description), shows it in the status line and warns when it overruns. Background commands get a note when they start and one reminder to check on them once the estimate has passed. |
 
 New modes are one file: drop a curses program at `pane-tools/bin/<name>.py` and the hub grows a `[ <name> ]` button. Files starting with `_` are helpers, not buttons. Text goes through `from _lang import L` → `L('한국어', 'English')`.
 
@@ -23,8 +23,9 @@ New modes are one file: drop a curses program at `pane-tools/bin/<name>.py` and 
 
 - **Gauges** — context, cost and rate limits of the session it follows (each session's mod writes them every 2 s).
 - **Speech bubble** — the partner reacts in one line: a session waiting for input (yellow after 10 minutes), ready to evolve, rewards, medals, gym badges and eggs, a session that just finished (it claps when it shipped a PR or a deploy), or rustling grass.
-- **Sessions** — the awake `claude agents` sessions on the right, in the same colors as `claude agents` (needs yellow, working gray, completed green).
-- **Partner art** — real sprites: Kitty graphics (cmux, Ghostty, kitty) or Sixel (Windows Terminal 1.22+, WezTerm, foot), detected automatically, `▀▄` blocks otherwise. The Pokémon screen draws the partner, the team and the Pokémon you meet in the grass (shiny colours and regional forms included) the same way when the panel is at least 44 columns wide. Inside tmux the hub enables passthrough for its own pane only; add `set -as terminal-features ',xterm*:sixel'` to `~/.tmux.conf` (`install.sh --tmux-layout` does it).
+- **Sessions** — the awake `claude agents` sessions on the right, in the same colors as `claude agents` (needs yellow, working gray, completed green, failed red). Gauge values older than 30 s say "(as of Ns ago)".
+- **Keys** — `1`–`9` open the mode buttons in order, `s` setup, `l` language, `q`/`Esc` close.
+- **Partner art** — real sprites: Kitty graphics (cmux, Ghostty, kitty — outside tmux only) or Sixel (Windows Terminal 1.22+, WezTerm, foot; also inside tmux), detected automatically; the hub falls back to `▀▄` blocks. The Pokémon screen draws the partner, the team and the Pokémon you meet in the grass (shiny colours and regional forms included) only with Kitty or Sixel and a panel at least 44 columns wide — it has no block fallback. Inside tmux the hub enables passthrough for its own pane only; add `set -as terminal-features ',xterm*:sixel'` to `~/.tmux.conf` (`install.sh --tmux-layout` does it).
 - Keys work with a Korean keyboard layout too; on macOS with [`macism`](https://github.com/laishulu/macism) the hub switches to an English layout while focused.
 
 ### Session activity and memo
@@ -55,7 +56,7 @@ A species already in your bag shows up rarely (1/10 of a new one) but can be cau
 
 **Eggs** — each wild catch has a 10% chance to come with an **egg** (up to three; the region conquest gives one too): a hidden first-stage species that hatches after its hatch steps × 5k tokens, shiny at 1/64, always with a bonus ball (Poké ×1 60% · ×2 20% · ×3 10% · Great 7% · Ultra 3%). Each egg counts down on its own from when you got it, and the main screen shows one line per egg (soonest first) with its own bar. Eggs come in Pokémon GO-style kinds by hatch length — 2, 5, 7, 10 and 12 km (up to 50k, 75–100k, 125k, 150–200k and 250k+ tokens) — each drawn as its own coloured egg (green, orange, yellow, purple, red-on-black spots; drawn by this mod, not taken from any game). Longer eggs pay more on top of the bonus ball: 7 km adds a Great Ball, 10 km an Ultra Ball, 12 km two Ultra Balls and doubles the shiny chance (1/32). The 12 km kind ends up holding Ultra Beasts and Paradox Pokémon, 10 km Eevee, Dratini and the fossils, 2 km and 7 km most babies.
 
-**Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league/raid battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls, 3 Great Balls and a **Rare Candy**, which evolves your partner on the spot when it has a form to evolve into (one candy a week).
+**Weekly challenge** — one task per week (changes on Monday, the same on every PC): catch 8, explore 15 times, win 5 gym/league/raid battles, evolve twice, ship on 4 days or hatch an egg. Finishing it gives 2 Ultra Balls, 3 Great Balls and a **Rare Candy**, which evolves your partner on the spot when it has a form to evolve into (one candy a week). A **daily challenge** sits on the line below — one small task per day (catch 3, explore 5 times, win a gym or league battle, or evolve once; also the same on every PC), worth **+1 explore**.
 
 **Partner and evolution** — the partner gains the tokens you spend and evolves past a threshold. With several possible forms it picks one you don't have yet.
 
@@ -95,7 +96,7 @@ Eight gyms per opened generation, in the original type order (Alola uses its tri
 
 ![Gym detail with win rate and a suggested team](docs/images/gym.png)
 
-A challenge costs two explores and plays a fully automatic battle line by line, laid out like the original games: the foe's HP box top-left with its sprite top-right, your Pokémon bottom-left (flipped to face the foe) with your HP box — and HP numbers — bottom-right, the HP bars turning yellow then red, and the latest two lines in a message box at the bottom (Enter skips to the result). The battle itself uses base stats, level (15 + 12 per evolution stage + one per 50 battle XP, up to +40; a loss gives the team +30 XP, a win +60 + 10 × gym number — the bag shows each Pokémon's progress like `Lv16 (10/50)`), IVs (one per stat, so Speed IVs decide who strikes first between equals), each Pokémon's own type attack, type matchups and speed. Gym and league trainers are 7 levels above the original curve and have IVs of their own (gym 1 at 7 up to gym 8 at 14, Elite Four 14, Champion 15): at matched levels an average-IV team usually loses the league and a top-IV team usually wins. The first win gives that gym's **badge** (the real badge art, small old sprites smoothed with Scale2x and given a white outline like the medals) — the badges you have won in a generation show under its gym list, four to a row; every battle gives the team experience. After a win `q` goes straight back to the hub, after a loss back to the prep screen.
+A challenge costs two explores and plays a fully automatic battle line by line, laid out like the original games: the foe's HP box top-left with its sprite top-right, your Pokémon bottom-left (flipped to face the foe) with your HP box — and HP numbers — bottom-right, the HP bars turning yellow then red, and the latest two lines in a message box at the bottom (Enter skips to the result). The battle itself uses base stats, level (15 + 12 per evolution stage + one per 50 battle XP, up to +40; a loss gives the team +30 XP, a win +60 + 10 × gym number — the bag shows each Pokémon's progress like `Lv16 (10/50)`), IVs (one per stat, so Speed IVs decide who strikes first between equals), each Pokémon's own type attack, type matchups and speed. Every battle also rolls a **condition** for each Pokémon — ×0.85–1.15 on all its stats for that battle, announced as "in great shape!" or "off its game…" when it is sent out — so a couple of levels shifts the odds instead of settling the battle outright (in a mirror match: −4 levels ≈ 13 %, even ≈ 52 %, +4 ≈ 85 %). Attacks are named after a move of the attacker's type (three per type, fixed per species; names only — damage is the same), the move name in its type's colour and "super effective" in red. **Effects**: `x` in a battle cycles auto → full → off (saved per PC). Full flashes the hit Pokémon's box, drains its HP bar over three frames and grows a type glyph along the box border — never over the sprites, and the log still moves every 0.6 s; auto does the same except under Sixel, where it shows colours only, because tmux wipes Sixel sprites whenever text changes and the frames would flicker. Gym and league trainers are 7 levels above the original curve and have IVs of their own (gym 1 at 7 up to gym 8 at 14, Elite Four 14, Champion 15): at matched levels an average-IV team usually loses the league and a top-IV team usually wins. The first win gives that gym's **badge** (the real badge art, small old sprites smoothed with Scale2x and given a white outline like the medals) — the badges you have won in a generation show under its gym list, four to a row; every battle gives the team experience. After a win `q` goes straight back to the hub (a Battle Tower or form-raid win goes back to the prep screen for the next one), after a loss back to the prep screen.
 
 ![A gym battle](docs/images/battle.png)
 
@@ -145,32 +146,32 @@ bash ~/.claude/mods/install.sh --pokemon-backup  # optional: back up the Pokémo
 bash ~/.claude/mods/install.sh --auto-pull       # optional: pull new commits from GitHub at boot and every 10 minutes
 ```
 
-`install.sh` sets `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, so every new session loads these mods and reloads them when a file changes. Don't enable the marketplace copy at the same time. `--auto-pull` adds two cron lines: one every 10 minutes and one `@reboot` that runs as soon as the machine (or WSL) starts, retrying every 2 s for up to 2 minutes until the network is up. It skips when there are local edits or unpushed commits and logs to `~/.claude/pane-tools/autopull.log`. An open hub restarts itself when any file in `pane-tools/bin/` changes; an open Pokémon screen does the same (back to its main screen, progress kept); other mode screens (Tetris…) get the new code the next time you open them.
+`install.sh` sets `CLAUDE_CODE_PLUGIN_DIRS` (and `CLAUDE_CODE_PLUGIN_DIR_WATCH=1`) in `~/.claude/settings.json`, so every new session loads these mods and reloads them when a file changes; it keeps a `.bak-<time>` copy of anything it edits, stops on an unknown option, and on macOS with cmux points the hub at a cmux split. Don't enable the marketplace copy at the same time. `--auto-pull` adds two cron lines: one every 10 minutes and one `@reboot` that runs as soon as the machine (or WSL) starts, retrying every 2 s for up to 2 minutes until the network is up. It skips when the checkout is not on `main` or has local edits or unpushed commits, and logs to `~/.claude/pane-tools/autopull.log`. `--pokemon-backup` keeps the last 30 copies — on WSL in the Windows `%USERPROFILE%\pokemon-backup`, elsewhere in `~/.claude/pane-tools/backup/`. An open hub restarts itself when a `.py` file in `pane-tools/bin/` changes and stays unchanged for 5 s; an open Pokémon screen does the same (back to its main screen, progress kept); other mode screens (Tetris…) get the new code the next time you open them.
 
-The `sett` layout (`--tmux-layout`) is `claude agents` on the left and, on the right, a spare shell, the activity feed and the hub — both started automatically.
+The `sett` layout (`--tmux-layout`) is `claude agents` on the left and, on the right, a spare shell, the activity feed and the hub — both started automatically. `--tmux-layout` also writes `launcher=tmux`, `tmuxTarget=dev:0.3`, `followPane=dev:0.0` and `feedTarget=dev:0.2` to the plugin options and adds an `alias sett`. **`sett` kills an existing tmux session named `dev`** before building it again; `SETT_DIR` sets the start folder and `MODS_DIR` the mods checkout.
 
 ## Where the hub opens
 
-Choose in the hub's **setup** (`s`) or in `/config` → pane-tools; the hub's choice wins and applies from the next `/mods`.
+Choose in the hub's **setup** (`s` — ↑↓ and `Enter`/`Space` to pick, `r` to go back to the `/config` values) or in `/config` → pane-tools; the hub's choice wins and applies from the next `/mods`.
 
 ![Hub setup](docs/images/setup.png)
 
 | Option | Value | Behavior |
 |---|---|---|
-| `launcher` | `auto` (default) | split the current tmux window, or open a new terminal window outside tmux |
-| | `tmux` | `tmuxTarget` empty → split the current window; set (e.g. `dev:0.3`) → replace that pane when it is an idle shell or the hub |
+| `launcher` | `auto` (default) | tmux when a tmux server is running (`tmux has-session`), otherwise a new terminal window; with `tmuxTarget` set it uses that pane too |
+| | `tmux` | `tmuxTarget` empty → split the current window (the hub takes the right 45 %); set (e.g. `dev:0.3`) → replace that pane when it is an idle shell or one of these mods' screens (hub, memo, Tetris, feed …) |
 | | `window` | a new terminal window — Windows Terminal on WSL, Terminal on macOS, `x-terminal-emulator` on Linux |
 | | `command` | your own command; `{cmd}` becomes the hub command, e.g. `wezterm cli split-pane -- bash -lc {cmd}` or `zellij run -- bash -lc {cmd}` |
 | `followPane` | empty (default) | follow the session that ran `/mods` |
 | | e.g. `dev:0.0` / `cmux:0` | follow whichever Claude session is open in that pane |
-| `feedTarget` | e.g. `dev:0.2` | `/mods` also opens the activity feed there when that pane is an idle shell |
+| `feedTarget` | e.g. `dev:0.2` | `/mods` also opens the activity feed there when that pane is an idle shell (a feed already running there is left alone) |
 
 ![The same options while installing](docs/images/install-config.png)
 
 ## Data on disk
 
 Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
-`settings.json` (language, hub setup, bag sort), `pokemon.json` (your progress — if it can't be read, the game shows a warning and waits instead of starting over, and a corrupt file is first copied to `pokemon.json.bad`; the Pokémon screen re-reads it before acting on a key, so a hub save in between is kept), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` · `specials.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown; `strips/` keeps the medal and badge rows once built, since building one takes seconds — the first time a row appears a moment after the screen), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent).
+`settings.json` (language, hub setup, bag sort, battle effects `battle_fx`), `pokemon.json` (your progress — if it can't be read, the game shows a warning and waits instead of starting over, and a corrupt file is first copied to `pokemon.json.bad`; the Pokémon screen re-reads it before acting on a key, so a hub save in between is kept), `pokedex.json` · `pokedex_detail.json` · `battle.json` · `forms.json` · `specials.json` (data from PokeAPI), `sprites/` (Pokémon, `shiny/`, gym `badges/`, `items/` — fetched from PokeAPI one by one when first shown; `strips/` keeps the medal and badge rows once built, since building one takes seconds — the first time a row appears a moment after the screen), `memos/`, `usage/` (gauges and token counts per session), `inbox/` (memos waiting to be sent, with an `.ack` once delivered), `autopull.log` and `backup.log` / `backup/` (from the install options above), `input-source.saved` (macOS keyboard layout while a mod screen has focus). The feed only reads `~/.claude/jobs/*/timeline.jsonl`, outside this folder.
 
 ## Pokémon — unofficial fan project
 
@@ -184,7 +185,7 @@ Nothing below is in the repository. Everything lives in `~/.claude/pane-tools/`:
 
 ## Development
 
-- Self-checks: `python3 pane-tools/bin/<name>.py --selftest` for `memo`, `tetris`, `hub`, `feed` and `pokemon` (after the Pokédex has been downloaded once); `python3 pane-tools/bin/_battle.py` (battle rules) and `python3 pane-tools/bin/_place.py` (hub setup); `claude plugin test pane-tools` and `claude plugin test long-run-watch`.
+- Self-checks: `python3 pane-tools/bin/<name>.py --selftest` for `memo`, `tetris`, `hub`, `feed` and `pokemon` (after the Pokédex has been downloaded once); `python3 pane-tools/bin/_battle.py` (battle rules) and `python3 pane-tools/bin/_place.py` (hub setup); `claude plugin validate <plugin folder>` (what `install.sh` runs) and `claude plugin test pane-tools` / `claude plugin test long-run-watch`.
 - Bump `version` in the plugin's `.claude-plugin/plugin.json` so marketplace users see the update.
 
 ## License

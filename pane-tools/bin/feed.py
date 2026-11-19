@@ -41,7 +41,7 @@ def last_row(path):
 
 def group(d, last=None, busy=False):
     """claude agents 와 같은 묶음(그 안의 xo 함수를 따름). 데몬은 답을 받아 다시 일할 때 state.json 을 working 으로
-    바꾸지 않으므로(2026-10-21 KNK Pivot: blocked → 사용자 답 → done 사이 내내 blocked), 마지막 줄이 사용자 말
+    바꾸지 않으므로(2026-10-21 실제 세션: blocked → 사용자 답 → done 사이 내내 blocked), 마지막 줄이 사용자 말
     (text 가 빈 줄)이면 그 답을 처리하는 중 = working 으로 본다. busy 는 claude agents --json 의 실시간 상태."""
     st = d.get('state') or ''
     if busy or (last and last.get('state') != 'working' and not last.get('text')):
