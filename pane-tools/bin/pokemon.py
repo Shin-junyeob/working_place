@@ -2527,21 +2527,57 @@ def para(scr, y, text, w, attr=0, x=1):
     return y
 
 
+# 기술 이름(2026-11-19 사용자 — 이름만, 승패 계산은 그대로). 공격 타입(PokeAPI 타입 번호)마다 대표 기술 셋, 같은 종은 늘 같은 기술.
+# shortcut: 종마다 배우는 진짜 기술이 아니다 — 원하면 PokeAPI pokemon_moves.csv(약 11MB)를 한 번 받아 종별 표로 바꾼다
+MOVE_NAMES = {1: (('몸통박치기', 'Tackle'), ('누르기', 'Body Slam'), ('파괴광선', 'Hyper Beam')),
+              2: (('깨트리기', 'Brick Break'), ('인파이트', 'Close Combat'), ('파동탄', 'Aura Sphere')),
+              3: (('날개치기', 'Wing Attack'), ('에어슬래시', 'Air Slash'), ('브레이브버드', 'Brave Bird')),
+              4: (('독찌르기', 'Poison Jab'), ('오물폭탄', 'Sludge Bomb'), ('크로스포이즌', 'Cross Poison')),
+              5: (('땅고르기', 'Bulldoze'), ('대지의힘', 'Earth Power'), ('지진', 'Earthquake')),
+              6: (('원시의힘', 'Ancient Power'), ('파워젬', 'Power Gem'), ('스톤에지', 'Stone Edge')),
+              7: (('연속자르기', 'Fury Cutter'), ('시저크로스', 'X-Scissor'), ('벌레의야단법석', 'Bug Buzz')),
+              8: (('핥기', 'Lick'), ('섀도클로', 'Shadow Claw'), ('섀도볼', 'Shadow Ball')),
+              9: (('아이언헤드', 'Iron Head'), ('러스터캐논', 'Flash Cannon'), ('코멧펀치', 'Meteor Mash')),
+              10: (('불꽃세례', 'Ember'), ('화염방사', 'Flamethrower'), ('플레어드라이브', 'Flare Blitz')),
+              11: (('아쿠아테일', 'Aqua Tail'), ('파도타기', 'Surf'), ('하이드로펌프', 'Hydro Pump')),
+              12: (('리프블레이드', 'Leaf Blade'), ('에너지볼', 'Energy Ball'), ('솔라빔', 'Solar Beam')),
+              13: (('번개펀치', 'Thunder Punch'), ('10만볼트', 'Thunderbolt'), ('번개', 'Thunder')),
+              14: (('염동력', 'Confusion'), ('사이코커터', 'Psycho Cut'), ('사이코키네시스', 'Psychic')),
+              15: (('얼음뭉치', 'Ice Shard'), ('냉동빔', 'Ice Beam'), ('눈보라', 'Blizzard')),
+              16: (('드래곤크루', 'Dragon Claw'), ('역린', 'Outrage'), ('용성군', 'Draco Meteor')),
+              17: (('기습', 'Sucker Punch'), ('깨물어부수기', 'Crunch'), ('악의파동', 'Dark Pulse')),
+              18: (('매지컬샤인', 'Dazzling Gleam'), ('치근거리기', 'Play Rough'), ('문포스', 'Moonblast'))}
+
+
+def move_name(n, t):
+    """종 n 이 타입 t 로 칠 때의 기술 이름 — 그 타입 대표 기술 중 종마다 하나(늘 같은 것). 모르는 타입이면 ''."""
+    names = MOVE_NAMES.get(t)
+    return L(*names[sp(n) % len(names)]) if names else ''
+
+
+def cond_word(c):
+    """컨디션 배수 → '컨디션 좋음' · '컨디션 나쁨' · ''(보통 — 말하지 않는다)."""
+    return L('컨디션 좋음!', 'in great shape!') if c >= 1.07 else L('컨디션 나쁨…', 'off its game…') if c <= 0.93 else ''
+
+
 def fight_line(ev):
     """배틀 기록 한 칸 → 화면 한 줄."""
     if ev[0] == 'trainer':
         return L(f'— 챔피언 등장! —', '— The Champion appears! —') if ev[1] == _battle.ELITE_COUNT else \
             L(f'— 사천왕 {ev[1] + 1} 등장! —', f'— Elite Four #{ev[1] + 1} appears! —')
     if ev[0] == 'send':
-        return L(f'가라, {name(ev[2])}!', f'Go, {name(ev[2])}!') if ev[1] == 'me' else \
-            L(f'상대가 {name(ev[2])}(을)를 내보냈다!', f'The foe sent out {name(ev[2])}!')
+        cw = cond_word(ev[5]) if len(ev) > 5 else ''
+        return (L(f'가라, {name(ev[2])}!', f'Go, {name(ev[2])}!') if ev[1] == 'me' else
+                L(f'상대가 {name(ev[2])}(을)를 내보냈다!', f'The foe sent out {name(ev[2])}!')) + (f' {cw}' if cw else '')
     if ev[0] == 'faint':
         return L(f'{name(ev[2])}(은)는 쓰러졌다!', f'{name(ev[2])} fainted!')
-    _, side, a, b, dmg, f, hp, top = ev
+    _, side, a, b, dmg, f, hp, top = ev[:8]
+    mv = move_name(a, ev[8]) if len(ev) > 8 else ''
     eff = L('효과가 굉장했다! ', "It's super effective! ") if f > 1 else L('효과가 별로인 듯하다… ', "It's not very effective… ") \
         if 0 < f < 1 else L('효과가 없는 것 같다… ', 'It had no effect… ') if f == 0 else ''
     who = '' if side == 'me' else L('상대 ', 'Foe ')
-    return L(f'{who}{name(a)}의 공격! {eff}({name(b)} {hp}/{top})', f"{who}{name(a)} attacks! {eff}({name(b)} {hp}/{top})")
+    return L(f'{who}{name(a)}의 {mv or "공격"}! {eff}({name(b)} {hp}/{top})',
+             f"{who}{name(a)} used {mv}! {eff}({name(b)} {hp}/{top})" if mv else f"{who}{name(a)} attacks! {eff}({name(b)} {hp}/{top})")
 
 
 def fight_state(ev, k):
@@ -4717,6 +4753,11 @@ def selftest():
     assert fuse_options(fu, 0) == [] and fuse_options(fu, 1) == [(10022, 2)]  # 레시라무(4)는 동료라 못 쓰고, 재료는 팀 밖·개체값 낮은 것
     assert change_options(fu, 1) == [(10022, ('mon', 2), True, '')] and change(fu, 1, 0) == 10022
     assert fu['items']['stone:10022'] == 0 and 10022 in fu['specials']  # 도구도 사라진다 · 합체 모습도 도감 항목(2026-11-12)
+    assert fight_line(('hit', 'me', 6, 9, 30, 1, 70, 100, 10)).startswith(L(f'{name(6)}의 ', f'{name(6)} used '))  # 기술 이름
+    assert move_name(6, 10) in [L(*x) for x in MOVE_NAMES[10]] and move_name(6, 10) == move_name(6, 10) and move_name(6, 99) == ''
+    assert fight_line(('hit', 'me', 6, 9, 30, 1, 70, 100)).startswith(L(f'{name(6)}의 공격', f'{name(6)} attacks'))  # 옛 기록
+    assert fight_line(('send', 'me', 6, 50, 150, 1.12)).endswith(L('컨디션 좋음!', 'in great shape!'))
+    assert fight_line(('send', 'foe', 6, 50, 150, 0.88)).endswith(L('컨디션 나쁨…', 'off its game…')) and fight_line(('send', 'me', 6, 50, 150, 1.0)) == L(f'가라, {name(6)}!', f'Go, {name(6)}!')
     assert dex_total(fu) == (len(set(fu['caught']) & set(DEX)) + 1, len(DEX) + len(FORMS) + len(SPECIALS))  # 도감 전체 칸에 특수 모습도
     assert art_of(10008) == 'form:10008' and art_of({'id': 10008, 'shiny': True}) == 'form:shiny/10008'  # 상세 그림 — 이로치 어니부기가 나왔다
     assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1] and fu['box'][1]['iv'] == [9] * 6

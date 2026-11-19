@@ -136,17 +136,25 @@ def damage(d, a, b, rng):
     return (max(1, int(dmg)) if f else 0), f
 
 
+COND = (0.85, 1.15)  # 컨디션 — 판마다 포켓몬 능력치 배수(2026-11-19 사용자). 한 번 칠 때 난수는 수십 타에 평균으로 지워져
+# 레벨 차 2 만으로 승률이 0%·100% 로 갈렸다 — 한 판 내내 걸리는 흔들림이라야 곡선이 된다(시뮬레이션: −4 11% · 0 51% · +4 82%)
+
+
 def battle(d, team, opp, rng, log=True):
     """자동 배틀. team·opp: [(종, 레벨[, 개체값])]. (이겼나, 기록) — 기록은 화면이 한 줄씩 보여 준다:
-    ('send', 'me'|'foe', 종, 레벨, 최대HP) · ('hit', 공격쪽, 공격종, 맞은종, 데미지, 배율, 남은HP, 최대HP) · ('faint', 쪽, 종)."""
+    ('send', 'me'|'foe', 종, 레벨, 최대HP, 컨디션) · ('hit', 공격쪽, 공격종, 맞은종, 데미지, 배율, 남은HP, 최대HP, 공격 타입) · ('faint', 쪽, 종)."""
     mine, foes = [Mon(d, *x) for x in team], [Mon(d, *x) for x in opp]
+    for m in mine + foes:  # 컨디션 — 이 판 동안만
+        m.cond = rng.uniform(*COND)
+        m.st = [max(1, int(v * m.cond)) for v in m.st]
+        m.hp = m.st[0]
     ev = []
     say = ev.append if log else (lambda e: None)
     foe = foes.pop(0)
     me = max(mine, key=lambda m: matchup(d, m.n, foe.n))  # 상대에게 가장 유리한 것부터
     mine.remove(me)
-    say(('send', 'foe', foe.n, foe.lv, foe.st[0]))
-    say(('send', 'me', me.n, me.lv, me.st[0]))
+    say(('send', 'foe', foe.n, foe.lv, foe.st[0], foe.cond))
+    say(('send', 'me', me.n, me.lv, me.st[0], me.cond))
     for _ in range(500):  # 0배끼리 만나면 끝나지 않으니 상한
         order = [(me, foe, 'me'), (foe, me, 'foe')]
         if foe.st[5] > me.st[5] or (foe.st[5] == me.st[5] and rng.random() < 0.5):
@@ -154,7 +162,7 @@ def battle(d, team, opp, rng, log=True):
         for a, b, side in order:
             dmg, f = damage(d, a, b, rng)
             b.hp = max(0, b.hp - dmg)
-            say(('hit', side, a.n, b.n, dmg, f, b.hp, b.st[0]))
+            say(('hit', side, a.n, b.n, dmg, f, b.hp, b.st[0], best_attack(d, a.n, b.n)[0] if log else 0))
             if b.hp:
                 continue
             say(('faint', 'foe' if side == 'me' else 'me', b.n))
@@ -162,13 +170,13 @@ def battle(d, team, opp, rng, log=True):
                 if not foes:
                     return True, ev
                 foe = foes.pop(0)
-                say(('send', 'foe', foe.n, foe.lv, foe.st[0]))
+                say(('send', 'foe', foe.n, foe.lv, foe.st[0], foe.cond))
             else:
                 if not mine:
                     return False, ev
                 me = max(mine, key=lambda m: matchup(d, m.n, foe.n))
                 mine.remove(me)
-                say(('send', 'me', me.n, me.lv, me.st[0]))
+                say(('send', 'me', me.n, me.lv, me.st[0], me.cond))
             break  # 쓰러진 쪽은 이번 차례에 치지 못한다
     return False, ev
 
@@ -284,6 +292,9 @@ def selftest():
     won, ev = battle(d, [(3, 30), (1, 30)], [(2, 30)], random.Random(1))
     assert won and ev[0][:4] == ('send', 'foe', 2, 30) and ev[1][:4] == ('send', 'me', 1, 30)  # 불꽃 상대엔 물부터 낸다
     assert ev[-1][0] == 'faint' and ev[-1][1] == 'foe'
+    sends = [e for e in ev if e[0] == 'send']  # 컨디션은 판마다 범위 안 · 기록에 실린다 · 공격 기록엔 공격 타입(기술 이름용)
+    assert all(len(e) == 6 and COND[0] <= e[5] <= COND[1] for e in sends) and all(len(e) == 9 for e in ev if e[0] == 'hit')
+    assert next(e for e in ev if e[0] == 'hit' and e[1] == 'me')[8] == 11  # 물 포켓몬은 물 기술로
     # 추천: 불꽃 체육관이면 물을 고른다
     assert recommend(d, [(0, 3, 30), (1, 1, 30), (2, 2, 30)], [(2, 30), (2, 32)], size=1) == [1]
     # 체육관 상대: 늘 같은 팀 · 마지막은 최종 진화형 · 종이 모자라면 겹쳐 쓴다
