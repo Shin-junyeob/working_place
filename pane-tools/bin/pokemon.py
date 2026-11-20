@@ -1647,6 +1647,12 @@ def partner_id_of(st):
     return art_of(st['box'][st['partner']])
 
 
+def has_shiny(st, n):
+    """이 종·모습의 이로치를 가졌나 — 이로치 기록(st['shiny'])은 종 번호뿐이라, 리전폼·특수 모습은 가방에서 본다.
+    shortcut: 다른모습을 도구로 되돌리면 그 모습의 이로치 표시도 사라진다 — 영구히 남기려면 모습별 이로치 기록을 따로 둔다."""
+    return n in st['shiny'] or any(m['id'] == n and m.get('shiny') for m in st['box'])
+
+
 def art_of(m):
     """가방 항목(또는 번호) → 그림 번호: 이로치면 이로치 그림, 리전폼·합체·특수 모습이면 'form:번호'(번호가 이로치 자리와 겹쳐서) —
     이로치 리전폼·합체·특수 모습은 'form:shiny/번호'(PokeAPI 에 이로치 그림이 있다)."""
@@ -1707,7 +1713,7 @@ def draw_info(scr, st, n, h, w, gold):
             put(scr, 2, 1, f'{type(e).__name__}: {e}')
             return
     form, spec = FORMS.get(n), SPECIALS.get(n)  # 리전폼·특수 모습 — 타입·키·몸무게·종족값은 그 모습 것, 도감 설명은 없다
-    d, sh = INFO.get(str(n)), n in st['shiny']
+    d, sh = INFO.get(str(n)), has_shiny(st, n)
     caught = n in (st['forms'] if form else st.get('specials', []) if spec else st['caught'])
     unseen = n not in (st['forms_seen'] if form else st.get('specials', []) if spec else st['seen'])  # 못 봤으면 실루엣(2026-11-11 사용자)
     x = put(scr, 1, 1, f'No.{sp(n):04d}  ', curses.A_BOLD)
@@ -3490,7 +3496,7 @@ def main(scr):
             top = max(0, min(min(max(top, sel - body + 1), sel), len(rows) - body))
             for k, (p, text) in enumerate(rows[top:top + body]):
                 btns.append((2 + k, 1, w - 1, ('info', p)))
-                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
+                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, (gold if has_shiny(st, p) else 0) | (curses.A_REVERSE if top + k == sel else 0))
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
             put(scr, h - 1, x, L('↑↓ 이동 · Enter 상세 · ← 리전폼', '↑↓ move · Enter details · ← regional'), curses.A_DIM)
         elif view == 'dex' and dg > GENS:  # 도감 리전폼 쪽
@@ -3510,7 +3516,7 @@ def main(scr):
             for k, (p, text) in enumerate(rows[top:top + body]):
                 if p in st['forms_seen']:
                     btns.append((2 + k, 1, w - 1, ('info', p)))
-                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, curses.A_REVERSE if top + k == sel else 0)
+                put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, (gold if has_shiny(st, p) else 0) | (curses.A_REVERSE if top + k == sel else 0))
             ready = sum(1 for p, (sp, _) in FORMS.items() if gen(sp) < top_g and p not in st['forms'])
             put(scr, h - 2, 1, L(f'이전 세대 탐색(5번 중 1번)에서 나온다 · 지금 나올 수 있는 폼 {ready}',
                                  f'They show up in earlier-generation explores (1 in 5) · {ready} can appear now')[:w - 2], curses.A_DIM)
@@ -4846,6 +4852,8 @@ def selftest():
     finally:
         _lang.get, globals()['SIXEL'] = real_get, real_six
     assert dex_total(fu) == (len(set(fu['caught']) & set(DEX)) + 1, len(DEX) + len(FORMS) + len(SPECIALS))  # 도감 전체 칸에 특수 모습도
+    hs = {'shiny': [6], 'box': [{'id': 10034, 'shiny': True}, {'id': 10035}]}
+    assert has_shiny(hs, 6) and has_shiny(hs, 10034) and not has_shiny(hs, 10035) and not has_shiny(hs, 25)  # 특수 모습 이로치는 가방에서
     assert art_of(10008) == 'form:10008' and art_of({'id': 10008, 'shiny': True}) == 'form:shiny/10008'  # 상세 그림 — 이로치 어니부기가 나왔다
     assert [m['id'] for m in fu['box']] == [25, 10022, 644, 643] and 'fused' not in fu['box'][1] and fu['box'][1]['iv'] == [9] * 6
     assert fu['box'][2]['iv'] == [15] * 6  # 좋은 제크로무는 남는다 · 개체값은 기본(큐레무) 것
