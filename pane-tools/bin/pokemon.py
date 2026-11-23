@@ -139,7 +139,7 @@ WEEKLY = [('catch', 8, '포켓몬 {n}마리 잡기', 'Catch {n} Pokémon'), ('ex
 DAILY = [('catch', 3, '포켓몬 {n}마리 잡기', 'Catch {n} Pokémon'), ('explore', 5, '풀숲 {n}번 탐색', 'Explore {n} times'),
          ('gym', 1, '체육관·사천왕 {n}번 이기기', 'Win {n} gym/league battle'), ('evolve', 1, '{n}번 진화시키기', 'Evolve {n} time')]
 DAILY_PRIZE = 1
-WEEKLY_PRIZE = [('hyper', 2), ('super', 3), ('candy', 1)]  # 일주일에 한 번이라 후하게 · 이상한사탕은 매주 1개(동료 즉시 진화)
+WEEKLY_PRIZE = [('candy', 1), ('extra', 5)]  # 이상한사탕 1개(동료 즉시 진화) · 탐색 +5 — 볼은 배틀 타워로 넉넉해 뺐다(2026-11-23 사용자)
 EGG_SHINY = 1 / 64
 # 알에서 포켓몬과 함께 나오는 덤 — (볼 종류, 개수, 확률%) (2026-10-21 정함)
 EGG_BONUS = [('balls', 1, 60), ('balls', 2, 20), ('balls', 3, 10), ('super', 1, 7), ('hyper', 1, 3)]
@@ -1166,11 +1166,13 @@ def hatch(st, t, rng=random):
 
 
 def ball_name(kind, k):
-    """('balls'|'super'|'hyper'|'master', 개수) → (한국어, 영어) — '몬스터볼 2개'."""
+    """('balls'|'super'|'hyper'|'master'|'candy'|'extra', 개수) → (한국어, 영어) — '몬스터볼 2개'."""
     ko, en = {'balls': ('몬스터볼', 'Poké Ball'), 'super': ('슈퍼볼', 'Great Ball'), 'hyper': ('하이퍼볼', 'Ultra Ball'),
-              'master': ('마스터볼', 'Master Ball'), 'candy': ('이상한사탕', 'Rare Cand')}[kind]
+              'master': ('마스터볼', 'Master Ball'), 'candy': ('이상한사탕', 'Rare Cand'), 'extra': ('', '')}[kind]
     if kind == 'candy':
         return f'{ko} {k}개', f'{k} {en}{"ies" if int(k) > 1 else "y"}'
+    if kind == 'extra':
+        return f'탐색 +{k}', f'+{k} explore{"s" if int(k) > 1 else ""}'
     return f'{ko} {k}개', f'{k} {en}{"s" if int(k) > 1 else ""}'
 
 
@@ -1467,7 +1469,7 @@ def bump(st, kind, k=1, key=None, day=None):
     if w['n'] >= next(g for kd, g, _, _ in WEEKLY if kd == kind):
         w['done'] = True
         for b, c in WEEKLY_PRIZE:
-            st[b] += c
+            st[b] = st.get(b, 0) + c  # extra(받은 탐색)는 tickets 에 더해진다
         tell(st, 'weekly')
 
 
@@ -4578,10 +4580,10 @@ def selftest():
     assert wk['weekly']['n'] == 0
     for _ in range(goal):
         bump(wk, kind, key='2026-W43')
-    assert wk['weekly']['done'] and wk['hyper'] == 2 and wk['super'] == 3 and wk['news'][-1]['kind'] == 'weekly'
+    assert wk['weekly']['done'] and wk['candy'] == 1 and wk['extra'] == 5 + (DAILY_PRIZE if wk['daily']['done'] else 0) and wk['hyper'] == 0 and wk['news'][-1]['kind'] == 'weekly'
     assert wk['candy'] == 1  # 이상한사탕은 매주 1개
     bump(wk, kind, key='2026-W43')
-    assert wk['hyper'] == 2  # 두 번 주지 않는다
+    assert wk['candy'] == 1 and wk['extra'] <= 5 + DAILY_PRIZE  # 두 번 주지 않는다
     assert weekly(wk, '2026-W44')['n'] == 0 and not wk['weekly']['done']  # 다음 주는 새 과제
     # 일일 과제: 날짜로 정해지고, 그 종류만 세며, 채우면 탐색 +DAILY_PRIZE 한 번 · 다음 날은 새 과제(2026-11-19 사용자)
     dq = new_state()
