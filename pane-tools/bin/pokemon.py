@@ -92,7 +92,8 @@ ENCOUNTER_EVERY = 30_000
 STAGE_XP = [150_000, 400_000]  # 1→2단계, 2→3단계
 BALLS = 3
 WINDOW = 4  # 순서상 앞쪽 몇 마리 중에서 나오나
-BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다(wild_odds)
+BOXED_WEIGHT = 0.1  # 지금 가방에 있는 종은 다른 종의 1/10 만 나온다 — 지금 세대(wild_odds)·이전 세대 섞기(old_pick) 모두.
+# 가방에 없는 종이 10배 — 합체·특수 모습·진화로 써 버린 종(큐레무·파이리)도 다시 잘 만난다(2026-11-25 사용자)
 EVO_WILD_WEIGHT = 0.1  # 이전 세대 종에서 진화하는 종(에브이·블래키 등)도 1/10 — 주로 진화로 얻게(evo_wild)
 SHINY_RATE = 1 / 256
 # [교환] → [몬스터볼]: (낼 볼, 받을 볼, 개수) — 마스터볼까지 몬스터볼 500개(5×20×5). 전설은 하이퍼볼부터라 슈퍼볼→하이퍼볼이 비싸다(2026-10-28)
@@ -348,12 +349,13 @@ def is_legend(n):
     return bool(DEX[sp(n)][5])
 
 
-def old_pick(old, rng=random):
-    """이전 세대 섞기에서 한 종 — 전설·환상은 한 종마다 OLD_LEGEND_EACH(전체는 OLD_LEGEND_CAP 까지), 나머지는 고르게."""
+def old_pick(old, rng=random, inbag=()):
+    """이전 세대 섞기에서 한 종 — 전설·환상은 한 종마다 OLD_LEGEND_EACH(전체는 OLD_LEGEND_CAP 까지), 나머지는 고르게.
+    inbag(가방에 있는 종)은 그 몫의 BOXED_WEIGHT — 가방에 없는 종이 10배."""
     legs = sum(1 for n in old if is_legend(n))
     rest = len(old) - legs
     share = min(OLD_LEGEND_CAP, OLD_LEGEND_EACH * legs) if rest else 1
-    weights = [share / legs if is_legend(n) else (1 - share) / rest for n in old]
+    weights = [(share / legs if is_legend(n) else (1 - share) / rest) * (BOXED_WEIGHT if n in inbag else 1) for n in old]
     return rng.choices(old, weights=weights)[0]
 
 
@@ -619,10 +621,11 @@ def wild_odds(st):
     막아 같은 포켓몬만 나왔다(진화 전 스타팅 3종이 4칸 중 3칸). 아예 빼지는 않고 드물게만 나오게 한다."""
     pool, inbag = [n for n in wild_pool(st) if in_habitat(st, n)], boxed(st)
     fresh = [n for n in pool if n not in inbag and not evo_wild(n)][:WINDOW]
-    if not fresh:  # 남은 게 전부 가방 속 종·이전 세대 진화형이면 그것들 전부에서 고르게 — 앞 WINDOW 마리만 쓰니
-        return [(n, 1) for n in pool]          # 3세대 41종이 다 가방에 있을 때 스타팅 3종·포챠나만 돌아가며 나왔다(2026-11-09)
+    bag = lambda n: BOXED_WEIGHT if n in inbag else 1  # noqa: E731 — 가방에 없는 종이 10배
+    if not fresh:  # 남은 게 전부 가방 속 종·이전 세대 진화형이면 그것들 전부에서(진화형도 막히지 않게 보통 몫) — 앞 WINDOW 마리만 쓰니
+        return [(n, bag(n)) for n in pool]  # 3세대 41종이 다 가방에 있을 때 스타팅 3종·포챠나만 돌아가며 나왔다(2026-11-09)
     front = pool[:pool.index(fresh[-1]) + 1]
-    return [(n, BOXED_WEIGHT if n in inbag else EVO_WILD_WEIGHT if evo_wild(n) else 1) for n in front]
+    return [(n, (EVO_WILD_WEIGHT if evo_wild(n) else 1) * bag(n)) for n in front]
 
 
 def evo_wild(n):
@@ -831,7 +834,7 @@ def explore(st, t, rng=random):
     run_stat(st)['explores'] += 1
     bump(st, 'explore')
     if old and (not odds or rng.random() < OLD_GEN_RATE):
-        n = old_pick(old, rng)
+        n = old_pick(old, rng, boxed(st))
     else:
         n = rng.choices([n for n, _ in odds], weights=[w for _, w in odds])[0]
     shiny = rng.random() < shiny_rate(st, n)  # 리전폼도 이로치·우두머리(2026-11-06 사용자 — 전엔 따로 모으던 시절 규칙으로 없었다)
@@ -4161,7 +4164,7 @@ def selftest():
     ev['box'] = [{'id': n, 'xp': 0} for n in wild_pool(ev)]  # 후보가 다 가방에 있어도 앞 WINDOW 마리가 아니라 후보 전부에서
     ev['caught'] = [n for n in ev['caught'] if n not in (152, 155, 158)]  # 스타팅 셋을 다시 후보로 — 다섯 마리(> WINDOW)
     ev['box'] += [{'id': n, 'xp': 0} for n in (152, 155, 158)]
-    assert len(wild_pool(ev)) > WINDOW and dict(wild_odds(ev)) == {n: 1 for n in wild_pool(ev)}, wild_odds(ev)
+    assert len(wild_pool(ev)) > WINDOW and dict(wild_odds(ev)) == {n: BOXED_WEIGHT for n in wild_pool(ev)}, wild_odds(ev)  # 다 가방에 — 서로 같은 몫
     assert dex_hint(ev, 196) == L('진화 — ???에서 · 야생은 드묾', 'evolve from ??? · rare in the wild')
     odds = dict(wild_odds(dup))
     assert odds[25] == BOXED_WEIGHT and sorted(odds.values()).count(1) == WINDOW, odds
@@ -4763,6 +4766,13 @@ def selftest():
         hit_big = sum(old_pick(big, r) == big[0] for _ in range(40000)) / 40000
         assert 0.006 < hit_small < 0.012 and 0.006 < hit_big < 0.012, (hit_small, hit_big)
         assert old_pick([150, 151], r) in (150, 151)  # 전설만 남아도 고른다
+        # 가방에 없는 종이 10배 — 블랙큐레무에 큐레무를 써 버린 뒤 화이트큐레무용 한 마리(2026-11-25 사용자)
+        pool = [646] + [n for n in DEX if gen(n) < 5 and DEX[n][5]][:8] + [n for n in DEX if gen(n) < 5 and not DEX[n][5]][:65]
+        inbag = set(pool) - {646}
+        base = sum(old_pick(pool, r, set(pool)) == 646 for _ in range(40000)) / 40000
+        up = sum(old_pick(pool, r, inbag) == 646 for _ in range(40000)) / 40000
+        assert 0.006 < base < 0.012 and 0.06 < up < 0.11, (base, up)
+        assert sum(old_pick([4, 5, 6], r, {5, 6}) == 4 for _ in range(12000)) / 12000 > 0.75  # 진화시켜 가방에 없는 파이리 10 : 1 : 1
         o2['caught'] += [152, 153, 154]  # 지금 세대(2)에서 계열을 다 잡은 치코리타는 지금 세대 후보에서 빠져도 이쪽으로 만난다
         assert 152 not in wild_pool(o2) and 152 in old_pool(o2) and 155 not in old_pool(o2)  # 진화형은 원래 야생에 없다(wild_ok)
         r, hits = random.Random(3), 0
