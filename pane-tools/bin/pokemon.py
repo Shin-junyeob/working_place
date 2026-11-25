@@ -3979,8 +3979,9 @@ def main(scr):
             scr.refresh()
             cands = [(k, m['id'], box_level(m), iv_of(m)) + alpha_x(m) for k, m in enumerate(st['box']) if gsel[1] in ('R', 'T') or gsel[1] in FORM_RAIDS or gen(m['id']) == gsel[0] or m.get('companion')]
             opp = gym_opp(BATTLE, *gsel, st)
-            if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률로(가볍게 40번씩)
-                pick = _battle.recommend(BATTLE, cands, sum(opp, []), rate=lambda tm: _battle.league_rate(BATTLE, tm, opp, runs=40))
+            if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률 — 같으면(앞쪽은 늘 0) 쓰러뜨린 상대 비율(league_score)
+                pick = _battle.recommend(BATTLE, cands, sum(opp, []), shortlist=24,
+                                        rate=lambda tm: _battle.league_score(BATTLE, tm, opp))
             else:
                 pick = _battle.recommend(BATTLE, cands, opp, size=TOWER_SIZE if gsel[1] == 'T' else _battle.TEAM_MAX)
             rec = (gsel, pick, repr(opp) if gsel[1] == 'T' else '')  # 승률은 화면이 그 순서로 계산한다

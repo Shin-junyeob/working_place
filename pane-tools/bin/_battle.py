@@ -228,6 +228,19 @@ def league_rate(d, team, teams, runs=100, seed=7):
     return sum(gauntlet(d, team, teams, rng, log=False)[0] for _ in range(runs)) / runs
 
 
+def league_score(d, team, teams, runs=40, seed=7):
+    """추천용 (끝까지 이긴 비율, 쓰러뜨린 상대의 평균 비율) — 같은 판들에서 함께 센다. 이긴 비율만으로는 한두 마리 팀이 늘 0 이라
+    추천이 앞쪽 몇 마리를 견주지 못하고 Lv55 전설들을 골랐다(2026-11-25 사용자 — 5세대 사천왕 추천 승률 0%, Lv79 위주면 38%)."""
+    if not team or not teams:
+        return 0.0, 0.0
+    rng, total, won, down = random.Random(seed), sum(len(t) for t in teams), 0, 0
+    for _ in range(runs):
+        ok, ev = gauntlet(d, team, teams, rng)
+        won += ok
+        down += sum(1 for e in ev if e[0] == 'faint' and e[1] == 'foe')
+    return won / runs, down / (runs * total)
+
+
 def gym_team(d, g, i, gen_of, final):
     """g 세대 i 번째(0부터) 체육관의 상대 [(종, 레벨, 개체값)] — 늘 같은 팀(체육관마다 고정 시드).
     gen_of(종 → 세대)에 든 종 중 그 타입이면서 g 세대까지인 것에서, 마지막은 최종 진화형. 종이 모자라면 겹쳐 쓴다.
@@ -256,12 +269,23 @@ def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=60, seed=11, rate
         m = Mon(d, *c[1:])
         return sum(matchup(d, c[1], x[0]) for x in opp) * (sum(m.st) / 100)
     pool = sorted(cands, key=score, reverse=True)[:shortlist]
+    value = lambda tm: (rate or (lambda t: win_rate(d, t, opp, runs, seed)))([x[1:] for x in tm])  # noqa: E731
     team = []
     while len(team) < min(size, len(pool)):
-        best = max((c for c in pool if c not in team),
-                   key=lambda c: ((rate or (lambda tm: win_rate(d, tm, opp, runs, seed)))([x[1:] for x in team + [c]]),
-                                  score(c)))
-        team.append(best)
+        team.append(max((c for c in pool if c not in team), key=lambda c: (value(team + [c]), score(c))))
+    # 한 마리씩 더하면 앞쪽을 고를 때 뒤에 올 팀원을 모른다 — 다 고른 뒤 한 자리씩 다른 후보로 바꿔 보고 나아지면 바꾼다(두 바퀴).
+    # 5세대 사천왕(2026-11-25): 더하기만으로 7% → 바꾸기 뒤 Lv79 위주 팀
+    best = value(team)
+    for _ in range(2):
+        changed = False
+        for i in range(len(team)):
+            for c in pool:
+                if c not in team:
+                    v = value(team[:i] + [c] + team[i + 1:])
+                    if v > best:
+                        team, best, changed = team[:i] + [c] + team[i + 1:], v, True
+        if not changed:
+            break
     return [c[0] for c in team]
 
 
@@ -315,6 +339,10 @@ def selftest():
     won, ev = gauntlet(d, [(3, 10)], [[(2, 60)], [(2, 10)]], random.Random(2))
     assert not won and ('trainer', 1) not in ev
     assert league_rate(d, [(1, 100)], [[(2, 10)], [(2, 10)]]) == 1.0
+    # 추천용 점수 — 끝까지 못 이겨도(이긴 비율 0) 쓰러뜨린 상대 비율로 팀을 견줄 수 있다
+    assert league_score(d, [(1, 100)], [[(2, 10)], [(2, 10)]]) == (1.0, 1.0)
+    w, down = league_score(d, [(1, 40)], [[(2, 30)], [(3, 100)]])  # 불꽃은 잡고 풀(Lv100)에 진다
+    assert w == 0.0 and 0.4 < down < 0.6, (w, down)
     assert all(len(v) == 4 for v in LEAGUE.values()) and sorted(LEAGUE) == list(range(1, 10))
     assert all(len(v) == 8 for v in GYMS.values()) and sorted(GYMS) == list(range(1, 10))
     print('battle selftest ok')
