@@ -2462,8 +2462,8 @@ def fight(st, t, d, g, i, rng=random, today=None):
     if tickets(st, t) < cost:
         return None, L(f'탐색 기회가 {cost}번 있어야 도전할 수 있다.', f'You need {cost} explores to challenge.'), False
     st['used'] += cost
-    if i == 'T' and not tower_state(st)['run']:  # 새 도전 — 연승 0부터, 상대 순서를 새로
-        tower_state(st).update(run=True, streak=0, seed=rng.randrange(1 << 30))
+    if i == 'T' and not tower_state(st)['run']:  # 새 도전 — 연승 0부터. 상대 순서(seed)는 지난 도전이 끝날 때 미리 뽑아 두었다 —
+        tower_state(st).update(run=True, streak=0)  # 여기서 뽑으면 준비 화면·추천·승률의 상대와 첫 판 상대가 달랐다(2026-11-25 사용자, 20번 중 20번)
     mine = fighters(st, team)
     won, ev = (_battle.gauntlet(d, mine, gym_opp(d, g, i, st), rng) if i == 'L' else _battle.battle(d, mine, gym_opp(d, g, i, st), rng))
     for k, n, _ in team:
@@ -2493,7 +2493,7 @@ def fight(st, t, d, g, i, rng=random, today=None):
                         else:
                             st[key] += k
         else:
-            tw.update(run=False, streak=0)
+            tw.update(run=False, streak=0, seed=rng.randrange(1 << 30))  # 다음 도전의 상대 순서 — 준비 화면에 바로 보인다
     elif won and i == 'R':  # 레이드 — 레이드볼 RAID_BALLS 개로 잡을 기회(다른 야생과 만나는 중이면 그게 끝난 뒤)
         r = raid_state(st)
         r['won'], r['pending'] = True, True
@@ -3979,11 +3979,7 @@ def main(scr):
             scr.refresh()
             cands = [(k, m['id'], box_level(m), iv_of(m)) + alpha_x(m) for k, m in enumerate(st['box']) if gsel[1] in ('R', 'T') or gsel[1] in FORM_RAIDS or gen(m['id']) == gsel[0] or m.get('companion')]
             opp = gym_opp(BATTLE, *gsel, st)
-            if gsel[1] == 'L':  # 연전은 다섯 팀을 이어 붙여 후보를 추리고, 고를 때는 연전 승률 — 같으면(앞쪽은 늘 0) 쓰러뜨린 상대 비율(league_score)
-                pick = _battle.recommend(BATTLE, cands, sum(opp, []), shortlist=24,
-                                        rate=lambda tm: _battle.league_score(BATTLE, tm, opp))
-            else:
-                pick = _battle.recommend(BATTLE, cands, opp, size=TOWER_SIZE if gsel[1] == 'T' else _battle.TEAM_MAX)
+            pick = _battle.recommend(BATTLE, cands, opp, size=TOWER_SIZE if gsel[1] == 'T' else _battle.TEAM_MAX, league=gsel[1] == 'L')
             rec = (gsel, pick, repr(opp) if gsel[1] == 'T' else '')  # 승률은 화면이 그 순서로 계산한다
             msg = ''
         if act == 'apply' and view == 'gym' and rec and rec[0] == gsel and \
@@ -4236,6 +4232,9 @@ def selftest():
     gdt['stats'], gdt['types'] = Stats({6: [5] * 6}, [250] * 6), Stats({6: [1]}, [10])  # 이제 상대가 훨씬 세다
     assert not fight(tw_, 40 * ENCOUNTER_EVERY, gdt, 0, 'T', random.Random(9))[0]
     assert tower_state(tw_)['run'] is False and tower_state(tw_)['streak'] == 0 and tower_state(tw_)['best'] == 7
+    tw_next = tower_opp(tw_)  # 준비 화면에 보이는 다음 도전의 첫 상대 = 실제로 싸우는 상대
+    _, tev, _ = fight(json.loads(json.dumps(tw_)), 40 * ENCOUNTER_EVERY, gdt, 0, 'T', random.Random(11))
+    assert [e[2] for e in tev if e[0] == 'send' and e[1] == 'foe'][0] == tw_next[0][0]
     used1 = tw_['used']
     fight(tw_, 40 * ENCOUNTER_EVERY, gdt, 0, 'T', random.Random(10))
     assert tw_['used'] == used1 + TOWER_COST  # 다시 시작하면 또 탐색 2번

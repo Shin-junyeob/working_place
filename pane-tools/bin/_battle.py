@@ -140,16 +140,22 @@ COND = (0.85, 1.15)  # 컨디션 — 판마다 포켓몬 능력치 배수(2026-1
 # 레벨 차 2 만으로 승률이 0%·100% 로 갈렸다 — 한 판 내내 걸리는 흔들림이라야 곡선이 된다(시뮬레이션: −4 11% · 0 51% · +4 82%)
 
 
-def battle(d, team, opp, rng, log=True):
-    """자동 배틀. team·opp: [(종, 레벨[, 개체값])]. (이겼나, 기록) — 기록은 화면이 한 줄씩 보여 준다:
+def battle(d, team, opp, rng, log=True, out=None):
+    """자동 배틀. team·opp: [(종, 레벨[, 개체값])]. (이겼나, 기록) — out(dict)을 주면 out['dealt'] 에 상대 전체 HP 중 깎은 비율.
+    기록은 화면이 한 줄씩 보여 준다:
     ('send', 'me'|'foe', 종, 레벨, 최대HP, 컨디션) · ('hit', 공격쪽, 공격종, 맞은종, 데미지, 배율, 남은HP, 최대HP, 공격 타입) · ('faint', 쪽, 종)."""
     mine, foes = [Mon(d, *x) for x in team], [Mon(d, *x) for x in opp]
     for m in mine + foes:  # 컨디션 — 이 판 동안만
         m.cond = rng.uniform(*COND)
         m.st = [max(1, int(v * m.cond)) for v in m.st]
         m.hp = m.st[0]
-    ev = []
+    ev, all_foes = [], list(foes)
     say = ev.append if log else (lambda e: None)
+
+    def done(won):
+        if out is not None:
+            out['dealt'] = sum(f.st[0] - f.hp for f in all_foes) / max(1, sum(f.st[0] for f in all_foes))
+        return won, ev
     foe = foes.pop(0)
     me = max(mine, key=lambda m: matchup(d, m.n, foe.n))  # 상대에게 가장 유리한 것부터
     mine.remove(me)
@@ -168,17 +174,17 @@ def battle(d, team, opp, rng, log=True):
             say(('faint', 'foe' if side == 'me' else 'me', b.n))
             if side == 'me':
                 if not foes:
-                    return True, ev
+                    return done(True)
                 foe = foes.pop(0)
                 say(('send', 'foe', foe.n, foe.lv, foe.st[0], foe.cond))
             else:
                 if not mine:
-                    return False, ev
+                    return done(False)
                 me = max(mine, key=lambda m: matchup(d, m.n, foe.n))
                 mine.remove(me)
                 say(('send', 'me', me.n, me.lv, me.st[0], me.cond))
             break  # 쓰러진 쪽은 이번 차례에 치지 못한다
-    return False, ev
+    return done(False)
 
 
 def win_rate(d, team, opp, runs=200, seed=7):
@@ -207,16 +213,21 @@ def league_teams(d, g, gen_of, final):
     return teams
 
 
-def gauntlet(d, team, teams, rng, log=True):
-    """사천왕·챔피언 연전 — 판마다 체력은 회복, 한 판이라도 지면 끝. (이겼나, 기록) — 판 앞에 ('trainer', 순서)."""
-    ev = []
+def gauntlet(d, team, teams, rng, log=True, out=None):
+    """사천왕·챔피언 연전 — 판마다 체력은 회복, 한 판이라도 지면 끝. (이겼나, 기록) — 판 앞에 ('trainer', 순서).
+    out(dict)을 주면 out['dealt'] 에 진행 비율(이긴 판 + 진 판에서 깎은 비율) ÷ 판 수."""
+    ev, one = [], {}
     for k, opp in enumerate(teams):
         if log:
             ev.append(('trainer', k))
-        won, part = battle(d, team, opp, rng, log)
+        won, part = battle(d, team, opp, rng, log, one)
         ev += part
         if not won:
+            if out is not None:
+                out['dealt'] = (k + one['dealt']) / len(teams)
             return False, ev
+    if out is not None:
+        out['dealt'] = 1.0
     return True, ev
 
 
@@ -228,17 +239,17 @@ def league_rate(d, team, teams, runs=100, seed=7):
     return sum(gauntlet(d, team, teams, rng, log=False)[0] for _ in range(runs)) / runs
 
 
-def league_score(d, team, teams, runs=40, seed=7):
-    """추천용 (끝까지 이긴 비율, 쓰러뜨린 상대의 평균 비율) — 같은 판들에서 함께 센다. 이긴 비율만으로는 한두 마리 팀이 늘 0 이라
-    추천이 앞쪽 몇 마리를 견주지 못하고 Lv55 전설들을 골랐다(2026-11-25 사용자 — 5세대 사천왕 추천 승률 0%, Lv79 위주면 38%)."""
-    if not team or not teams:
+def evaluate(d, team, opp, runs=40, seed=7, league=False):
+    """추천용 (이긴 비율, 상대 HP 를 깎은 평균 비율) — 같은 판들에서 함께 센다. league 면 opp 는 팀들(사천왕 연전).
+    이긴 비율만으로는 견줄 수 없는 팀이 많았다 — 한두 마리 팀은 연전을 늘 못 이기고(5세대 사천왕 추천이 Lv55 전설, 0%),
+    보스 HP 48배 레이드는 거의 0% 아니면 100% 라(2026-11-25 사용자) 둘 다 0% 인 팀끼리는 얼마나 깎았나로 가른다."""
+    if not team or not opp:
         return 0.0, 0.0
-    rng, total, won, down = random.Random(seed), sum(len(t) for t in teams), 0, 0
+    rng, won, dealt, out = random.Random(seed), 0, 0.0, {}
     for _ in range(runs):
-        ok, ev = gauntlet(d, team, teams, rng)
-        won += ok
-        down += sum(1 for e in ev if e[0] == 'faint' and e[1] == 'foe')
-    return won / runs, down / (runs * total)
+        won += (gauntlet if league else battle)(d, team, opp, rng, False, out)[0]
+        dealt += out['dealt']
+    return won / runs, dealt / runs
 
 
 def gym_team(d, g, i, gen_of, final):
@@ -257,33 +268,50 @@ def gym_team(d, g, i, gen_of, final):
     return [(n, lv + OPP_LV_BONUS + (2 if j == k - 1 else 0), (7 + i,) * 6) for j, n in enumerate(picks)]  # 개체값 1관 7 ~ 8관 14
 
 
-def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=60, seed=11, rate=None):
-    """가진 포켓몬 cands [(가방 번호, 종, 레벨[, 개체값])] 중 opp 에 맞서 승률이 가장 오르도록 하나씩 더한 팀 [가방 번호].
-    먼저 상성·능력치로 shortlist 마리를 추리고(전부 돌리면 느리다), 그 안에서 고른다.
-    rate(팀) 를 주면 승률 대신 그것으로 고른다 — 사천왕 연전처럼 상대가 여러 팀일 때(opp 는 그 팀들을 이어 붙인 것)."""
-    cands = [c for c in cands if c[1] in d['stats'] and c[1] in d['types']]
-    if not cands or not opp:
-        return []
+def duel(d, a, b):
+    """a 가 b 를 쓰러뜨리는 데 걸리는 타수 대비 b 가 a 를 쓰러뜨리는 타수 — 1 보다 크면 a 가 유리. 레벨·능력치·개체값·상성을 다 넣은
+    한 판 어림(난수·컨디션 없이). 상성 배율만 보던 추림 점수는 Lv55 전설을 Lv79 보다 위에 놓았다(2026-11-25)."""
+    ma, mb = Mon(d, *a), Mon(d, *b)
 
-    def score(c):
-        m = Mon(d, *c[1:])
-        return sum(matchup(d, c[1], x[0]) for x in opp) * (sum(m.st) / 100)
-    pool = sorted(cands, key=score, reverse=True)[:shortlist]
-    value = lambda tm: (rate or (lambda t: win_rate(d, t, opp, runs, seed)))([x[1:] for x in tm])  # noqa: E731
+    def hits(x, y):  # x 가 y 를 쓰러뜨리는 타수 — 칠 수 없으면 아주 큰 수
+        f = best_attack(d, x.n, y.n)[1]
+        atk, df = (x.st[1], y.st[2]) if x.st[1] >= x.st[3] else (x.st[3], y.st[4])
+        per = ((2 * x.lv / 5 + 2) * POWER * atk / max(1, df) / 50 + 2) * 1.5 * f * 0.925
+        return y.st[0] / per if per > 0 else 1e9
+    return min(8.0, hits(mb, ma) / hits(ma, mb))
+
+
+def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=None, seed=11, league=False):
+    """가진 포켓몬 cands [(가방 번호, 종, 레벨[, 개체값…])] 중 opp 에 맞서 가장 나은 팀 [가방 번호]. league 면 opp 는 팀들(연전).
+    ① 상대 하나하나와의 일대일(duel) 합으로 shortlist 마리를 추리고(전부 돌리면 느리다) ② 하나씩 더하며 evaluate(이긴 비율,
+    깎은 비율)가 가장 오르는 것을 고르고 ③ 한 자리씩 다른 후보로 바꿔 보고 나아지면 바꾼다(두 바퀴) — 한 마리씩 더하면
+    앞쪽을 고를 때 뒤에 올 팀원을 모른다."""
+    cands = [c for c in cands if c[1] in d['stats'] and c[1] in d['types']]
+    flat = sum(opp, []) if league else opp
+    if not cands or not flat:
+        return []
+    pool = sorted(cands, key=lambda c: sum(duel(d, c[1:], x) for x in flat), reverse=True)[:shortlist]
+    runs = runs or (100 if league else 60)  # 연전은 40판이면 우연에 맞춰 골라 같은 가방도 20~48%로 흔들렸다 — 100판이면 56%(5세대, 약 5초)
+    value = lambda tm: evaluate(d, [x[1:] for x in tm], opp, runs, seed, league)  # noqa: E731
     team = []
     while len(team) < min(size, len(pool)):
-        team.append(max((c for c in pool if c not in team), key=lambda c: (value(team + [c]), score(c))))
-    # 한 마리씩 더하면 앞쪽을 고를 때 뒤에 올 팀원을 모른다 — 다 고른 뒤 한 자리씩 다른 후보로 바꿔 보고 나아지면 바꾼다(두 바퀴).
-    # 5세대 사천왕(2026-11-25): 더하기만으로 7% → 바꾸기 뒤 Lv79 위주 팀
+        team.append(max((c for c in pool if c not in team), key=lambda c: value(team + [c])))
     best = value(team)
-    for _ in range(2):
-        changed = False
-        for i in range(len(team)):
-            for c in pool:
-                if c not in team:
-                    v = value(team[:i] + [c] + team[i + 1:])
-                    if v > best:
-                        team, best, changed = team[:i] + [c] + team[i + 1:], v, True
+    for _ in range(2):  # 바꾸기 — 다른 후보로, 그리고 순서 맞바꾸기: 상성이 같으면 앞 순서가 먼저 나가 순서만으로도
+        changed = False  # 같은 여섯 마리가 25%·55% 로 갈렸다(5세대 사천왕, 2026-11-25). [적용]은 이 순서 그대로 팀에 넣는다.
+        tries = [(i, c) for i in range(len(team)) for c in pool if c not in team] + \
+                [(i, j) for i in range(len(team)) for j in range(i + 1, len(team))]
+        for i, c in tries:
+            if isinstance(c, int):
+                t2 = list(team)
+                t2[i], t2[c] = t2[c], t2[i]
+            elif c in team:
+                continue
+            else:
+                t2 = team[:i] + [c] + team[i + 1:]
+            v = value(t2)
+            if v > best:
+                team, best, changed = t2, v, True
         if not changed:
             break
     return [c[0] for c in team]
@@ -340,9 +368,12 @@ def selftest():
     assert not won and ('trainer', 1) not in ev
     assert league_rate(d, [(1, 100)], [[(2, 10)], [(2, 10)]]) == 1.0
     # 추천용 점수 — 끝까지 못 이겨도(이긴 비율 0) 쓰러뜨린 상대 비율로 팀을 견줄 수 있다
-    assert league_score(d, [(1, 100)], [[(2, 10)], [(2, 10)]]) == (1.0, 1.0)
-    w, down = league_score(d, [(1, 40)], [[(2, 30)], [(3, 100)]])  # 불꽃은 잡고 풀(Lv100)에 진다
-    assert w == 0.0 and 0.4 < down < 0.6, (w, down)
+    assert evaluate(d, [(1, 100)], [[(2, 10)], [(2, 10)]], league=True) == (1.0, 1.0)
+    w, dealt = evaluate(d, [(1, 40)], [[(2, 30)], [(3, 100)]], league=True)  # 불꽃은 잡고 풀(Lv100)에 진다
+    assert w == 0.0 and 0.5 <= dealt < 0.75, (w, dealt)  # 첫 판은 이겼다 — 둘째 판에서 깎은 만큼 더
+    w, dealt = evaluate(d, [(3, 20)], [(1, 60, (0,) * 6, 10)])  # HP 10배 보스 — 못 이겨도 깎은 만큼은 센다
+    assert w == 0.0 and 0 < dealt < 1, (w, dealt)
+    assert duel(d, (1, 50), (2, 50)) > 1 > duel(d, (2, 50), (1, 50)) and duel(d, (1, 80), (1, 50)) > duel(d, (1, 50), (1, 80))
     assert all(len(v) == 4 for v in LEAGUE.values()) and sorted(LEAGUE) == list(range(1, 10))
     assert all(len(v) == 8 for v in GYMS.values()) and sorted(GYMS) == list(range(1, 10))
     print('battle selftest ok')
