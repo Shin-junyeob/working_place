@@ -730,6 +730,7 @@ def load(root=ROOT):
             if m['id'] in DEX:
                 r = st['research'].setdefault(str(m['id']), {})
                 r['c'] = r.get('c', 0) + 1
+    LEVEL_CAP[0] = level_cap(st)
     told = st.setdefault('genwait', [])  # 챔피언은 이겼는데 야생 종이 남아 닫힌 세대 — 소식으로 한 번 알린다(2026-11-09 규칙)
     for g in sorted(int(k) for k in st.get('league', {})):
         if g < GENS and not gen_done(st, g) and wild_left(st, g) and g not in told:
@@ -2147,11 +2148,20 @@ def medal_groups(st):
 
 
 GYM_COST, LEAGUE_COST = 2, 4  # 체육관 · 사천왕 도전 1회에 쓰는 탐색 기회
+# 레벨 상한 — 배틀 경험치로 오르는 레벨은 _battle.XP_LEVEL_CAP(40)까지였는데, 체육관·사천왕 상대는 세대마다 +5 라 6세대부터는
+# 최종 진화형(최대 Lv79)으로도 챔피언(Lv88~103)을 넘을 수 없었다(2026-11-25 사용자). 열린 세대가 LV_BASE_GEN 을 넘을 때마다
+# LV_PER_GEN 씩(5세대 52 · 9세대 64 → 최종 진화형 최대 Lv91 · Lv103). 쌓인 경험치는 상한을 넘어도 남아 있어 상한이 오르면 바로 오른다.
+LV_PER_GEN, LV_BASE_GEN = 3, 1  # 2세대부터 세대마다 +3(2026-11-25 사용자)
+LEVEL_CAP = [_battle.XP_LEVEL_CAP]  # 지금 저장의 상한 — load() 가 정한다(box_level 은 저장 없이 불리는 곳이 많다)
+
+
+def level_cap(st):
+    return _battle.XP_LEVEL_CAP + LV_PER_GEN * max(0, opened_gen(st) - LV_BASE_GEN)
 GYM_WIN_XP, GYM_LOSE_XP = 60, 30  # 팀원마다 받는 배틀 경험치(이기면 + 체육관 순서 × 10)
 
 
 def box_level(m):
-    return _battle.level(depth(m['id']), m.get('bxp', 0))
+    return _battle.level(depth(m['id']), m.get('bxp', 0), LEVEL_CAP[0])
 
 
 def team_of(st, g=None):
@@ -2601,7 +2611,9 @@ def marked_cols(line, word):
 
 
 def move_name(n, t):
-    """종 n 이 타입 t 로 칠 때의 기술 이름 — 그 타입 대표 기술 중 종마다 하나(늘 같은 것). 모르는 타입이면 ''."""
+    """종 n 이 타입 t 로 칠 때의 기술 이름 — 그 타입 대표 기술 중 종마다 하나(늘 같은 것). 0 은 발버둥(자기 타입이 모두 무효), 모르는 타입이면 ''."""
+    if t == 0:
+        return L('발버둥', 'Struggle')
     names = MOVE_NAMES.get(t)
     return L(*names[sp(n) % len(names)]) if names else ''
 
@@ -2622,6 +2634,8 @@ def fight_line(ev):
                 L(f'상대가 {name(ev[2])}(을)를 내보냈다!', f'The foe sent out {name(ev[2])}!')) + (f' {cw}' if cw else '')
     if ev[0] == 'faint':
         return L(f'{name(ev[2])}(은)는 쓰러졌다!', f'{name(ev[2])} fainted!')
+    if ev[0] == 'recall':  # 공격이 무효라 대기 중인 팀원으로 바꾼다
+        return L(f'{name(ev[2])}, 돌아와!', f'{name(ev[2])}, come back!')
     _, side, a, b, dmg, f, hp, top = ev[:8]
     mv = move_name(a, ev[8]) if len(ev) > 8 else ''
     eff = L('효과가 굉장했다! ', "It's super effective! ") if f > 1 else L('효과가 별로인 듯하다… ', "It's not very effective… ") \
@@ -2638,7 +2652,7 @@ def fight_state(ev, k):
         if e[0] == 'trainer':
             now.clear()
         elif e[0] == 'send':
-            now[e[1]] = [e[2], None, e[4] if len(e) > 4 else None, e[3]]  # 최대 HP(개체값 반영)는 내보낼 때 실려 온다
+            now[e[1]] = [e[2], e[6] if len(e) > 6 else None, e[4] if len(e) > 4 else None, e[3]]  # 최대·지금 HP 는 내보낼 때 실려 온다(교체로 다시 나오면 남은 HP)
         elif e[0] == 'hit':
             side = 'foe' if e[1] == 'me' else 'me'
             if side in now:
@@ -4472,6 +4486,10 @@ def selftest():
     assert bs['_broken'] and open(f'{bad}/pokemon.json').read() == '{"box": [{"id": 25' and os.path.exists(f'{bad}/pokemon.json.bad')
     assert summary(bad)[0][1] == 'warn' and open(f'{bad}/pokemon.json').read() == '{"box": [{"id": 25'
     assert load(tempfile.mkdtemp()).get('_broken') is None  # 파일이 없으면 새 게임
+    LEVEL_CAP[0] = _battle.XP_LEVEL_CAP  # 위 시험들이 읽은 저장이 상한을 바꿔 놓았다 — 아래 레벨 시험은 1세대 기준
+    # 레벨 상한: 2세대부터 세대마다 LV_PER_GEN — 1세대 40 · 5세대 52, 쌓인 경험치는 남아 있어 바로 오른다
+    lc = new_state()
+    assert level_cap(lc) == _battle.XP_LEVEL_CAP and level_cap(unlock(new_state(), 5)) == _battle.XP_LEVEL_CAP + 4 * LV_PER_GEN
     # 도감 상세: 한국어가 없으면 영어, 설명은 최근 판, 줄바꿈은 빈칸, 다른 모습은 그 번호로, 타입은 slot 순
     det = _pokedata.build_detail(
         [{'pokemon_species_id': '1', 'local_language_id': '3', 'name': '이상해씨', 'genus': '씨앗포켓몬'},

@@ -13,6 +13,8 @@ import _pokedata
 
 DATA = f'{_pokedata.ROOT}/battle.json'
 POWER = 70  # 모든 공격의 위력 — 기술 이름 없이 자기 타입 공격 한 가지
+STRUGGLE = 50  # 자기 타입이 모두 무효(0배)일 때의 '발버둥' — 무속성 · 자기 타입 보정 없이 상성 1배(2026-11-25 사용자). 전엔 0 데미지라
+# 레이드 보스의 공격이 무효인 포켓몬(에스퍼 보스 앞의 악 타입 Lv15)만 넣어도 이겼고, 서로 무효면 500턴 뒤 내 패배였다
 NORMAL, FIGHTING, FLYING, POISON, GROUND, ROCK, BUG, GHOST, STEEL, FIRE, WATER, GRASS, ELECTRIC, PSYCHIC, ICE, DRAGON, DARK, \
     FAIRY = range(1, 19)  # PokeAPI 타입 번호
 # 세대마다 체육관 8곳 (타입, 배지 그림 번호 — PokeAPI sprites/badges). 원작 순서.
@@ -91,9 +93,10 @@ def load():
             'eff': d['eff'], 'tnames': {int(k): v for k, v in d['tnames'].items()}}
 
 
-def level(stage, bxp):
-    """배틀 레벨 — 진화 단계(0부터)와 배틀 경험치로. 동료 진화용 토큰 경험치와는 따로다."""
-    return 15 + stage * 12 + min(XP_LEVEL_CAP, bxp // XP_PER_LEVEL)
+def level(stage, bxp, cap=XP_LEVEL_CAP):
+    """배틀 레벨 — 진화 단계(0부터)와 배틀 경험치로(경험치로 오르는 건 cap 까지 — 세대가 열릴수록 커진다, pokemon.level_cap).
+    동료 진화용 토큰 경험치와는 따로다."""
+    return 15 + stage * 12 + min(cap, bxp // XP_PER_LEVEL)
 
 
 def calc(base, lv, iv=(0,) * 6):
@@ -129,11 +132,15 @@ class Mon:
 
 
 def damage(d, a, b, rng):
-    """a 가 b 를 한 번 친 (데미지, 배율). 물리·특수는 공격·특공 중 높은 쪽(방어도 그 짝)."""
+    """a 가 b 를 한 번 친 (데미지, 배율, 공격 타입). 물리·특수는 공격·특공 중 높은 쪽(방어도 그 짝).
+    자기 타입이 모두 무효면 발버둥(타입 0, 위력 STRUGGLE, 자기 타입 보정 없이 1배)."""
     t, f = best_attack(d, a.n, b.n)
+    power, stab = (POWER, 1.5) if f else (STRUGGLE, 1.0)
+    if not f:
+        t, f = 0, 1.0
     atk, df = (a.st[1], b.st[2]) if a.st[1] >= a.st[3] else (a.st[3], b.st[4])
-    dmg = ((2 * a.lv / 5 + 2) * POWER * atk / max(1, df) / 50 + 2) * 1.5 * f * rng.uniform(0.85, 1.0)
-    return (max(1, int(dmg)) if f else 0), f
+    dmg = ((2 * a.lv / 5 + 2) * power * atk / max(1, df) / 50 + 2) * stab * f * rng.uniform(0.85, 1.0)
+    return max(1, int(dmg)), f, t
 
 
 COND = (0.85, 1.15)  # 컨디션 — 판마다 포켓몬 능력치 배수(2026-11-19 사용자). 한 번 칠 때 난수는 수십 타에 평균으로 지워져
@@ -143,7 +150,9 @@ COND = (0.85, 1.15)  # 컨디션 — 판마다 포켓몬 능력치 배수(2026-1
 def battle(d, team, opp, rng, log=True, out=None):
     """자동 배틀. team·opp: [(종, 레벨[, 개체값])]. (이겼나, 기록) — out(dict)을 주면 out['dealt'] 에 상대 전체 HP 중 깎은 비율.
     기록은 화면이 한 줄씩 보여 준다:
-    ('send', 'me'|'foe', 종, 레벨, 최대HP, 컨디션) · ('hit', 공격쪽, 공격종, 맞은종, 데미지, 배율, 남은HP, 최대HP, 공격 타입) · ('faint', 쪽, 종)."""
+    ('send', 'me'|'foe', 종, 레벨, 최대HP, 컨디션, 지금HP) · ('hit', 공격쪽, 공격종, 맞은종, 데미지, 배율, 남은HP, 최대HP, 공격 타입 — 0 은 발버둥) ·
+    ('faint', 쪽, 종) · ('recall', 'me', 종) — 내 포켓몬의 공격이 모두 무효인데 대기 중에 칠 수 있는 팀원이 있으면 그 차례를 써서
+    바꾼다(2026-11-25 사용자 — 전엔 쓰러질 때까지 맞기만 했다). 바꿔 들어간 포켓몬은 남은 HP 그대로 다시 나올 수 있다."""
     mine, foes = [Mon(d, *x) for x in team], [Mon(d, *x) for x in opp]
     for m in mine + foes:  # 컨디션 — 이 판 동안만
         m.cond = rng.uniform(*COND)
@@ -159,16 +168,27 @@ def battle(d, team, opp, rng, log=True, out=None):
     foe = foes.pop(0)
     me = max(mine, key=lambda m: matchup(d, m.n, foe.n))  # 상대에게 가장 유리한 것부터
     mine.remove(me)
-    say(('send', 'foe', foe.n, foe.lv, foe.st[0], foe.cond))
-    say(('send', 'me', me.n, me.lv, me.st[0], me.cond))
-    for _ in range(500):  # 0배끼리 만나면 끝나지 않으니 상한
-        order = [(me, foe, 'me'), (foe, me, 'foe')]
+    say(('send', 'foe', foe.n, foe.lv, foe.st[0], foe.cond, foe.hp))
+    say(('send', 'me', me.n, me.lv, me.st[0], me.cond, me.hp))
+    for _ in range(500):  # 발버둥이 있어 끝나지 않는 판은 없지만, 혹시 몰라 상한
+        sides = ['me', 'foe']
         if foe.st[5] > me.st[5] or (foe.st[5] == me.st[5] and rng.random() < 0.5):
-            order.reverse()
-        for a, b, side in order:
-            dmg, f = damage(d, a, b, rng)
+            sides.reverse()
+        for side in sides:
+            if side == 'me' and not best_attack(d, me.n, foe.n)[1]:
+                alt = [m for m in mine if best_attack(d, m.n, foe.n)[1]]
+                if alt:  # 교체 — 이번 차례를 쓴다. 들어간 포켓몬이 이번 차례 상대 공격을 받는다
+                    nxt = max(alt, key=lambda m: matchup(d, m.n, foe.n))
+                    mine.remove(nxt)
+                    mine.append(me)
+                    say(('recall', 'me', me.n))
+                    me = nxt
+                    say(('send', 'me', me.n, me.lv, me.st[0], me.cond, me.hp))
+                    continue
+            a, b = (me, foe) if side == 'me' else (foe, me)
+            dmg, f, t = damage(d, a, b, rng)
             b.hp = max(0, b.hp - dmg)
-            say(('hit', side, a.n, b.n, dmg, f, b.hp, b.st[0], best_attack(d, a.n, b.n)[0] if log else 0))
+            say(('hit', side, a.n, b.n, dmg, f, b.hp, b.st[0], t))
             if b.hp:
                 continue
             say(('faint', 'foe' if side == 'me' else 'me', b.n))
@@ -176,13 +196,13 @@ def battle(d, team, opp, rng, log=True, out=None):
                 if not foes:
                     return done(True)
                 foe = foes.pop(0)
-                say(('send', 'foe', foe.n, foe.lv, foe.st[0], foe.cond))
+                say(('send', 'foe', foe.n, foe.lv, foe.st[0], foe.cond, foe.hp))
             else:
                 if not mine:
                     return done(False)
                 me = max(mine, key=lambda m: matchup(d, m.n, foe.n))
                 mine.remove(me)
-                say(('send', 'me', me.n, me.lv, me.st[0], me.cond))
+                say(('send', 'me', me.n, me.lv, me.st[0], me.cond, me.hp))
             break  # 쓰러진 쪽은 이번 차례에 치지 못한다
     return done(False)
 
@@ -273,11 +293,12 @@ def duel(d, a, b):
     한 판 어림(난수·컨디션 없이). 상성 배율만 보던 추림 점수는 Lv55 전설을 Lv79 보다 위에 놓았다(2026-11-25)."""
     ma, mb = Mon(d, *a), Mon(d, *b)
 
-    def hits(x, y):  # x 가 y 를 쓰러뜨리는 타수 — 칠 수 없으면 아주 큰 수
+    def hits(x, y):  # x 가 y 를 쓰러뜨리는 타수
         f = best_attack(d, x.n, y.n)[1]
+        power, stab = (POWER, 1.5) if f else (STRUGGLE, 1.0)  # 무효면 발버둥
         atk, df = (x.st[1], y.st[2]) if x.st[1] >= x.st[3] else (x.st[3], y.st[4])
-        per = ((2 * x.lv / 5 + 2) * POWER * atk / max(1, df) / 50 + 2) * 1.5 * f * 0.925
-        return y.st[0] / per if per > 0 else 1e9
+        per = ((2 * x.lv / 5 + 2) * power * atk / max(1, df) / 50 + 2) * stab * (f or 1.0) * 0.925
+        return y.st[0] / per
     return min(8.0, hits(mb, ma) / hits(ma, mb))
 
 
@@ -318,14 +339,15 @@ def recommend(d, cands, opp, size=TEAM_MAX, shortlist=12, runs=None, seed=11, le
 
 
 def selftest():
-    # 작은 가짜 데이터: 1 물(11) · 2 불꽃(10) · 3 풀(12) — 물 > 불꽃 > 풀 > 물
-    d = build([{'pokemon_id': str(p), 'stat_id': str(s), 'base_stat': '50'} for p in (1, 2, 3) for s in range(1, 7)],
-              [{'id': str(p), 'species_id': str(p), 'is_default': '1'} for p in (1, 2, 3)],
+    # 작은 가짜 데이터: 1 물(11) · 2 불꽃(10) · 3 풀(12) — 물 > 불꽃 > 풀 > 물 · 4 노말(1) · 5 고스트(8) — 서로 무효
+    d = build([{'pokemon_id': str(p), 'stat_id': str(s), 'base_stat': '50'} for p in (1, 2, 3, 4, 5) for s in range(1, 7)],
+              [{'id': str(p), 'species_id': str(p), 'is_default': '1'} for p in (1, 2, 3, 4, 5)],
               [{'pokemon_id': '1', 'type_id': '11', 'slot': '1'}, {'pokemon_id': '2', 'type_id': '10', 'slot': '1'},
-               {'pokemon_id': '3', 'type_id': '12', 'slot': '1'}],
+               {'pokemon_id': '3', 'type_id': '12', 'slot': '1'}, {'pokemon_id': '4', 'type_id': '1', 'slot': '1'},
+               {'pokemon_id': '5', 'type_id': '8', 'slot': '1'}],
               [{'damage_type_id': a, 'target_type_id': b, 'damage_factor': f} for a, b, f in
                (('11', '10', '200'), ('10', '12', '200'), ('12', '11', '200'), ('10', '11', '50'), ('12', '10', '50'),
-                ('11', '12', '50'))],
+                ('11', '12', '50'), ('1', '8', '0'), ('8', '1', '0'))],
               [{'type_id': '11', 'local_language_id': '3', 'name': '물'}, {'type_id': '11', 'local_language_id': '9', 'name': 'Water'}])
     d = json.loads(json.dumps(d))  # 파일로 쓰고 읽은 것과 같게(키가 글자)
     d = {'stats': {int(k): v for k, v in d['stats'].items()}, 'types': {int(k): v for k, v in d['types'].items()},
@@ -345,8 +367,21 @@ def selftest():
     assert won and ev[0][:4] == ('send', 'foe', 2, 30) and ev[1][:4] == ('send', 'me', 1, 30)  # 불꽃 상대엔 물부터 낸다
     assert ev[-1][0] == 'faint' and ev[-1][1] == 'foe'
     sends = [e for e in ev if e[0] == 'send']  # 컨디션은 판마다 범위 안 · 기록에 실린다 · 공격 기록엔 공격 타입(기술 이름용)
-    assert all(len(e) == 6 and COND[0] <= e[5] <= COND[1] for e in sends) and all(len(e) == 9 for e in ev if e[0] == 'hit')
+    assert all(len(e) == 7 and COND[0] <= e[5] <= COND[1] and e[6] == e[4] for e in sends) and all(len(e) == 9 for e in ev if e[0] == 'hit')
     assert next(e for e in ev if e[0] == 'hit' and e[1] == 'me')[8] == 11  # 물 포켓몬은 물 기술로
+    # 발버둥: 서로 무효(노말·고스트)여도 500턴 교착 없이 끝난다 — 타입 0, 자기 타입 공격보다 약하다
+    won, ev = battle(d, [(4, 30)], [(5, 30)], random.Random(2))
+    hits = [e for e in ev if e[0] == 'hit']
+    assert len(hits) < 200 and all(e[8] == 0 and e[4] > 0 and e[5] == 1.0 for e in hits)
+    assert damage(d, Mon(d, 4, 30), Mon(d, 5, 30), random.Random(1))[0] < damage(d, Mon(d, 4, 30), Mon(d, 2, 30), random.Random(1))[0]
+    # 교체: 노말이 불꽃을 쓰러뜨린 뒤 고스트가 나오면, 대기 중인 풀로 바꾼다(그 차례를 쓴다) · 다시 나오면 남은 HP 그대로
+    won, ev = battle(d, [(4, 30), (3, 30)], [(2, 5), (5, 30)], random.Random(4))
+    k = next(j for j, e in enumerate(ev) if e[0] == 'recall')
+    assert ev[k][1:] == ('me', 4) and ev[k + 1][:3] == ('send', 'me', 3)
+    assert not any(e[0] == 'hit' and e[1] == 'me' and e[2] == 4 and e[3] == 5 for e in ev[:k])  # 물러나기 전엔 고스트를 치지 않았다
+    left = [e[6] for e in ev[:k] if e[0] == 'hit' and e[3] == 4]  # 물러날 때 노말의 HP
+    back = [e for e in ev[k + 2:] if e[0] == 'send' and e[1] == 'me' and e[2] == 4]  # 풀이 쓰러지면 다시 나와 발버둥
+    assert back and back[0][6] == (left[-1] if left else back[0][4])
     # 추천: 불꽃 체육관이면 물을 고른다
     assert recommend(d, [(0, 3, 30), (1, 1, 30), (2, 2, 30)], [(2, 30), (2, 32)], size=1) == [1]
     # 체육관 상대: 늘 같은 팀 · 마지막은 최종 진화형 · 종이 모자라면 겹쳐 쓴다
