@@ -42,7 +42,7 @@
 - 연구 레벨: 종마다 잡기 RESEARCH_CATCH(전설·환상·진화로만 얻는 종 1 — 진화해서 얻어도 잡기) · 진화 1(진화형이 있으면) · 배틀 승리 RESEARCH_WIN 을 채우면 도감 ★ 와
   RESEARCH_PRIZE(research_bump). 우두머리: 탐색의 ALPHA_RATE 로 붉은 눈의 큰 개체 — 포획률 절반, 볼 ALPHA_TRIES 번 안에 못 잡으면
   도망, 잡으면 개체값 최소 ALPHA_IV · 배틀 능력치 ×ALPHA_BOOST(alpha_x) · 박사에게·정리로 안 보낸다.
-- 레이드(체육관 왼쪽 열 맨 위, 모두 탐색 RAID_COST · HP ×RAID_HP · 개체값 15 · 그 세대 8관 레벨 +2 · 모든 세대 팀):
+- 레이드(체육관 왼쪽 열 맨 위, 탐색 RAID_COST — 전설 레이드는 하루 첫 도전 무료(raid_cost) · HP ×RAID_HP · 개체값 15 · 그 세대 8관 레벨 +2 · 모든 세대 팀):
   전설 'R' — 날마다(raid_key) 열린 세대의 전설 하나(raid_boss), 이기면 레이드볼 RAID_BALLS 개로만 잡을 기회(가진 볼은 못 쓴다),
   잡든 놓치든 그날은 끝. 이기고 못 만난 보스는 날이 바뀌어도 한 번 나온다(raid_state 의 late — 기록의 'week' 칸이 날짜 키).
   [레이드] 한 줄 안에 전설·메가진화·거다이맥스·다른 모습(gym_right 'R'). 모습 'M'·'X'·'A'(FORM_RAIDS, 목록 화면 view 'raids') — 기본 종을 잡았고 세대가 열린 모습과(raid_forms) 그 모습으로 싸운다
@@ -1396,6 +1396,12 @@ def raid_state(st, key=None):
     return st['raid']
 
 
+def raid_cost(st, i):
+    """레이드 도전 1번에 쓰는 탐색 — 전설 레이드(i == 'R')는 하루 첫 도전이 무료, 지고 다시 하면 RAID_COST(2026-11-26 사용자 —
+    하루 1승 제한에 이기기도 어렵고 이겨도 레이드볼 3개로 못 잡으면 끝이라). 모습 레이드는 늘 RAID_COST."""
+    return 0 if i == 'R' and not raid_state(st).get('tried') else RAID_COST
+
+
 def raid_done(st):
     """만난 레이드 보스가 끝남(잡음·도망·놓아줌) — 그 보스의 주 기록에만 적는다. 주가 바뀐 뒤면 이번 주 레이드는 그대로 남는다."""
     r = st.get('raid')
@@ -2463,7 +2469,7 @@ def fight(st, t, d, g, i, rng=random, today=None):
     (이겼나, 기록, 처음 이겼나) · 도전할 수 없으면 (None, 이유, False). 결과는 기록을 보여 주기 전에 바로 적용한다."""
     raid = i == 'R' or i in FORM_RAIDS
     team = team_of(st)[:TOWER_SIZE] if i == 'T' else team_of(st, None if raid else g)  # 레이드·타워는 모든 세대
-    cost = LEAGUE_COST if i == 'L' else RAID_COST if raid else (0 if tower_state(st)['run'] else TOWER_COST) if i == 'T' else GYM_COST
+    cost = LEAGUE_COST if i == 'L' else raid_cost(st, i) if raid else (0 if tower_state(st)['run'] else TOWER_COST) if i == 'T' else GYM_COST
     if i == 'R' and raid_state(st)['won']:
         return None, L('이번 주 레이드는 이미 이겼다 — 메인 화면에서 레이드볼로 잡자.', 'You already beat this raid — catch it with Raid Balls on the main screen.'), False
     if not team:
@@ -2472,6 +2478,8 @@ def fight(st, t, d, g, i, rng=random, today=None):
     if tickets(st, t) < cost:
         return None, L(f'탐색 기회가 {cost}번 있어야 도전할 수 있다.', f'You need {cost} explores to challenge.'), False
     st['used'] += cost
+    if i == 'R':
+        raid_state(st)['tried'] = True  # 오늘 무료 도전은 썼다
     if i == 'T' and not tower_state(st)['run']:  # 새 도전 — 연승 0부터. 상대 순서(seed)는 지난 도전이 끝날 때 미리 뽑아 두었다 —
         tower_state(st).update(run=True, streak=0)  # 여기서 뽑으면 준비 화면·추천·승률의 상대와 첫 판 상대가 달랐다(2026-11-25 사용자, 20번 중 20번)
     mine = fighters(st, team)
@@ -3208,9 +3216,9 @@ def main(scr):
                         btns.append((y, rx, w - 1, ('raidlist', rk)))
                     text = fit(('▶ ' if cur else '  ') + text, rw)
                     put(scr, y, rx, text.ljust(rw) if cur else text, (curses.A_REVERSE if cur else 0) | (0 if live else curses.A_DIM))
-                para(scr, 3 + len(right), L(f'모두 탐색 {RAID_COST}회 · HP ×{RAID_HP} · 모든 세대 출전. 모습 레이드는 이기면 그 모습 RP(레이드 포인트) '
+                para(scr, 3 + len(right), L(f'탐색 {RAID_COST}회(전설 레이드는 하루 첫 도전 무료) · HP ×{RAID_HP} · 모든 세대 출전. 모습 레이드는 이기면 그 모습 RP(레이드 포인트) '
                                             f'{RAID_WIN_PTS[0]}~{RAID_WIN_PTS[1]}(지면 {RAID_LOSE_PTS[0]}~{RAID_LOSE_PTS[1]}) — RP {FORM_PRICE}을 [교환]에서 아이템으로.',
-                                            f'{RAID_COST} explores each · HP ×{RAID_HP} · any generation. Form raids give {RAID_WIN_PTS[0]}-{RAID_WIN_PTS[1]} RP (raid points) '
+                                            f'{RAID_COST} explores each (a legendary raid\'s first try of the day is free) · HP ×{RAID_HP} · any generation. Form raids give {RAID_WIN_PTS[0]}-{RAID_WIN_PTS[1]} RP (raid points) '
                                             f'({RAID_LOSE_PTS[0]}-{RAID_LOSE_PTS[1]} on a loss) — trade {FORM_PRICE} for the item.'), rw + rx, curses.A_DIM, rx)
             elif kind == 'G':
                 right = gym_right(st, g)
@@ -3313,7 +3321,7 @@ def main(scr):
                     wr_cache[rkey] = gym_rate(BATTLE, fighters(st, rteam), g, i, st)
                 y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(name(n) for _, n, _ in rteam) +
                          L(f'  (승률\xa0{wr_cache[rkey]:.0%})', f'  ({wr_cache[rkey]:.0%})'), w)  # 눌리지 않는 '[적용]' 글자는 뺐다 — 아래 버튼으로(2026-11-07 사용자)
-            cost = LEAGUE_COST if i == 'L' else RAID_COST if i == 'R' else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
+            cost = LEAGUE_COST if i == 'L' else raid_cost(st, i) if i == 'R' or i in FORM_RAIDS else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
             if i == 'T':
                 y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3·은색 병뚜껑 2 · 21연승마다 하이퍼볼 2 · 49연승마다 마스터볼·금색 병뚜껑 2. 시작할 때만 탐색 {TOWER_COST}회',
                                    f'Keep going until you lose — every 7: 3 Great + 2 Bottle Caps · every 21: 2 Ultra · every 49: Master + 2 Gold Bottle Caps. {TOWER_COST} explores to start'), w, curses.A_DIM)
@@ -5005,7 +5013,10 @@ def selftest():
     rd['box'], rd['team'] = [{'id': 7, 'xp': 0, 'bxp': 3000, 'iv': [15] * 6}, {'id': 152, 'xp': 0, 'iv': [0] * 6}], [1, 0]
     assert [n for _, n, _ in team_of(rd)] == [152, 7]  # 레이드엔 다른 세대(치코리타)도 나간다
     gd2 = {'stats': {boss: [1] * 6, 7: [200] * 6, 152: [200] * 6}, 'types': {boss: [11], 7: [11], 152: [12]}, 'eff': {}, 'tnames': {}}
+    used0 = rd['used']
+    assert raid_cost(rd, 'R') == 0 and raid_cost(rd, 'M') == RAID_COST  # 전설 레이드는 하루 첫 도전 무료 · 모습 레이드는 그대로
     won, ev, first = fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R', random.Random(1))
+    assert rd['used'] == used0 and raid_cost(rd, 'R') == RAID_COST  # 첫 도전은 탐색을 안 쓴다 — 다음부터 RAID_COST
     assert won and not first and rd['wild'] == {**rd['wild'], 'id': boss, 'balls': RAID_BALLS, 'raid': True} and rd['raid']['won']
     assert rd['research']['7']['w'] == 1 and fight(rd, 4 * ENCOUNTER_EVERY, gd2, 1, 'R')[0] is None  # 이번 주는 한 번만
     assert rd['items'] == {}  # 다이수프는 이제 거다이맥스 레이드 → [교환]에서(2026-11-12)
