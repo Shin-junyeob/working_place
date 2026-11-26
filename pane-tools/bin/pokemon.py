@@ -64,7 +64,7 @@
   (catch_chance — throw 와 같은 식), 오른쪽 볼 고르기(ball_choices · default_ball — 마스터볼은 저절로 안 고른다), 아래 [던지기]·[도망].
   가방은 아이템 목록(bag_items) → Enter → 쓸 포켓몬(item_targets) → 두 번 눌러 쓴다.
 - 조작은 방향키·Enter·q: 메인·만남은 위치대로 움직이고(move_geo — ↑↓ 같은 열, ←→ 옆 열), 목록 화면은 ↑↓ 로 줄, ←→ 로 아래 버튼.
-  도감은 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 교환은 Tab 정렬(SORTS, PC 설정에 저장).
+  도감은 전체(열린 세대 통합, F 찾기)에서 시작해 ←→ 가 세대, 도감 상세는 ←→ 가 앞뒤 포켓몬. 교환은 Tab 정렬(SORTS, PC 설정에 저장).
   화면은 패널 폭에 맞춘다 — 긴 줄은 para/fold 로 접고, 80칸 미만이면 버튼 여백을 줄인다. 마우스 클릭도 된다.
 상태는 ~/.claude/pane-tools/pokemon.json — 못 읽으면 _broken 상태를 돌려주고 save() 가 쓰지 않는다(깨진 JSON 은 .bad 사본).
 허브는 summary() 로 동료를 보여 준다. 메인 화면은 동료·팀·알 그림을 장식 배지와 한 번에 놓는다(mon_art · join_art).
@@ -1527,9 +1527,17 @@ def dex_hint(st, n):
     return L('야생', 'wild')
 
 
+def dex_ids(st, g, query=''):
+    """도감 한 쪽의 종 번호들 — g 세대, 0 이면 열린 세대 전부(전체 도감, 2026-11-26 사용자).
+    query 는 번호나 본 종의 이름에 든 글자 — 못 본 종은 ??? 라 이름으로는 찾지 않는다."""
+    og, q = opened_gen(st) if g == 0 else g, query.strip().lower()
+    return [n for n in DEX if (gen(n) <= og if g == 0 else gen(n) == g)
+            and (not q or q in f'{n:04d}' or n in st['seen'] and q in name(n).lower())]
+
+
 def dex_summary(st, g):
     """'야생에서 남은 것 N · 진화로만 M · 전설·환상 K' — 풀숲 후보 이름은 뺐다(못 본 종은 ??? 라 오류처럼 보였다, 2026-11-11 사용자)."""
-    left = [n for n in DEX if gen(n) == g and n not in st['caught']]
+    left = [n for n in dex_ids(st, g) if n not in st['caught']]
     leg = sum(1 for n in left if DEX[n][5])
     evo = sum(1 for n in left if not DEX[n][5] and not wild_ok(n))
     return L(f'야생에서 남은 것 {len(left) - leg - evo} · 진화로만 {evo} · 전설·환상 {leg}',
@@ -2739,7 +2747,7 @@ def main(scr):
     feed.init_colors()
     init_type_colors()
     gold = curses.color_pair(feed.NEEDS_PAIR) | curses.A_BOLD  # 이로치 이름 — 256색 220(#ffd700)
-    view, top, msg, dg, sel = 'main', 0, '', 1, 0  # sel: 가방·도감에서 커서가 놓인 줄
+    view, top, msg, dg, sel = 'main', 0, '', 0, 0  # dg: 도감 쪽(0 전체 · 세대 · 리전폼 · 특수 모습) · sel: 가방·도감에서 커서가 놓인 줄
     info = None  # 도감 상세로 보고 있는 번호
     gsel, rec, battle_now, wr_cache, confirm = None, None, None, {}, None
     rkind, gkeep = 'M', (0, 0)  # 레이드 목록 화면의 레이드 · 들어오기 전 체육관 화면 자리(왼쪽 줄, 오른쪽 칸)
@@ -3570,11 +3578,11 @@ def main(scr):
             open_gen = opened_gen(st)
             rows = [(n, ('● ' if n in st['caught'] else '○ ' if n in st['seen'] else '  ')
                      + f'{n:04d} ' + (name(n) if n in st['seen'] else '???') + (' ★' if n in st.get('researched', []) else '')
-                     + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in DEX if gen(n) == dg] if dg <= open_gen else []
-            have = sum(1 for n in st['caught'] if gen(n) == dg)
-            done_r = sum(1 for n in st.get('researched', []) if n in DEX and gen(n) == dg)
-            put(scr, 1, 1, L(f'◀ {dg}세대 도감 {have}/{GEN_SIZE[dg]} ▶ ★연구 {done_r}  ● 잡음 ○ 봄',
-                              f'◀ Gen {dg} Pokédex {have}/{GEN_SIZE[dg]} ▶ ★research {done_r}  ● caught ○ seen'), curses.A_DIM)
+                     + ('' if n in st['caught'] else '   · ' + dex_hint(st, n))) for n in dex_ids(st, dg, query if dg == 0 else '')] if dg <= open_gen else []
+            page = set(dex_ids(st, dg))  # 찾기와 상관없이 이 쪽의 종 — 숫자 세기
+            have, done_r = len(page & set(st['caught'])), len(page & set(st.get('researched', [])))
+            put(scr, 1, 1, L(f'◀ {f"전체 1~{open_gen}세대" if dg == 0 else f"{dg}세대"} 도감 {have}/{len(page)} ▶ ★연구 {done_r}  ● 잡음 ○ 봄',  # 전체는 열린 세대까지
+                              f'◀ {f"Gen 1-{open_gen}" if dg == 0 else f"Gen {dg}"} Pokédex {have}/{len(page)} ▶ ★research {done_r}  ● caught ○ seen'), curses.A_DIM)
             body = h - 4
             if rows:
                 sel = max(0, min(sel, len(rows) - 1))
@@ -3586,11 +3594,17 @@ def main(scr):
                 attr = (gold if key in st['shiny'] else 0) | (curses.A_REVERSE if top + k == sel else 0)  # 이로치를 잡은 종은 도감에서도 금색
                 put(scr, 2 + k, 1, text.ljust(w - 2) if top + k == sel else text, attr)
             if not rows:
-                put(scr, 2, 1, L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.', f'Locked — complete the Gen {dg - 1} Pokédex to open it.'))
-            if rows:
+                put(scr, 2, 1, L(f'"{query}" — 찾는 포켓몬이 없습니다.', f'"{query}" — no match.') if dg == 0 else
+                    L(f'잠김 — {dg - 1}세대 도감을 채우면 열립니다.', f'Locked — complete the Gen {dg - 1} Pokédex to open it.'))
+            if dg == 0 and (searching or query):
+                put(scr, h - 2, 1, fit(L(f'찾기: {query}▏ · Enter 확정 · Esc 지우기', f'find: {query}▏ · Enter keep · Esc clear') if searching else
+                                       L(f'찾기 "{query}" — {len(rows)}마리 · F 고치기', f'find "{query}" — {len(rows)} · F edit'), w - 2),
+                    curses.A_BOLD if searching else curses.A_DIM)
+            elif rows:
                 put(scr, h - 2, 1, fit(dex_summary(st, dg), w - 2), curses.A_DIM)
             x = button(h - 1, 1, L('돌아가기 q', 'back q'), 'back')
-            put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation'), curses.A_DIM)
+            put(scr, h - 1, x, L('↑↓ 이동 · Enter 자세히 · F 찾기 · ←→ 세대', '↑↓ move · Enter details · F find · ←→ generation') if dg == 0 else
+                L('↑↓ 이동 · Enter 자세히 · ←→ 세대', '↑↓ move · Enter details · ←→ generation'), curses.A_DIM)
         acts = [b[3] for b in navbtns]
         if focus not in acts:  # 처음이거나 그 버튼이 사라졌으면 — 메인은 풀숲 탐색, 그 밖엔 돌아가기·닫기가 아닌 첫 버튼
             focus = next(a for a in ('encounter', 'explore') if a in acts) if view == 'main' and {'encounter', 'explore'} & set(acts) else next((a for a in acts if a not in ('back', 'close')), acts[0] if acts else None)
@@ -3672,7 +3686,7 @@ def main(scr):
                    if hb[3] else L('서식지: 전체 — 어떤 포켓몬이든 나온다 (h 로 바꾸기)', 'Habitat: all — anything can appear (h to change)'))
             save(st)
             act, key = None, -1
-        elif view in ('slotpick', 'use') and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
+        elif view in ('slotpick', 'use', 'dex') and searching:  # 찾는 중 — 글자는 검색어로, 방향키는 그대로 줄 이동
             if key == 27:  # Esc — 검색어를 지우고 찾기 끝
                 query, searching, sel, top, act, key = '', False, 0, 0, None, -1
             elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):  # Enter — 검색어는 두고 찾기 끝(넣기는 다음 Enter)
@@ -3681,7 +3695,7 @@ def main(scr):
                 query, sel, top, act = query[:-1], 0, 0, None
             elif typed_char(key):  # 방향키 같은 curses 특수키(KEY_MIN~KEY_MAX)는 글자가 아니다 — 전엔 검색어로 들어갔다
                 query, sel, top, act = query + chr(key), 0, 0, None
-        elif view in ('slotpick', 'use') and key in (ord('f'), ord('F')):  # F 찾기
+        elif (view in ('slotpick', 'use') or view == 'dex' and dg == 0) and key in (ord('f'), ord('F')):  # F 찾기 — 도감은 전체 쪽에서만
             searching, act, key = True, None, -1
         elif view == 'slotpick':  # 평소 — 방향키 줄 이동 · Enter 넣기 · Tab 정렬 · q/Esc 돌아가기
             if key == 9:
@@ -3759,7 +3773,8 @@ def main(scr):
             elif key == 9 and tm == 0:  # Tab — 박사에게 목록 정렬
                 act = 'sort'
         if view == 'dex' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
-            dg, top, sel = max(1, min(GENS + 1 + bool(SPECIALS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 뒤의 두 쪽은 리전폼 · 특수 모습
+            dg, top, sel = max(0, min(GENS + 1 + bool(SPECIALS), dg + (1 if key == curses.KEY_RIGHT else -1))), 0, 0  # 0 은 전체, 뒤의 두 쪽은 리전폼 · 특수 모습
+            query, searching = '', False  # 찾기는 전체 쪽에만 — 쪽을 바꾸면 지운다
         elif view == 'info' and key in (curses.KEY_LEFT, curses.KEY_RIGHT):
             seen = list(SPECIALS) if info in SPECIALS else \
                 list(FORMS) if info in FORMS else \
@@ -3781,7 +3796,8 @@ def main(scr):
                 p = list(FORMS)[min(sel, len(FORMS) - 1)] if FORMS else None
                 act = ('info', p) if p else None  # 못 본 리전폼도 실루엣으로
             elif view == 'dex':
-                act = ('info', [m for m in DEX if gen(m) == dg][min(sel, GEN_SIZE[dg] - 1)])  # 못 본 포켓몬도 실루엣으로
+                ids = dex_ids(st, dg, query if dg == 0 else '')
+                act = ('info', ids[min(sel, len(ids) - 1)]) if ids else None  # 못 본 포켓몬도 실루엣으로
             elif view == 'slotpick':
                 act = ('pickrow', sel)
             elif view == 'bag':
@@ -4045,7 +4061,8 @@ def main(scr):
                 view, msg = 'fight', ''
                 scr.timeout(600)  # 기록을 한 줄씩 — getkey 는 이 값을 따른다(빠뜨리면 키를 누를 때까지 멈춘다)
         if act in ('dex', 'box', 'trade'):
-            view, top, dg, msg, sel = 'bag' if act == 'box' else act, 0, opened_gen(st), '', 0  # 가방은 아이템 화면(2026-11-05)
+            view, top, dg, msg, sel = 'bag' if act == 'box' else act, 0, 0, '', 0  # 가방은 아이템 화면(2026-11-05) · 도감은 전체 쪽부터(2026-11-26 사용자)
+            query, searching = '', False
             tm, tcol, tidy_skip = 0, 0, set()
         elif isinstance(act, tuple) and act[0] == 'medleft':  # 훈장 왼쪽 열 클릭 — 그 분류로
             bcat, bcol, sel, top, msg = act[1], 0, 0, 0, ''
@@ -4682,6 +4699,11 @@ def selftest():
     sm = dex_summary(dh, 1)
     nums = [int(x) for x in re.findall(r'\d+', sm)]
     assert sum(nums) == len(left1), (sm, len(left1))
+    # 전체 도감(2026-11-26): 0 쪽은 열린 세대 전부 · 찾기는 번호나 본 종의 이름 — 못 본 종(뮤츠)은 이름으로 안 나온다
+    dh['seen'] += [200]  # 2세대 무우마 — 1세대만 열렸으면 전체 쪽에도 없다(잠긴 세대는 안 보인다)
+    assert opened_gen(dh) == 1 and dex_ids(dh, 0) == dex_ids(dh, 1) == [n for n in DEX if gen(n) == 1] and dex_ids(dh, 0, name(200)) == []
+    assert dex_ids(dh, 0, '0002') == [2] and dex_ids(dh, 0, f' {name(2).upper()} ') == [2] and dex_ids(dh, 0, name(150)) == []
+    assert dex_summary(dh, 0) == dex_summary(dh, 1) and len(dex_ids(dh, 2)) == GEN_SIZE[2]
     # 장식 배지: 받은 것만, 최대 SHOWCASE_MAX 개, 다시 고르면 뺀다 · 진행도
     sc = new_state()
     filler = [f'gen{g}' for g in range(1, 8)]  # 앞의 다섯과 합쳐 12개를 채울 것
