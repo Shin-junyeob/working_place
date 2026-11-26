@@ -177,7 +177,35 @@ async function writeUsage($: EngineInterface) {
   await $.fs.write(`${await home($)}/.claude/pane-tools/usage/${sid}.json`, text)
 }
 
+// 실제로 내보낸 일 — 성공한 Bash 명령 중 git push · gh pr create/merge · 배포 스크립트를 pane-tools/ships/<ms>_<세션>.json 에
+// 하나씩 남기고, pokemon 모드가 날짜별로 센다(일한 보상·주간 과제). 전엔 세션 요약 글의 낱말만 봐서 요약이 "main에 올렸습니다"로
+// 바뀌자 하루 내내 push 하고도 0이었다(2026-11-26 사용자). $.fs 에 이어 쓰기가 없고 세션 여럿이 함께 쓰니 한 건 한 파일.
+const SEP = /&&|\|\||;|\||\n/
+export function shipKind(command: string): 'push' | 'pr' | 'deploy' | undefined {
+  for (const seg of command.split(SEP)) {
+    const head = /^\s*(?:\w+=\S*\s+)*(?:timeout\s+\S+\s+)?/.source  // 명령 맨 앞에서만 — echo "git push 하세요" 는 아니다
+    if (new RegExp(head + 'git(?:\\s+-[Cc]\\s+\\S+)*\\s+push\\b').test(seg) && !/--dry-run|\s-n\b/.test(seg)) return 'push'
+    if (new RegExp(head + 'gh\\s+pr\\s+(?:create|merge)\\b').test(seg)) return 'pr'
+    const t = seg.trim().replace(/^(?:\w+=\S*\s+)+/, '').split(/\s+/)
+    const runner = ['bash', 'sh', 'zsh', 'python3', 'python', 'node'].includes(t[0] ?? '') ? t[1] : t[0]
+    const word = ['npm', 'yarn', 'pnpm', 'bun'].includes(t[0] ?? '') ? (t[1] === 'run' ? t[2] : t[1]) : t[1]
+    if (/deploy/i.test((runner ?? '').split('/').pop() ?? '') || /^deploy(?::[\w-]+)?$/i.test(word ?? '')) return 'deploy'
+  }
+  return undefined
+}
+
 export const register: Register = (on, options) => {
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const r = await next(e)
+    const kind = e.run_in_background ? undefined : shipKind(e.command)  // 백그라운드는 끝났는지 모른다
+    if (kind && !r.deny && !r.isError) {
+      // 기록이 실패해도 도구 결과는 그대로 — 기다리지도 않는다
+      void (async () => $.fs.write(`${await home($)}/.claude/pane-tools/ships/${await $.clock.now()}_${await $.session.id()}.json`,
+        JSON.stringify({ kind })))().catch(() => undefined)
+    }
+    return r
+  }).catch(($, e, next) => next(e))  // 이 훅이 실패해도 Bash 는 그대로 돈다(이미 돌았으면 그 결과)
+
   const o: Opts = {
     launcher: String(options.launcher ?? 'auto'),
     tmuxTarget: String(options.tmuxTarget ?? ''),

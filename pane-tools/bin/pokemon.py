@@ -1013,12 +1013,21 @@ def _day(at):
     return datetime.fromisoformat(at.replace('Z', '+00:00')).astimezone().strftime('%Y-%m-%d')
 
 
-def shipped(folder=feed.JOBS):
-    """날짜 → push·PR 병합·배포가 든 completed 를 낸 세션 이름들."""
+SHIPS = f'{ROOT}/ships'  # 모드가 성공한 git push · gh pr create/merge · 배포 스크립트를 한 건 한 파일(<ms>_<세션>.json)로 남긴다
+
+
+def shipped(folder=feed.JOBS, ships=None):
+    """날짜 → 내보낸 일을 한 세션들 — 실제로 성공한 push·PR·배포 명령(ships, pane-tools 모드가 적음)과, 완료 요약에
+    push·PR 병합·배포 낱말이 든 세션(요약만 남는 배포 스크립트 등 — dev 에 올렸다). ships 는 진짜 jobs 를 볼 때만 기본 폴더
+    (시험이 가짜 jobs 로 부를 때 진짜 기록이 섞이지 않게)."""
     out = {}
     for at, nm, state, detail in feed.feed(folder, limit=None):
         if state == 'done' and SHIP.search(detail):
             out.setdefault(_day(at), set()).add(nm)
+    for f in glob.glob(f'{SHIPS if ships is None and folder == feed.JOBS else ships}/*.json') if ships or folder == feed.JOBS else ():
+        ms, _, sid = os.path.basename(f)[:-5].partition('_')
+        if ms.isdigit():  # shortcut: 파일은 지우지 않고 쌓인다(하루 몇 개) — 많아지면 오래된 것을 지운다
+            out.setdefault(datetime.fromtimestamp(int(ms) / 1000).astimezone().strftime('%Y-%m-%d'), set()).add(sid)
     return out
 
 
@@ -4493,6 +4502,10 @@ def selftest():
         assert reward(rw3) == 84 and reward(rw3) == 0 and len(rw3['rewarded']) == 84
     finally:
         shipped = real_ship
+    shd = tempfile.mkdtemp()  # 모드가 남긴 실제 push 기록 — 요약 낱말이 없어도 그날을 센다
+    open(f'{shd}/{int(datetime(2026, 11, 26, 15).timestamp() * 1000)}_S9.json', 'w').write('{"kind": "push"}')
+    open(f'{shd}/junk.json', 'w').write('{}')
+    assert shipped(tempfile.mkdtemp(), shd) == {'2026-11-26': {'S9'}} and shipped(tempfile.mkdtemp()) == {}
     bad = tempfile.mkdtemp()  # 깨진 저장 파일은 덮어쓰지 않고 사본을 남긴다
     open(f'{bad}/pokemon.json', 'w').write('{"box": [{"id": 25')
     bs = load(bad)

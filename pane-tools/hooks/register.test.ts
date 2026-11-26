@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
-import { canReplace, grow, pending, plan, shq } from './register'
+import { canReplace, grow, pending, plan, shipKind, shq } from './register'
 
 const INBOX = '/h/.claude/pane-tools/inbox/S1'
 
@@ -181,4 +181,36 @@ test('/mods 는 피드 패널이 빈 셸이면 피드도 띄우고, 이미 피�
   feedPane = "bash -c python3 '/p/bin/feed.py'; exec bash\npython3 /p/bin/feed.py"
   expect(JSON.stringify(await $.command.run({ command: 'mods', args: '' } as never))).not.toContain('피드도')
   expect(runs.some(a => a.includes('respawn-pane') && a.includes('dev:0.2'))).toBe(false)
+})
+
+
+test('내보낸 일 명령을 알아본다 — git push · gh pr create/merge · 배포 스크립트', async () => {
+  expect(shipKind('git push -q origin main')).toBe('push')
+  expect(shipKind('cd ~/r && git merge --ff-only x && git -C ~/r push origin main && git branch -d x')).toBe('push')
+  expect(shipKind('gh pr create --draft --title t')).toBe('pr')
+  expect(shipKind('gh pr merge 12 --squash')).toBe('pr')
+  expect(shipKind('./deploy.sh dev')).toBe('deploy')
+  expect(shipKind('STABLE_OK=1 bash scripts/deploy_dev.sh')).toBe('deploy')
+  expect(shipKind('npm run deploy:prod')).toBe('deploy')
+  expect(shipKind('fly deploy')).toBe('deploy')
+  for (const c of ['git stash push -m wip', 'git push --dry-run origin main', 'git log --grep push', 'grep -rn deploy src',
+    'git status', 'echo "git push 하세요"', 'cat deploy.log'])
+    expect(shipKind(c)).toBeUndefined()
+})
+
+test('성공한 push 만 ships/ 에 한 건 한 파일로 남긴다 — 실패·백그라운드는 남기지 않는다', async ($, on) => {
+  const { written, clock } = harness(on, {})
+  let fail = false
+  on('tool.call', { tool: 'Bash' }, async () =>
+    fail ? { result: { stdout: '', stderr: 'rejected', interrupted: false } as never, isError: true } as never
+      : { result: { stdout: 'ok', stderr: '', interrupted: false } as never })
+  await $.tool.call({ tool: 'Bash', command: 'git push origin main', description: 'push' })
+  await $.tool.call({ tool: 'Bash', command: 'git status', description: 'status' })
+  await $.tool.call({ tool: 'Bash', command: 'git push origin main', description: 'bg', run_in_background: true })
+  fail = true
+  await $.tool.call({ tool: 'Bash', command: 'git push origin main', description: 'rejected' })
+  await clock.settle()
+  const ships = written.filter(p => p.includes('/.claude/pane-tools/ships/'))
+  expect(ships.length).toBe(1)
+  expect(ships[0]).toMatch(/\/h\/\.claude\/pane-tools\/ships\/\d+_S1\.json$/)
 })
