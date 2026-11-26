@@ -106,7 +106,9 @@ SHINY_RATE = 1 / 256
 TRADES = [('balls', 'super', 5), ('super', 'hyper', 20), ('hyper', 'master', 5)]
 BALL_BONUS = {'ball': 1.0, 'super': 1.5, 'hyper': 2.0}  # 마스터볼은 배율 없이 반드시 잡힌다(throw)
 SUPER_SESSIONS = 1  # 하루에 내보낸 일을 끝낸 세션이 이만큼이면 슈퍼볼 1개 — 세션 하나만 쓰는 PC도 받게(2026-10-21 3→1)
-SHIP = re.compile(r'(?<![a-z])PRs?(?![a-z])|병합|배포|(?<![a-z])(merge|deploy|push)|푸시', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
+SHIP = re.compile(r'(?<![a-z])PRs?(?![a-z])|병합|배포|(?<![a-z])(merge|deploy|push|release)|푸시|올렸|릴리스', re.I)  # completed 요약에 이게 있으면 '내보낸 일'
+# '올렸' — 세션 요약이 'GitHub main에 올렸습니다'·'dev에 올렸습니다'로 쓰여 하루 내내 push·배포를 하고도 0이었다(2026-11-26 사용자).
+# '업로드'는 'BOM 업로드는 중복이라' 같은 문장에도 걸려 넣지 않았다
 # 영문자만 경계로 — prefix·approval 의 pr 은 빼고(2026-10-30, 실제 기록 37건), 'PR을' 처럼 한글이 붙은 건 잡는다
 NEEDS_NAG = 600  # needs 를 이만큼(초) 넘게 두면 동료가 재촉한다
 # 일한 보상(2026-11-11 사용자 — 슈퍼볼 1개 · 3일 연속 하이퍼볼에서 바꿈): 그날 탐색 +1, 평일 5일 연속(월~금이면 한 주)마다 +5 더.
@@ -4469,7 +4471,7 @@ def selftest():
     day1, day2 = '2026-10-21T03:00:00Z', '2026-10-22T03:00:00Z'
     job('a', [(day1, 'main 에 push 완료'), ('2026-10-21T05:00:00Z', 'PR #2 merged')])  # 같은 날 두 번이어도 하나
     job('c', [(day2, '문서 정리')])  # 내보낸 일이 아니다
-    assert all(SHIP.search(x) for x in ('PR을 올렸다', 'PR #3 merged', 'pushed to main', 'git push 완료', '배포함'))
+    assert all(SHIP.search(x) for x in ('PR을 올렸다', 'PR #3 merged', 'pushed to main', 'git push 완료', '배포함', 'GitHub main에 올렸습니다', 'dev에 올렸습니다', 'v2 릴리스'))
     assert not any(SHIP.search(x) for x in ('[Test] prefix', 'e-approval todo', 'keep it private', 'improvement_roadmap'))
     ja, jb = ('six', 2, 1, 'b', 'B', 3, 1), ('six', 4, 1, 'p', 'P', 2, 2)  # 장식 배지 + 동료 그림을 한 번에
     assert join_art(ja, jb) == ('six', 2, 1, ('b', 'p'), 'B', 3, 1, [(4, 1, 'P')]) and join_art(None, jb) == jb
