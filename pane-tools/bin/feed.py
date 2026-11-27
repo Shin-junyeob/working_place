@@ -60,10 +60,14 @@ def group(d, last=None, busy=False):
     return 'blocked' if d.get('tempo') == 'blocked' or ORDER.get(st) == 0 else 'working'
 
 
-def sessions(folder=JOBS, busy=()):
+def sessions(folder=JOBS, busy=None):
     """claude agents 목록의 세션 [(이름, 상태, sessionId, (at, 마지막 소식))] — needs → working → done, 묶음 안에선 최근 것 먼저.
-    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다. busy: 지금 일하는 세션의 이름 또는 sessionId 들.
+    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다. busy: 지금 일하는 세션의 이름 또는 sessionId 들 —
+    안 주면 진짜 기록 폴더일 때 pid 파일의 실시간 busy(awake)를 쓴다. 데몬은 일을 남긴 채 턴을 끝낸 세션을 blocked 로 적어서,
+    이걸 빼먹은 곳(허브의 포켓몬 대사)은 백그라운드로 일하는 세션을 입력 대기로 봤다(2026-11-27 KNK_ERP).
     마지막 소식은 피드 사건(events)의 마지막 — 아직 없으면 state.json 의 요약."""
+    if busy is None:
+        busy = {sid for sid, b in ((awake() if folder == JOBS else None) or {}).items() if b}
     out = []
     for j in os.listdir(folder) if os.path.isdir(folder) else []:
         try:
@@ -87,7 +91,7 @@ def sessions(folder=JOBS, busy=()):
     return [r[1:] for r in out]
 
 
-def jobs(folder=JOBS, busy=()):
+def jobs(folder=JOBS, busy=None):
     """claude agents 목록의 세션 [(이름, 상태)] — sessions() 의 앞 두 칸(허브의 세션 칸·포켓몬이 쓴다)."""
     return [r[:2] for r in sessions(folder, busy)]
 
