@@ -3356,8 +3356,9 @@ def main(scr):
                 if rkey not in wr_cache:
                     wr_cache[rkey] = gym_rate(BATTLE, fighters(st, rteam), g, i, st)
                 foes = [x[0] for x in (sum(opp, []) if i == 'L' else opp)]
-                y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(f'{name(n)}\xa0{attack_note(BATTLE, n, foes)}' for _, n, _ in rteam) +
-                         L(f'  (승률\xa0{wr_cache[rkey]:.0%})', f'  ({wr_cache[rkey]:.0%})'), w)  # 눌리지 않는 '[적용]' 글자는 뺐다 — 아래 버튼으로(2026-11-07 사용자)
+                y = para(scr, y, L(f'추천  승률\xa0{wr_cache[rkey]:.0%}', f'Pick  win rate {wr_cache[rkey]:.0%}'), w)  # 눌리지 않는 '[적용]' 글자는 뺐다 — 아래 버튼으로(2026-11-07 사용자)
+                for _, n, _ in rteam:  # 한 줄에 한 마리(2026-11-27 사용자) — '추천  ' 뒤 칸에 맞춘다
+                    y = para(scr, y, f'{name(n)}  {attack_note(BATTLE, n, foes)}', w, x=7)
             cost = LEAGUE_COST if i == 'L' else raid_cost(st, i) if i == 'R' or i in FORM_RAIDS else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
             if i == 'T':
                 y = para(scr, y, L(f'지기 전까지 이어서 — 7연승마다 슈퍼볼 3·은색 병뚜껑 2 · 21연승마다 하이퍼볼 2 · 49연승마다 마스터볼·금색 병뚜껑 2. 시작할 때만 탐색 {TOWER_COST}회',
