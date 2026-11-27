@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""세션 활동 피드 — claude agents 의 세션들이 끝내거나(✔) 묻거나(▲) 시작한(●) 순간을 최근 것부터 한 줄씩.
+"""세션 활동 — 0번 패널이 보고 있는 세션의 작업 목록을 레일(git 그래프)로 그리고, 그 아래 깨어 있는 모든 세션의 지금 상태를 한 줄씩.
 
-데몬이 작업마다 남기는 ~/.claude/jobs/<id>/timeline.jsonl({at, state, detail, text})을 읽는다. 쓰는 건 없다.
-사용자가 보낸 말(text 가 빈 줄)과 작업 중간 경과는 빼고, 상태가 바뀌었거나 끝/질문의 요약이 새로 바뀐 줄만.
-↑↓ 스크롤 · q 닫기. `python3 feed.py --selftest` 로 거르기·정렬을 점검한다.
+작업 목록은 Claude Code 가 세션마다 남기는 ~/.claude/tasks/<sessionId>/<번호>.json({subject, activeForm, status}),
+세션 상태는 데몬이 작업마다 남기는 ~/.claude/jobs/<id>/state.json · timeline.jsonl({at, state, detail, text})을 읽는다. 쓰는 건 없다.
+레일: 끝난 것 ✔ → 진행 중인 것 ● (둘 이상이면 옆으로 갈라져 나란히, 대기 앞에서 합친다) → 대기 ○ (2026-11-27 사용자 — 줄글 피드를 바꿨다).
+세션 줄의 소식은 사용자가 보낸 말(text 가 빈 줄)과 작업 중간 경과를 뺀 마지막 사건 — 포켓몬 모드는 같은 사건들(feed)로 일한 날을 센다.
+←→ 다른 세션 · Enter 0번 패널 세션으로 · q 닫기. `python3 feed.py --selftest` 로 점검한다.
 """
 import curses
+import glob
 import json
 import locale
 import os
+import re
 import sys
 import time
 from datetime import datetime
 
 from _lang import L
-from memo import cw, focus_reporting, getkey, put
+from memo import WATCH, cw, focus_reporting, getkey, pane_title, put, title_name
 
 JOBS = os.path.expanduser('~/.claude/jobs')
+TASKS = os.path.expanduser('~/.claude/tasks')  # Claude Code 의 작업 목록 — 세션마다 <sessionId>/<번호>.json
+DUE = re.compile(r'\s*\(~(\d{1,2}:\d\d)(?:,\s*([^)]*))?\)')  # 제목에 적은 예상 시각 '(~14:30)' · '(~17:00, 사용자 확인)'
 # claude agents 의 상태 묶음 — needs 가 맨 위, 끝난 것은 아래
 ORDER = {'blocked': 0, 'needs_input': 0, 'failed': 1, 'working': 2, 'done': 3}
 MARK = {'done': '✔', 'blocked': '▲', 'needs_input': '▲', 'failed': '✖'}
@@ -51,9 +57,10 @@ def group(d, last=None, busy=False):
     return 'blocked' if d.get('tempo') == 'blocked' or ORDER.get(st) == 0 else 'working'
 
 
-def jobs(folder=JOBS, busy=()):
-    """claude agents 목록의 세션 [(이름, 상태)] — needs → working → done, 묶음 안에선 최근 것 먼저.
-    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다. busy: 지금 일하는 세션 이름들."""
+def sessions(folder=JOBS, busy=()):
+    """claude agents 목록의 세션 [(이름, 상태, sessionId, (at, 마지막 소식))] — needs → working → done, 묶음 안에선 최근 것 먼저.
+    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다. busy: 지금 일하는 세션 이름들.
+    마지막 소식은 피드 사건(events)의 마지막 — 아직 없으면 state.json 의 요약."""
     out = []
     for j in os.listdir(folder) if os.path.isdir(folder) else []:
         try:
@@ -61,12 +68,92 @@ def jobs(folder=JOBS, busy=()):
                 d = json.load(f)
         except (OSError, ValueError):
             continue
-        name = d.get('name') or j
-        st = group(d, last_row(os.path.join(folder, j, 'timeline.jsonl')), name in busy)
-        out.append((d.get('updatedAt') or '', name, st))
-    out.sort(reverse=True)  # updatedAt 은 ISO 시각이라 글자 순 = 시간 순
+        name, tl = d.get('name') or j, os.path.join(folder, j, 'timeline.jsonl')
+        last = last_row(tl)
+        st = group(d, last, name in busy)
+        try:
+            ev = _read(tl)
+        except OSError:
+            ev = []
+        news = (ev[-1][0], ev[-1][2]) if ev else (d.get('updatedAt') or '', d.get('detail') or '')
+        if st == 'working' and last.get('state') == 'working' and last.get('detail'):  # 일하는 중이면 시작 소식 대신 마지막 경과
+            news = (last.get('at') or news[0], last['detail'].strip())
+        out.append((d.get('updatedAt') or '', name, st, d.get('sessionId') or '', news))
+    out.sort(key=lambda r: r[0], reverse=True)  # updatedAt 은 ISO 시각이라 글자 순 = 시간 순
     out.sort(key=lambda r: ORDER.get(r[2], 2))  # 안정 정렬 — 묶음 안에선 최근 것 먼저가 유지된다
     return [r[1:] for r in out]
+
+
+def jobs(folder=JOBS, busy=()):
+    """claude agents 목록의 세션 [(이름, 상태)] — sessions() 의 앞 두 칸(허브의 세션 칸·포켓몬이 쓴다)."""
+    return [r[:2] for r in sessions(folder, busy)]
+
+
+def tasks(sid, folder=TASKS):
+    """세션의 작업 목록 [{id, text, state, at, due}] — 번호 순, 목록이 없으면 []. 진행 중이면 activeForm('…하는 중'),
+    아니면 제목에서 앞 번호('2. ')와 예상 시각('(~14:30)')을 떼고 예상 시각은 due 로. at 은 파일을 고친 시각(상태가 바뀐 때)."""
+    out = []
+    for f in glob.glob(os.path.join(folder, sid, '*.json')) if re.fullmatch(r'[\w-]+', sid or '') else []:
+        try:
+            with open(f, encoding='utf-8') as fh:
+                d = json.load(fh)
+            at = os.path.getmtime(f)
+        except (OSError, ValueError):
+            continue
+        st = d.get('status')
+        if st not in ('pending', 'in_progress', 'completed'):
+            continue
+        subj = re.sub(r'^\s*\d+[.)]\s*', '', d.get('subject') or '')
+        m = DUE.search(subj)
+        if m:
+            subj = subj[:m.start()] + (f' ({m[2]})' if m[2] else '') + subj[m.end():]
+        text = d.get('activeForm') if st == 'in_progress' and d.get('activeForm') else subj
+        out.append({'id': str(d.get('id', '')), 'text': text.strip(), 'state': st, 'at': at, 'due': m[1] if m else ''})
+    out.sort(key=lambda t: (len(t['id']), t['id']))  # 숫자 번호 순(10 이 2 뒤)
+    return out
+
+
+def rail(ts):
+    """작업 목록 → 레일 줄 [(선, 작업 또는 None)] — 끝난 것 ✔, 진행 중인 것 ●, 대기 ○ 순. 진행 중이 둘 이상이면
+    git log --graph 처럼 끝난 것 아래에서 갈라져(├─┐) 나란히 가다 대기 앞에서 합친다(├─┘). 칸 사이는 한 칸 띄운다."""
+    done, run, todo = ([t for t in ts if t['state'] == s] for s in ('completed', 'in_progress', 'pending'))
+    k = len(run)
+    gw = 2 * k - 1 if k > 1 else 1
+    rows = [('✔'.ljust(gw), t) for t in done]
+    if k > 1:
+        if done:
+            rows.append(('├' + '─┬' * (k - 2) + '─┐', None))
+        for j, t in enumerate(run):  # 앞 갈래는 대기로 이어질 때, 뒤 갈래는 위에서 갈라져 왔을 때 선을 긋는다
+            lanes = ['│' if (i < j and todo) or (i > j and done) else ' ' for i in range(k)]
+            lanes[j] = '●'
+            rows.append((' '.join(lanes), t))
+        if todo:
+            rows.append(('├' + '─┴' * (k - 2) + '─┘', None))
+    else:
+        rows += [('●', t) for t in run]
+    return rows + [('○'.ljust(gw), t) for t in todo]
+
+
+def fit_rail(rows, budget):
+    """레일이 칸보다 길면 끝난 것을 '완료 N개' 한 줄로 접고, 그래도 길면 뒤를 '… N개 더' 로 자른다."""
+    if len(rows) <= budget:
+        return rows
+    done = [t for _, t in rows if t and t['state'] == 'completed']
+    if len(done) > 1:
+        rows = [rows[0][:1] + ({'id': '', 'text': L(f'완료 {len(done)}개', f'{len(done)} done'), 'state': 'completed',
+                                'at': max(t['at'] for t in done), 'due': ''},)] + rows[len(done):]
+    if len(rows) > budget:
+        rows = rows[:max(0, budget - 1)] + [('…', {'id': '', 'text': L(f'{len(rows) - budget + 1}줄 더', f'{len(rows) - budget + 1} more'),
+                                                   'state': 'pending', 'at': 0, 'due': ''})]
+    return rows
+
+
+def task_when(t):
+    """레일 오른쪽 시각 — 끝난 것은 끝난 시각, 진행 중은 '시작~예상', 대기는 '~예상'(제목에 적혀 있을 때만)."""
+    at = when(datetime.fromtimestamp(t['at']).astimezone().isoformat()) if t['at'] else ''
+    if t['state'] == 'completed':
+        return at
+    return f'{at}~{t["due"]}' if t['state'] == 'in_progress' else f'~{t["due"]}' if t['due'] else ''
 
 
 NEEDS_PAIR = 9  # claude agents 의 Needs input 색 — 256색 220(#ffd700). 기본 노랑은 Windows Terminal 에서 겨자색이라 달라 보였다
@@ -168,7 +255,7 @@ def main(scr):
     init_colors()
     scr.timeout(2000)  # getkey 는 이 값을 따른다 — 빠뜨리면 키를 누를 때까지 다시 그리지 않는다(2026-10-21 피드가 멈춰 있었다)
     focus_reporting(True)
-    top = 0
+    pinned = followed = None  # ←→ 로 고른 세션 · 0번 패널이 보고 있는 세션
     me = os.path.abspath(__file__)
     start = seen = os.path.getmtime(me)
     seen_at = time.time()
@@ -180,29 +267,84 @@ def main(scr):
         elif m != start and time.time() - seen_at >= 5:
             curses.endwin()
             os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
-        h, w = scr.getmaxyx()
-        items = feed()
-        top = max(0, min(top, len(items) - (h - 2)))
+        board = sessions()
+        names = [r[0] for r in board]
+        now = title_name(pane_title(os.environ.get('PANE_TOOLS_FOLLOW') or WATCH) or '')
+        if now != followed:  # 0번 패널 세션이 바뀌면 다시 따라간다
+            pinned, followed = None, now
+        name = pinned if pinned in names else now if now in names else names[0] if names else None
         scr.erase()
-        head = L(' 세션 활동 ', ' Session activity ')
-        put(scr, 0, 0, head + ' ' * max(0, w - sum(cw(c) for c in head)), curses.A_REVERSE)
-        if not items:
-            put(scr, 2, 1, L('아직 기록이 없습니다 — claude agents 로 띄운 세션이 일하면 여기에 쌓입니다',
-                             'Nothing yet — sessions started from claude agents show up here'), curses.A_DIM)
-        for i, (at, name, st, detail) in enumerate(items[top:top + h - 2]):
-            x = put(scr, i + 1, 1, f'{when(at):>11} ', curses.A_DIM)
-            x = put(scr, i + 1, x, f'{MARK.get(st, "●")} {name}  ', job_attr(st))
-            put(scr, i + 1, x, clip(detail, w - x - 1), curses.A_DIM if st == 'working' else 0)
-        put(scr, h - 1, 1, L('↑↓ 스크롤 · q 닫기', '↑↓ scroll · q close'), curses.A_DIM)
+        draw(scr, board, name, pinned is None)
         scr.refresh()
         key = getkey(scr, 2000)
         if key in (ord('q'), 27):
             break
-        if key == curses.KEY_UP:
-            top = max(0, top - 1)
-        elif key == curses.KEY_DOWN:
-            top += 1
+        if key in (curses.KEY_LEFT, curses.KEY_RIGHT) and names:
+            pinned = names[(names.index(name) + (1 if key == curses.KEY_RIGHT else -1)) % len(names)]
+        elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
+            pinned = None
     focus_reporting(False)
+
+
+def width(text):
+    return sum(cw(c) for c in text)
+
+
+def draw(scr, board, name, following):
+    """제목 · 고른 세션(진행 막대) · 그 세션의 레일 · 깨어 있는 모든 세션의 상태 한 줄씩 · 안내."""
+    h, w = scr.getmaxyx()
+    right = f' ◀ {[r[0] for r in board].index(name) + 1}/{len(board)} ▶ ' if name else ' '
+    left = clip(L(' 세션 활동', ' Session activity') + (f' · {name}' if name else ''), w - width(right))
+    put(scr, 0, 0, left + ' ' * max(0, w - width(left) - width(right)) + right, curses.A_REVERSE)
+    put(scr, h - 1, 1, L('←→ 다른 세션 · q 닫기 · 0번 패널 세션을 따라간다', '←→ other session · q close · follows pane 0') if following else
+        L('←→ 다른 세션 · Enter 0번 패널 세션으로 · q 닫기', '←→ other session · Enter back to pane 0 · q close'), curses.A_DIM)
+    if not name:
+        put(scr, 2, 1, L('아직 세션이 없습니다 — claude agents 로 띄운 세션이 여기에 나옵니다',
+                         'No sessions yet — sessions started from claude agents show up here'), curses.A_DIM)
+        return
+    _, st, sid, _ = next(r for r in board if r[0] == name)
+    ts = tasks(sid)
+    x = put(scr, 1, 1, f'{MARK.get(st, "●")} {name}', job_attr(st) | curses.A_BOLD)
+    if ts:
+        d, k = sum(t['state'] == 'completed' for t in ts), sum(t['state'] == 'in_progress' for t in ts)
+        fill = round(d / len(ts) * 12)
+        x = put(scr, 1, put(scr, 1, x + 2, '━' * fill, curses.color_pair(1)), '─' * (12 - fill), curses.A_DIM)
+        put(scr, 1, x, f' {d}/{len(ts)}', curses.A_DIM)
+        tail = L(f'{k}개 진행', f'{k} running') if k else L('목록 완료', 'list done') if d == len(ts) else ''
+        put(scr, 1, w - 1 - width(tail), tail, curses.A_DIM)
+    space = h - 6  # 제목 · 세션 줄 · 빈 줄 둘 · '세션' 제목 · 안내를 뺀 줄
+    rows = rail(ts)
+    shown = min(len(board), max(min(len(board), 6), space - max(1, len(rows))))  # 세션 줄은 적어도 6줄, 레일이 짧으면 더
+    rows = fit_rail(rows, max(1, space - shown))
+    y = 3
+    if not rows:
+        put(scr, y, 2, clip(L('작업 목록이 없습니다 — 목록을 쓰는 세션은 여기에 흐름이 그려집니다',
+                              'No task list — a session that keeps one gets its flow drawn here'), w - 3), curses.A_DIM)
+        y += 1
+    for line, t in rows:
+        x = 2
+        for ch in line:
+            x = put(scr, y, x, ch, curses.color_pair(1) if ch == '✔' else curses.A_BOLD if ch == '●' else curses.A_DIM)
+        if t:
+            stamp = task_when(t)
+            room = w - x - 2 - (width(stamp) + 1 if stamp else 0)
+            put(scr, y, x + 1, clip(f'{t["id"]} {t["text"]}'.strip(), room),
+                curses.A_BOLD if t['state'] == 'in_progress' else curses.A_DIM if t['state'] == 'pending' else 0)
+            if stamp:
+                put(scr, y, w - 1 - width(stamp), stamp, curses.A_DIM)
+        y += 1
+    y += 1
+    put(scr, y, 1, L(f'세션 {len(board)}', f'Sessions {len(board)}'), curses.A_DIM)
+    tw = max([width(when(r[3][0])) for r in board[:shown] if r[3][0]] or [0])
+    for i, (n, s, _, (at, detail)) in enumerate(board[:shown]):
+        y += 1
+        if i == shown - 1 and shown < len(board):
+            put(scr, y, 1, L(f'… {len(board) - i}개 더 (←→ 로 넘겨 보기)', f'… {len(board) - i} more (←→ to page)'), curses.A_DIM)
+            break
+        x = put(scr, y, 1, f'{when(at) if at else "":>{tw}} ', curses.A_DIM)
+        x = put(scr, y, x, f'{MARK.get(s, "●")} ', job_attr(s))
+        x = put(scr, y, x, n, job_attr(s) | (curses.A_REVERSE if n == name else 0))
+        put(scr, y, x + 2, clip(detail, w - x - 3), curses.A_DIM if s == 'working' else 0)
 
 
 def selftest():
@@ -230,6 +372,38 @@ def selftest():
         f.write(''.join(json.dumps(r) + '\n' for r in rows[3:]) + '{"at": "9", "sta')
     assert [e[0] for e in feed(d)] == ['8', '6', '5', '3', '1'], feed(d)
     assert jobs(d) == [('B', 'working'), ('A', 'done')]
+    # 세션 줄: sessionId 와 마지막 소식(사용자 말·중간 경과를 뺀 마지막 사건, 없으면 state.json 요약)
+    assert sessions(d) == [('B', 'working', '', ('b', '')), ('A', 'done', '', ('8', '다시 시작'))], sessions(d)
+    e = tempfile.mkdtemp()  # 일하는 중이면 시작 소식('시작') 대신 마지막 경과('중간 경과')
+    os.makedirs(os.path.join(e, 'w'))
+    with open(os.path.join(e, 'w', 'state.json'), 'w') as f:
+        json.dump({'state': 'working', 'name': 'W', 'updatedAt': 'z', 'sessionId': 'S1'}, f)
+    with open(os.path.join(e, 'w', 'timeline.jsonl'), 'w') as f:
+        f.write(''.join(json.dumps(r) + '\n' for r in rows[:2]))
+    assert sessions(e) == [('W', 'working', 'S1', ('2', '중간 경과'))], sessions(e)
+    # 작업 목록: 번호 순(10 이 2 뒤) · 앞 번호와 예상 시각은 떼고 due 로 · 진행 중은 activeForm · 모르는 상태와 이상한 id 는 뺀다
+    td = tempfile.mkdtemp()
+    os.makedirs(os.path.join(td, 'S1'))
+    for i, st, subj, act in ((10, 'pending', '10. 줄 고치기 (~17:00, 사용자 확인)', ''), (1, 'completed', '1. 재현 안 됨, 닫음', '재현하는 중'),
+                             (2, 'in_progress', '2. 판정 빠르게 (~14:30)', '판정 빠르게 하는 중'), (3, 'deleted', '3. 지움', '')):
+        with open(os.path.join(td, 'S1', f'{i}.json'), 'w') as f:
+            json.dump({'id': str(i), 'subject': subj, 'activeForm': act, 'status': st, 'blocks': [], 'blockedBy': []}, f)
+    ts = tasks('S1', td)
+    assert [(t['id'], t['text'], t['due']) for t in ts] == [('1', '재현 안 됨, 닫음', ''), ('2', '판정 빠르게 하는 중', '14:30'),
+                                                           ('10', '줄 고치기 (사용자 확인)', '17:00')], ts
+    assert tasks('', td) == tasks('../S1', td) == tasks('없음', td) == []
+    assert task_when(ts[2]) == '~17:00' and task_when(ts[1]).endswith('~14:30') and task_when(dict(ts[0], at=0)) == ''
+    # 레일: 끝난 것 → 진행 중(둘 이상이면 갈라져 나란히) → 대기, 위·아래가 없으면 갈래 선도 없다
+    T = lambda i, st: {'id': str(i), 'text': '', 'state': st, 'at': 0, 'due': ''}  # noqa: E731
+    r = rail([T(1, 'completed'), T(2, 'in_progress'), T(3, 'pending'), T(4, 'in_progress')])
+    assert [ln for ln, _ in r] == ['✔  ', '├─┐', '● │', '│ ●', '├─┘', '○  '] and [t['id'] for _, t in r if t] == ['1', '2', '4', '3']
+    assert [ln for ln, _ in rail([T(i, 'in_progress') for i in (1, 2, 3)])] == ['●    ', '  ●  ', '    ●']
+    assert [ln for ln, _ in rail([T(1, 'completed'), T(2, 'in_progress'), T(3, 'in_progress')])] == ['✔  ', '├─┐', '● │', '  ●']
+    assert [ln for ln, _ in rail([T(1, 'completed'), T(2, 'in_progress'), T(3, 'pending')])] == ['✔', '●', '○'] and rail([]) == []
+    # 넘치면 끝난 것을 한 줄로 접고, 그래도 넘치면 뒤를 자른다
+    long = rail([T(i, 'completed') for i in range(1, 6)] + [T(6, 'in_progress'), T(7, 'pending'), T(8, 'pending')])
+    assert fit_rail(long, 8) == long and [t['text'] for _, t in fit_rail(long, 4)] == [L('완료 5개', '5 done'), '', '', '']
+    assert [ln for ln, _ in fit_rail(long, 3)] == ['✔', '●', '…']
     # 묶음: 답을 받아 일하는 중이면 state.json 이 blocked 여도 working · busy 면 working · tempo blocked 면 needs
     assert group({'state': 'blocked', 'tempo': 'blocked'}, rows[3]) == 'working'
     assert group({'state': 'blocked', 'tempo': 'blocked'}, rows[4]) == 'blocked'
