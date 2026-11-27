@@ -2190,7 +2190,9 @@ GYM_WIN_XP, GYM_LOSE_XP = 60, 30  # 팀원마다 받는 배틀 경험치(이기�
 
 
 def box_level(m):
-    return _battle.level(depth(m['id']), m.get('bxp', 0), LEVEL_CAP[0])
+    # 더 진화하지 않는 전설·환상은 3단계 최종 진화형과 같은 단계(+24) — 진화가 없어 최대 레벨이 24 낮아 전설이 약했다(2026-11-27 사용자)
+    n = m['id']
+    return _battle.level(2 if is_legend(n) and not evo_next(n) else depth(n), m.get('bxp', 0), LEVEL_CAP[0])
 
 
 def team_of(st, g=None):
@@ -2436,6 +2438,17 @@ def gym_opp(d, g, i, st=None):
         return [(g, raid_level(SPECIALS[g][2]), (15,) * 6, RAID_HP, GMAX_BOOST if i == 'X' else 1)]
     gen_of, final = {n: gen(n) for n in DEX if not DEX[n][5]}, {n for n in DEX if n not in CHILDREN}
     return _battle.league_teams(d, g, gen_of, final) if i == 'L' else _battle.gym_team(d, g, i, gen_of, final)
+
+
+def attack_note(d, n, foes):
+    """추천 줄의 공격 — n 이 상대들(종 번호)에게 쓰는 타입과 배율, 타입마다 최소~최대(드래곤×2 · 물×0.5~4). 모두 무효면 발버둥.
+    추천에 땅 타입이 끼어 있어 땅 공격을 하는 줄 알았다(2026-11-27 사용자 — 메가한카리아스는 레쿠쟈에 드래곤×2)."""
+    by = {}
+    for f in foes:
+        t, x = _battle.best_attack(d, n, f)
+        by.setdefault(t if x else 0, []).append(x or 1.0)
+    return '·'.join((L(*d['tnames'].get(t, ['?', '?'])) if t else L('발버둥', 'Struggle')) +
+                    (f'×{min(xs):g}' if min(xs) == max(xs) else f'×{min(xs):g}~{max(xs):g}') for t, xs in by.items())
 
 
 def gym_rate(d, team, g, i, st=None):
@@ -3342,7 +3355,8 @@ def main(scr):
                 rkey = (tuple(fighters(st, rteam)), g, i, okey)
                 if rkey not in wr_cache:
                     wr_cache[rkey] = gym_rate(BATTLE, fighters(st, rteam), g, i, st)
-                y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(name(n) for _, n, _ in rteam) +
+                foes = [x[0] for x in (sum(opp, []) if i == 'L' else opp)]
+                y = para(scr, y, L('추천  ', 'Pick  ') + ', '.join(f'{name(n)}\xa0{attack_note(BATTLE, n, foes)}' for _, n, _ in rteam) +
                          L(f'  (승률\xa0{wr_cache[rkey]:.0%})', f'  ({wr_cache[rkey]:.0%})'), w)  # 눌리지 않는 '[적용]' 글자는 뺐다 — 아래 버튼으로(2026-11-07 사용자)
             cost = LEAGUE_COST if i == 'L' else raid_cost(st, i) if i == 'R' or i in FORM_RAIDS else (0 if tw['run'] else TOWER_COST) if i == 'T' else GYM_COST
             if i == 'T':
@@ -4398,6 +4412,8 @@ def selftest():
     assert need_xp(2) == 400_000 and need_xp(3) is None and need_xp(108) is not None and need_xp(83) is None  # 내루미 → 내룸벨트(4세대) · 파오리는 가라르 모습만 대파무사로
     # 나중 세대 베이비는 단계에 안 친다: 피카츄 1단계(15만), 라이츄 2단계, 에레키블(4세대)은 에레키드부터 3단계
     assert (depth(25), depth(26), depth(172), depth(466)) == (0, 1, 0, 2) and need_xp(25) == 150_000
+    # 더 진화하지 않는 전설·환상은 3단계 최종형 레벨: 뮤츠 · 뮤 · 실버디(1단계 최종) · 가라르 프리져 — 진화하는 코스모그, 보통 켄타로스는 그대로
+    assert [box_level({'id': n}) for n in (150, 151, 773, 10169, 789, 128)] == [_battle.level(2, 0)] * 4 + [_battle.level(0, 0)] * 2
     # 동료를 바꿔도 쌓인 경험치는 그 포켓몬에게 남고, 이브이는 1세대에선 1세대 진화형만
     st['box'].append({'id': 133, 'xp': 0})
     set_partner(st, t + 160_000, 1)
@@ -4806,6 +4822,11 @@ def selftest():
     assert lines[0].endswith(f'(300){L(" · 가방 Lv", " · bag Lv")}{15 + 500 // _battle.XP_PER_LEVEL}') and L('물(×4)', 'Water(×4)') in lines[1]
     assert L('무효 전기', 'Immune Electric') in lines[2] and L('불꽃', 'Fire') in lines[2]
     BATTLE_DATA.clear()
+    # 추천 줄의 공격: 물(1)은 꼬마돌에 ×4 · 물(1)에 ×0.5 — 타입마다 최소~최대, 노말(4)은 고스트(5)에 무효라 발버둥
+    ad = {'types': {1: [11], 4: [1], 5: [8], 74: [6, 5]}, 'eff': {'11,6': 2.0, '11,5': 2.0, '11,11': 0.5, '1,8': 0.0},
+          'tnames': {1: ['노말', 'Normal'], 11: ['물', 'Water']}}
+    assert attack_note(ad, 1, [74]) == L('물×4', 'Water×4') and attack_note(ad, 1, [74, 1, 74]) == L('물×0.5~4', 'Water×0.5~4')
+    assert attack_note(ad, 4, [5, 74]) == L('발버둥×1·노말×1', 'Struggle×1·Normal×1')
     # 방향키로 버튼 고르기: ←→ 앞뒤(끝에서 돌아옴), ↑↓ 다른 줄에서 가로로 가장 가까운 것
     nb = [(5, 1, 10, 'throw', ''), (5, 12, 20, 'super', ''), (5, 22, 30, 'run', ''),
            (9, 1, 8, 'dex', ''), (9, 10, 17, 'box', ''), (9, 19, 28, 'close', '')]
