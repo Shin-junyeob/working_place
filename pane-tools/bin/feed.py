@@ -22,6 +22,7 @@ from memo import WATCH, cw, focus_reporting, getkey, pane_title, put, title_name
 
 JOBS = os.path.expanduser('~/.claude/jobs')
 TASKS = os.path.expanduser('~/.claude/tasks')  # Claude Code 의 작업 목록 — 세션마다 <sessionId>/<번호>.json
+PIDS = os.path.expanduser('~/.claude/sessions')  # 떠 있는 Claude 프로세스마다 <pid>.json({sessionId, procStart, …})
 DUE = re.compile(r'\s*\(~(\d{1,2}:\d\d)(?:,\s*([^)]*))?\)')  # 제목에 적은 예상 시각 '(~14:30)' · '(~17:00, 사용자 확인)'
 # claude agents 의 상태 묶음 — needs 가 맨 위, 끝난 것은 아래
 ORDER = {'blocked': 0, 'needs_input': 0, 'failed': 1, 'working': 2, 'done': 3}
@@ -87,6 +88,26 @@ def sessions(folder=JOBS, busy=()):
 def jobs(folder=JOBS, busy=()):
     """claude agents 목록의 세션 [(이름, 상태)] — sessions() 의 앞 두 칸(허브의 세션 칸·포켓몬이 쓴다)."""
     return [r[:2] for r in sessions(folder, busy)]
+
+
+def awake(folder=PIDS, proc='/proc'):
+    """깨어 있는 세션의 sessionId 집합 — pid 파일의 프로세스가 살아 있고 시작 시각(procStart)이 /proc 의 것과 같은 것.
+    재부팅 뒤 같은 번호를 다른 프로세스가 쓰면 시작 시각이 다르다. claude agents --json(2초)을 피드에서 또 돌리지 않으려고.
+    /proc 이 없으면(macOS) None — 거르지 않는다."""
+    if not os.path.isdir(os.path.join(proc, 'self')):
+        return None
+    out = set()
+    for f in glob.glob(os.path.join(folder, '*.json')):
+        try:
+            with open(os.path.join(proc, str(int(os.path.basename(f)[:-5])), 'stat')) as fh:  # 죽은 번호는 여기서 바로 넘어간다
+                start = fh.read().rsplit(')', 1)[1].split()[19]  # 22번째 칸 starttime — 이름에 ')' 가 있어도 마지막 것 뒤부터
+            with open(f, encoding='utf-8') as fh:
+                d = json.load(fh)
+        except (OSError, ValueError, IndexError):
+            continue
+        if str(d.get('procStart')) == start and d.get('sessionId'):
+            out.add(d['sessionId'])
+    return out
 
 
 def tasks(sid, folder=TASKS):
@@ -255,7 +276,7 @@ def main(scr):
     init_colors()
     scr.timeout(2000)  # getkey 는 이 값을 따른다 — 빠뜨리면 키를 누를 때까지 다시 그리지 않는다(2026-10-21 피드가 멈춰 있었다)
     focus_reporting(True)
-    pinned = followed = None  # ←→ 로 고른 세션 · 0번 패널이 보고 있는 세션
+    pinned = followed = None  # ←→ 로 고른 세션(sessionId — 이름은 겹칠 수 있다) · 0번 패널이 보고 있는 세션 이름
     me = os.path.abspath(__file__)
     start = seen = os.path.getmtime(me)
     seen_at = time.time()
@@ -267,20 +288,24 @@ def main(scr):
         elif m != start and time.time() - seen_at >= 5:
             curses.endwin()
             os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
-        board = sessions()
-        names = [r[0] for r in board]
+        board, up = sessions(), awake()
+        if up:  # 깨어 있는 세션만(허브의 세션 칸과 같은 목록) — 하나도 못 찾으면 거르지 않는다(pid 파일 형식이 바뀌었을 수도)
+            board = [r for r in board if r[2] in up]
         now = title_name(pane_title(os.environ.get('PANE_TOOLS_FOLLOW') or WATCH) or '')
         if now != followed:  # 0번 패널 세션이 바뀌면 다시 따라간다
             pinned, followed = None, now
-        name = pinned if pinned in names else now if now in names else names[0] if names else None
+        key_of = lambda r: r[2] or r[0]  # noqa: E731
+        i = next((k for k, r in enumerate(board) if pinned and key_of(r) == pinned), None)
+        if i is None:
+            pinned, i = None, next((k for k, r in enumerate(board) if r[0] == now), 0)
         scr.erase()
-        draw(scr, board, name, pinned is None)
+        draw(scr, board, i if board else None, pinned is None)
         scr.refresh()
         key = getkey(scr, 2000)
         if key in (ord('q'), 27):
             break
-        if key in (curses.KEY_LEFT, curses.KEY_RIGHT) and names:
-            pinned = names[(names.index(name) + (1 if key == curses.KEY_RIGHT else -1)) % len(names)]
+        if key in (curses.KEY_LEFT, curses.KEY_RIGHT) and board:
+            pinned = key_of(board[(i + (1 if key == curses.KEY_RIGHT else -1)) % len(board)])
         elif key in (ord('\n'), ord('\r'), curses.KEY_ENTER):
             pinned = None
     focus_reporting(False)
@@ -290,10 +315,11 @@ def width(text):
     return sum(cw(c) for c in text)
 
 
-def draw(scr, board, name, following):
-    """제목 · 고른 세션(진행 막대) · 그 세션의 레일 · 깨어 있는 모든 세션의 상태 한 줄씩 · 안내."""
+def draw(scr, board, cur, following):
+    """제목 · board[cur] 세션(진행 막대) · 그 세션의 레일 · 깨어 있는 모든 세션의 상태 한 줄씩 · 안내."""
     h, w = scr.getmaxyx()
-    right = f' ◀ {[r[0] for r in board].index(name) + 1}/{len(board)} ▶ ' if name else ' '
+    name = board[cur][0] if cur is not None else None
+    right = f' ◀ {cur + 1}/{len(board)} ▶ ' if name else ' '
     left = clip(L(' 세션 활동', ' Session activity') + (f' · {name}' if name else ''), w - width(right))
     put(scr, 0, 0, left + ' ' * max(0, w - width(left) - width(right)) + right, curses.A_REVERSE)
     put(scr, h - 1, 1, L('←→ 다른 세션 · q 닫기 · 0번 패널 세션을 따라간다', '←→ other session · q close · follows pane 0') if following else
@@ -302,7 +328,7 @@ def draw(scr, board, name, following):
         put(scr, 2, 1, L('아직 세션이 없습니다 — claude agents 로 띄운 세션이 여기에 나옵니다',
                          'No sessions yet — sessions started from claude agents show up here'), curses.A_DIM)
         return
-    _, st, sid, _ = next(r for r in board if r[0] == name)
+    _, st, sid, _ = board[cur]
     ts = tasks(sid)
     x = put(scr, 1, 1, f'{MARK.get(st, "●")} {name}', job_attr(st) | curses.A_BOLD)
     if ts:
@@ -343,7 +369,7 @@ def draw(scr, board, name, following):
             break
         x = put(scr, y, 1, f'{when(at) if at else "":>{tw}} ', curses.A_DIM)
         x = put(scr, y, x, f'{MARK.get(s, "●")} ', job_attr(s))
-        x = put(scr, y, x, n, job_attr(s) | (curses.A_REVERSE if n == name else 0))
+        x = put(scr, y, x, n, job_attr(s) | (curses.A_REVERSE if i == cur else 0))
         put(scr, y, x + 2, clip(detail, w - x - 3), curses.A_DIM if s == 'working' else 0)
 
 
@@ -381,6 +407,18 @@ def selftest():
     with open(os.path.join(e, 'w', 'timeline.jsonl'), 'w') as f:
         f.write(''.join(json.dumps(r) + '\n' for r in rows[:2]))
     assert sessions(e) == [('W', 'working', 'S1', ('2', '중간 경과'))], sessions(e)
+    # 깨어 있는 세션: pid 파일의 시작 시각이 /proc 과 같을 때만 — 이 프로세스로 시험, 다른 시작 시각·죽은 번호·깨진 파일은 뺀다
+    if os.path.isdir('/proc/self'):
+        pd = tempfile.mkdtemp()
+        with open('/proc/self/stat') as fh:
+            me = fh.read().rsplit(')', 1)[1].split()[19]
+        for pid, start, sid in ((os.getpid(), me, 'S1'), (os.getppid(), '1', 'S2'), (4194999, me, 'S3')):
+            with open(os.path.join(pd, f'{pid}.json'), 'w') as f:
+                json.dump({'pid': pid, 'procStart': start, 'sessionId': sid}, f)
+        with open(os.path.join(pd, 'x.json'), 'w') as f:
+            f.write('{')
+        assert awake(pd) == {'S1'}, awake(pd)
+    assert awake(d, proc=d) is None  # /proc 이 없는 곳(macOS)
     # 작업 목록: 번호 순(10 이 2 뒤) · 앞 번호와 예상 시각은 떼고 due 로 · 진행 중은 activeForm · 모르는 상태와 이상한 id 는 뺀다
     td = tempfile.mkdtemp()
     os.makedirs(os.path.join(td, 'S1'))

@@ -31,7 +31,7 @@ Set them with `/plugin` → Installed → pane-tools → Configure, or from the 
 ## What it runs, reads, writes and fetches
 
 - **Commands.** `/mods` starts `python3 bin/hub.py` from this plugin, through one of: `tmux split-window` or `tmux respawn-pane` (also `tmux has-session`, `display`, `show`, `set` and `resize-pane` on the chosen pane), `wt.exe` on WSL, `osascript` to open Terminal on macOS, or the command you set. It runs `uname -s` to detect macOS. The hub runs `claude agents --json` to list sessions.
-- **Files it reads.** `~/.claude/jobs/*/state.json` and `timeline.jsonl` (session status and the activity feed), `~/.claude/tasks/<session id>/*.json` (task lists, drawn as the session-activity rail), and `~/.claude/pane-tools/`.
+- **Files it reads.** `~/.claude/jobs/*/state.json` and `timeline.jsonl` (session status and the activity feed), `~/.claude/tasks/<session id>/*.json` (task lists, drawn as the session-activity rail), `~/.claude/sessions/*.json` (which sessions are running), and `~/.claude/pane-tools/`.
 - **Files it writes.** Everything goes under `~/.claude/pane-tools/`: settings, memos, per-session gauges, the Pokémon save and downloaded game data. Nothing is written elsewhere.
 - **Shipping work.** The mod looks at each Bash command a session runs. When a `git push`, `gh pr create`/`gh pr merge` or a deploy script succeeds, it writes a small file to `~/.claude/pane-tools/ships/` (the time, the session id and the kind — no command text). The Pokémon mode counts those days for its work rewards. The command and its result are not changed.
 - **Memos.** A memo you send is stored in `~/.claude/pane-tools/inbox/<session id>.json`. The receiving session's copy of this plugin submits it as a user prompt and writes an `.ack` file.
