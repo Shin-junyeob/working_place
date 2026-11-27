@@ -62,7 +62,7 @@ def group(d, last=None, busy=False):
 
 def sessions(folder=JOBS, busy=()):
     """claude agents 목록의 세션 [(이름, 상태, sessionId, (at, 마지막 소식))] — needs → working → done, 묶음 안에선 최근 것 먼저.
-    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다. busy: 지금 일하는 세션 이름들.
+    지운 작업은 폴더에 tmp/ 만 남으므로 state.json 이 있는 것만 목록에 있는 것이다. busy: 지금 일하는 세션의 이름 또는 sessionId 들.
     마지막 소식은 피드 사건(events)의 마지막 — 아직 없으면 state.json 의 요약."""
     out = []
     for j in os.listdir(folder) if os.path.isdir(folder) else []:
@@ -73,7 +73,7 @@ def sessions(folder=JOBS, busy=()):
             continue
         name, tl = d.get('name') or j, os.path.join(folder, j, 'timeline.jsonl')
         last = last_row(tl)
-        st = group(d, last, name in busy)
+        st = group(d, last, name in busy or d.get('sessionId') in busy)
         try:
             ev = _read(tl)
         except OSError:
@@ -93,12 +93,13 @@ def jobs(folder=JOBS, busy=()):
 
 
 def awake(folder=PIDS, proc='/proc'):
-    """깨어 있는 세션의 sessionId 집합 — pid 파일의 프로세스가 살아 있고 시작 시각(procStart)이 /proc 의 것과 같은 것.
-    재부팅 뒤 같은 번호를 다른 프로세스가 쓰면 시작 시각이 다르다. claude agents --json(2초)을 피드에서 또 돌리지 않으려고.
+    """깨어 있는 세션 {sessionId: 지금 일하는 중인가} — pid 파일의 프로세스가 살아 있고 시작 시각(procStart)이 /proc 의 것과
+    같은 것. 재부팅 뒤 같은 번호를 다른 프로세스가 쓰면 시작 시각이 다르다. 일하는 중은 pid 파일의 status 'busy'(claude agents 의
+    실시간 상태와 같다 — 백그라운드 담당이 도는 동안도 busy). claude agents --json(2초)을 피드에서 또 돌리지 않으려고.
     /proc 이 없으면(macOS) None — 거르지 않는다."""
     if not os.path.isdir(os.path.join(proc, 'self')):
         return None
-    out = set()
+    out = {}
     for f in glob.glob(os.path.join(folder, '*.json')):
         try:
             with open(os.path.join(proc, str(int(os.path.basename(f)[:-5])), 'stat')) as fh:  # 죽은 번호는 여기서 바로 넘어간다
@@ -108,7 +109,7 @@ def awake(folder=PIDS, proc='/proc'):
         except (OSError, ValueError, IndexError):
             continue
         if str(d.get('procStart')) == start and d.get('sessionId'):
-            out.add(d['sessionId'])
+            out[d['sessionId']] = out.get(d['sessionId']) or d.get('status') == 'busy'  # 같은 세션 프로세스가 둘이면 하나라도 busy
     return out
 
 
@@ -305,7 +306,8 @@ def main(scr):
         elif m != start and time.time() - seen_at >= 5:
             curses.endwin()
             os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
-        board, up = sessions(), awake()
+        up = awake()  # 데몬 기록은 세션이 일을 남긴 채 턴을 끝내면 blocked 로 적는다 — 지금 busy 면 일하는 중(노란색 아님)
+        board = sessions(busy={sid for sid, b in (up or {}).items() if b})
         if up:  # 깨어 있는 세션만(허브의 세션 칸과 같은 목록) — 하나도 못 찾으면 거르지 않는다(pid 파일 형식이 바뀌었을 수도)
             board = [r for r in board if r[2] in up]
         now = title_name(pane_title(os.environ.get('PANE_TOOLS_FOLLOW') or WATCH) or '')
@@ -424,6 +426,14 @@ def selftest():
     with open(os.path.join(e, 'w', 'timeline.jsonl'), 'w') as f:
         f.write(''.join(json.dumps(r) + '\n' for r in rows[:2]))
     assert sessions(e) == [('W', 'working', 'S1', ('2', '중간 경과'))], sessions(e)
+    # 일을 남긴 채 턴을 끝내 데몬이 blocked 로 적었어도 지금 busy(sessionId)면 일하는 중 — 노란색은 진짜 입력 대기만(2026-11-27 KNK_ERP)
+    os.makedirs(os.path.join(e, 'k'))
+    with open(os.path.join(e, 'k', 'state.json'), 'w') as f:
+        json.dump({'state': 'blocked', 'tempo': 'active', 'name': 'K', 'updatedAt': 'y', 'sessionId': 'S9'}, f)
+    with open(os.path.join(e, 'k', 'timeline.jsonl'), 'w') as f:
+        f.write(json.dumps({'at': '1', 'state': 'blocked', 'detail': '아직 끝나지 않았습니다 — 백그라운드로 진행 중', 'text': '…'}) + '\n')
+    assert dict((n, st) for n, st, *_ in sessions(e, busy={'S9'}))['K'] == 'working'
+    assert dict((n, st) for n, st, *_ in sessions(e))['K'] == 'blocked'
     # 깨어 있는 세션: pid 파일의 시작 시각이 /proc 과 같을 때만 — 이 프로세스로 시험, 다른 시작 시각·죽은 번호·깨진 파일은 뺀다
     if os.path.isdir('/proc/self'):
         pd = tempfile.mkdtemp()
@@ -434,7 +444,10 @@ def selftest():
                 json.dump({'pid': pid, 'procStart': start, 'sessionId': sid}, f)
         with open(os.path.join(pd, 'x.json'), 'w') as f:
             f.write('{')
-        assert awake(pd) == {'S1'}, awake(pd)
+        assert awake(pd) == {'S1': False}, awake(pd)
+        with open(os.path.join(pd, f'{os.getpid()}.json'), 'w') as f:
+            json.dump({'pid': os.getpid(), 'procStart': me, 'sessionId': 'S1', 'status': 'busy'}, f)
+        assert awake(pd) == {'S1': True}
     assert awake(d, proc=d) is None  # /proc 이 없는 곳(macOS)
     # 작업 목록: 제목 앞 번호 순(1, 1-1, 2, 10) · 번호가 없으면 작업 번호 · 날짜는 번호로 보지 않는다 · 예상 시각은 떼고 due 로
     # · 진행 중은 activeForm · 모르는 상태와 이상한 id 는 뺀다
