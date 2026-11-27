@@ -3,7 +3,8 @@
 
 작업 목록은 Claude Code 가 세션마다 남기는 ~/.claude/tasks/<sessionId>/<번호>.json({subject, activeForm, status}),
 세션 상태는 데몬이 작업마다 남기는 ~/.claude/jobs/<id>/state.json · timeline.jsonl({at, state, detail, text})을 읽는다. 쓰는 건 없다.
-레일: 끝난 것 ✔ → 진행 중인 것 ● (둘 이상이면 옆으로 갈라져 나란히, 대기 앞에서 합친다) → 대기 ○ (2026-11-27 사용자 — 줄글 피드를 바꿨다).
+레일: 제목 앞 번호 순(1, 1-1, 1-2, 2 …)으로 끝난 것 ✔ · 진행 중 ● · 대기 ○. 작업 중 끼어든 일은 세션이 '1-1. …' 처럼 번호를 달아
+넣고, 레일은 그것을 부모에서 갈라진 갈래(├─┐ … ├─┘)로 들여 그린다(2026-11-27 사용자 — 줄글 피드를 바꿨다).
 세션 줄의 소식은 사용자가 보낸 말(text 가 빈 줄)과 작업 중간 경과를 뺀 마지막 사건 — 포켓몬 모드는 같은 사건들(feed)로 일한 날을 센다.
 ←→ 다른 세션 · Enter 0번 패널 세션으로 · q 닫기. `python3 feed.py --selftest` 로 점검한다.
 """
@@ -23,6 +24,7 @@ from memo import WATCH, cw, focus_reporting, getkey, pane_title, put, title_name
 JOBS = os.path.expanduser('~/.claude/jobs')
 TASKS = os.path.expanduser('~/.claude/tasks')  # Claude Code 의 작업 목록 — 세션마다 <sessionId>/<번호>.json
 PIDS = os.path.expanduser('~/.claude/sessions')  # 떠 있는 Claude 프로세스마다 <pid>.json({sessionId, procStart, …})
+LABEL = re.compile(r'^\s*(\d{1,3}(?:-\d{1,3})*)[.)]?\s+')  # 제목 앞 번호 '2. ' · '1-1 ' — 한 칸 세 자리까지(날짜 '2026-11-26' 은 아니다)
 DUE = re.compile(r'\s*\(~(\d{1,2}:\d\d)(?:,\s*([^)]*))?\)')  # 제목에 적은 예상 시각 '(~14:30)' · '(~17:00, 사용자 확인)'
 # claude agents 의 상태 묶음 — needs 가 맨 위, 끝난 것은 아래
 ORDER = {'blocked': 0, 'needs_input': 0, 'failed': 1, 'working': 2, 'done': 3}
@@ -111,8 +113,9 @@ def awake(folder=PIDS, proc='/proc'):
 
 
 def tasks(sid, folder=TASKS):
-    """세션의 작업 목록 [{id, text, state, at, due}] — 번호 순, 목록이 없으면 []. 진행 중이면 activeForm('…하는 중'),
-    아니면 제목에서 앞 번호('2. ')와 예상 시각('(~14:30)')을 떼고 예상 시각은 due 로. at 은 파일을 고친 시각(상태가 바뀐 때)."""
+    """세션의 작업 목록 [{id, text, state, at, due}] — 번호 순, 목록이 없으면 []. id 는 제목 앞 번호('1-1')이고 없으면 작업 번호.
+    진행 중이면 activeForm('…하는 중'), 아니면 제목에서 앞 번호와 예상 시각('(~14:30)')을 떼고 예상 시각은 due 로.
+    at 은 파일을 고친 시각(상태가 바뀐 때)."""
     out = []
     for f in glob.glob(os.path.join(folder, sid, '*.json')) if re.fullmatch(r'[\w-]+', sid or '') else []:
         try:
@@ -124,45 +127,59 @@ def tasks(sid, folder=TASKS):
         st = d.get('status')
         if st not in ('pending', 'in_progress', 'completed'):
             continue
-        subj = re.sub(r'^\s*\d+[.)]\s*', '', d.get('subject') or '')
+        subj = d.get('subject') or ''
+        n = LABEL.match(subj)
+        subj = subj[n.end():] if n else subj
         m = DUE.search(subj)
         if m:
             subj = subj[:m.start()] + (f' ({m[2]})' if m[2] else '') + subj[m.end():]
         text = d.get('activeForm') if st == 'in_progress' and d.get('activeForm') else subj
-        out.append({'id': str(d.get('id', '')), 'text': text.strip(), 'state': st, 'at': at, 'due': m[1] if m else ''})
-    out.sort(key=lambda t: (len(t['id']), t['id']))  # 숫자 번호 순(10 이 2 뒤)
+        out.append({'id': n[1] if n else str(d.get('id', '')), 'text': text.strip(), 'state': st, 'at': at, 'due': m[1] if m else ''})
+    out.sort(key=lambda t: [int(x) if x.isdigit() else 10 ** 9 for x in t['id'].split('-')])  # 1, 1-1, 1-2, 2, 10 순
     return out
 
 
+MARKS = {'completed': '✔', 'in_progress': '●', 'pending': '○'}
+
+
 def rail(ts):
-    """작업 목록 → 레일 줄 [(선, 작업 또는 None)] — 끝난 것 ✔, 진행 중인 것 ●, 대기 ○ 순. 진행 중이 둘 이상이면
-    git log --graph 처럼 끝난 것 아래에서 갈라져(├─┐) 나란히 가다 대기 앞에서 합친다(├─┘). 칸 사이는 한 칸 띄운다."""
-    done, run, todo = ([t for t in ts if t['state'] == s] for s in ('completed', 'in_progress', 'pending'))
-    k = len(run)
-    gw = 2 * k - 1 if k > 1 else 1
-    rows = [('✔'.ljust(gw), t) for t in done]
-    if k > 1:
-        if done:
-            rows.append(('├' + '─┬' * (k - 2) + '─┐', None))
-        for j, t in enumerate(run):  # 앞 갈래는 대기로 이어질 때, 뒤 갈래는 위에서 갈라져 왔을 때 선을 긋는다
-            lanes = ['│' if (i < j and todo) or (i > j and done) else ' ' for i in range(k)]
-            lanes[j] = '●'
-            rows.append((' '.join(lanes), t))
-        if todo:
-            rows.append(('├' + '─┴' * (k - 2) + '─┘', None))
-    else:
-        rows += [('●', t) for t in run]
-    return rows + [('○'.ljust(gw), t) for t in todo]
+    """작업 목록(번호 순) → 레일 줄 [(선, 작업 또는 None)]. 하위 작업(1-1)은 git 갈래처럼 부모 아래에서 갈라져(├─┐)
+    한 칸 들여 가고, 뒤에 이어지는 작업이 있으면 다시 합친다(├─┘). 부모가 없는 번호는 맨 위 단계로 둔다."""
+    nodes, top = {}, []
+    for t in ts:  # 번호 순이라 부모가 먼저 온다
+        node = nodes[t['id']] = (t, [])
+        parent = nodes.get(t['id'].rpartition('-')[0])
+        (parent[1] if parent else top).append(node)
+    rows = []
+
+    def walk(level, prefix, after):
+        for i, (t, kids) in enumerate(level):
+            more = i < len(level) - 1 or after  # 이 작업(과 그 하위) 뒤로 이어지는 줄이 있나
+            rows.append((prefix + MARKS[t['state']], t))
+            if kids:
+                rows.append((prefix + ('├─┐' if more else '└─┐'), None))
+                walk(kids, prefix + ('│ ' if more else '  '), more)
+                if more:
+                    rows.append((prefix + '├─┘', None))
+    walk(top, '', False)
+    return rows
 
 
 def fit_rail(rows, budget):
-    """레일이 칸보다 길면 끝난 것을 '완료 N개' 한 줄로 접고, 그래도 길면 뒤를 '… N개 더' 로 자른다."""
+    """레일이 칸보다 길면 앞에서부터 하위까지 다 끝난 맨 위 단계 작업들을 '완료 N개' 한 줄로 접고,
+    그래도 길면 뒤를 '… N줄 더' 로 자른다."""
     if len(rows) <= budget:
         return rows
-    done = [t for _, t in rows if t and t['state'] == 'completed']
+    starts = [i for i, (ln, t) in enumerate(rows) if t and len(ln) == 1] + [len(rows)]  # 맨 위 단계 작업 줄
+    cut = 0
+    for a, b in zip(starts, starts[1:]):
+        if any(t and t['state'] != 'completed' for _, t in rows[a:b]):
+            break
+        cut = b
+    done = [t for _, t in rows[:cut] if t]
     if len(done) > 1:
-        rows = [rows[0][:1] + ({'id': '', 'text': L(f'완료 {len(done)}개', f'{len(done)} done'), 'state': 'completed',
-                                'at': max(t['at'] for t in done), 'due': ''},)] + rows[len(done):]
+        rows = [('✔', {'id': '', 'text': L(f'완료 {len(done)}개', f'{len(done)} done'), 'state': 'completed',
+                       'at': max(t['at'] for t in done), 'due': ''})] + rows[cut:]
     if len(rows) > budget:
         rows = rows[:max(0, budget - 1)] + [('…', {'id': '', 'text': L(f'{len(rows) - budget + 1}줄 더', f'{len(rows) - budget + 1} more'),
                                                    'state': 'pending', 'at': 0, 'due': ''})]
@@ -419,29 +436,34 @@ def selftest():
             f.write('{')
         assert awake(pd) == {'S1'}, awake(pd)
     assert awake(d, proc=d) is None  # /proc 이 없는 곳(macOS)
-    # 작업 목록: 번호 순(10 이 2 뒤) · 앞 번호와 예상 시각은 떼고 due 로 · 진행 중은 activeForm · 모르는 상태와 이상한 id 는 뺀다
+    # 작업 목록: 제목 앞 번호 순(1, 1-1, 2, 10) · 번호가 없으면 작업 번호 · 날짜는 번호로 보지 않는다 · 예상 시각은 떼고 due 로
+    # · 진행 중은 activeForm · 모르는 상태와 이상한 id 는 뺀다
     td = tempfile.mkdtemp()
     os.makedirs(os.path.join(td, 'S1'))
     for i, st, subj, act in ((10, 'pending', '10. 줄 고치기 (~17:00, 사용자 확인)', ''), (1, 'completed', '1. 재현 안 됨, 닫음', '재현하는 중'),
-                             (2, 'in_progress', '2. 판정 빠르게 (~14:30)', '판정 빠르게 하는 중'), (3, 'deleted', '3. 지움', '')):
+                             (2, 'in_progress', '2. 판정 빠르게 (~14:30)', '판정 빠르게 하는 중'), (3, 'deleted', '3. 지움', ''),
+                             (7, 'completed', '1-1 트러블 슈팅', ''), (8, 'pending', '2026-11-26 업무보고서 쓰기', '')):
         with open(os.path.join(td, 'S1', f'{i}.json'), 'w') as f:
             json.dump({'id': str(i), 'subject': subj, 'activeForm': act, 'status': st, 'blocks': [], 'blockedBy': []}, f)
     ts = tasks('S1', td)
-    assert [(t['id'], t['text'], t['due']) for t in ts] == [('1', '재현 안 됨, 닫음', ''), ('2', '판정 빠르게 하는 중', '14:30'),
-                                                           ('10', '줄 고치기 (사용자 확인)', '17:00')], ts
+    assert [(t['id'], t['text'], t['due']) for t in ts] == [('1', '재현 안 됨, 닫음', ''), ('1-1', '트러블 슈팅', ''), ('2', '판정 빠르게 하는 중', '14:30'),
+                                                           ('8', '2026-11-26 업무보고서 쓰기', ''), ('10', '줄 고치기 (사용자 확인)', '17:00')], ts
     assert tasks('', td) == tasks('../S1', td) == tasks('없음', td) == []
-    assert task_when(ts[2]) == '~17:00' and task_when(ts[1]).endswith('~14:30') and task_when(dict(ts[0], at=0)) == ''
-    # 레일: 끝난 것 → 진행 중(둘 이상이면 갈라져 나란히) → 대기, 위·아래가 없으면 갈래 선도 없다
+    assert task_when(ts[4]) == '~17:00' and task_when(ts[2]).endswith('~14:30') and task_when(dict(ts[0], at=0)) == ''
+    # 레일: 번호 순, 하위 작업은 부모 아래에서 갈라져 들여 가다 뒤에 작업이 있으면 합친다 — 사용자 예시(2026-11-27) 그대로
     T = lambda i, st: {'id': str(i), 'text': '', 'state': st, 'at': 0, 'due': ''}  # noqa: E731
-    r = rail([T(1, 'completed'), T(2, 'in_progress'), T(3, 'pending'), T(4, 'in_progress')])
-    assert [ln for ln, _ in r] == ['✔  ', '├─┐', '● │', '│ ●', '├─┘', '○  '] and [t['id'] for _, t in r if t] == ['1', '2', '4', '3']
-    assert [ln for ln, _ in rail([T(i, 'in_progress') for i in (1, 2, 3)])] == ['●    ', '  ●  ', '    ●']
-    assert [ln for ln, _ in rail([T(1, 'completed'), T(2, 'in_progress'), T(3, 'in_progress')])] == ['✔  ', '├─┐', '● │', '  ●']
-    assert [ln for ln, _ in rail([T(1, 'completed'), T(2, 'in_progress'), T(3, 'pending')])] == ['✔', '●', '○'] and rail([]) == []
-    # 넘치면 끝난 것을 한 줄로 접고, 그래도 넘치면 뒤를 자른다
-    long = rail([T(i, 'completed') for i in range(1, 6)] + [T(6, 'in_progress'), T(7, 'pending'), T(8, 'pending')])
-    assert fit_rail(long, 8) == long and [t['text'] for _, t in fit_rail(long, 4)] == [L('완료 5개', '5 done'), '', '', '']
-    assert [ln for ln, _ in fit_rail(long, 3)] == ['✔', '●', '…']
+    r = rail([T(1, 'in_progress'), T('1-1', 'completed'), T('1-2', 'in_progress'), T(2, 'pending'), T(3, 'pending')])
+    assert [ln for ln, _ in r] == ['●', '├─┐', '│ ✔', '│ ●', '├─┘', '○', '○'] and [t['id'] for _, t in r if t] == ['1', '1-1', '1-2', '2', '3']
+    assert [ln for ln, _ in rail([T(1, 'completed'), T(2, 'in_progress'), T('2-1', 'in_progress')])] == ['✔', '●', '└─┐', '  ●']  # 뒤가 없으면 합치지 않는다
+    assert [ln for ln, _ in rail([T(1, 'pending'), T('1-1', 'pending'), T('1-1-1', 'pending'), T(2, 'pending')])] == \
+        ['○', '├─┐', '│ ○', '│ ├─┐', '│ │ ○', '│ ├─┘', '├─┘', '○']
+    assert [ln for ln, _ in rail([T('1-1', 'pending'), T(2, 'pending')])] == ['○', '○'] and rail([]) == []  # 부모 없는 번호는 맨 위
+    # 넘치면 앞에서부터 하위까지 다 끝난 맨 위 작업들을 한 줄로 접고, 그래도 넘치면 뒤를 자른다
+    long = rail([T(1, 'completed'), T('1-1', 'completed'), T(2, 'completed'), T(3, 'in_progress'), T('3-1', 'pending'), T(4, 'pending')])
+    f = fit_rail(long, 7)
+    assert fit_rail(long, 10) == long and [ln for ln, _ in f] == ['✔', '●', '├─┐', '│ ○', '├─┘', '○'] and f[0][1]['text'] == L('완료 3개', '3 done')
+    assert [ln for ln, _ in fit_rail(long, 4)] == ['✔', '●', '├─┐', '…']
+    assert [ln for ln, _ in fit_rail(rail([T(1, 'in_progress'), T('1-1', 'completed'), T(2, 'pending')]), 2)] == ['●', '…']  # 1 이 안 끝났으면 접지 않는다
     # 묶음: 답을 받아 일하는 중이면 state.json 이 blocked 여도 working · busy 면 working · tempo blocked 면 needs
     assert group({'state': 'blocked', 'tempo': 'blocked'}, rows[3]) == 'working'
     assert group({'state': 'blocked', 'tempo': 'blocked'}, rows[4]) == 'blocked'
