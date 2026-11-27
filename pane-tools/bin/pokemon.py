@@ -3422,7 +3422,7 @@ def main(scr):
                     if c0 is not None:
                         put(scr, mb + 1 + j, 2 + c0, word, attr)
             x = button(h - 1, 1, (L('다음 상대 q', 'next q') if battle_now['won'] and battle_now.get('tower') else
-                                  L('허브로 q', 'to hub q') if battle_now['won'] and not battle_now.get('pts') else L('다시 준비 q', 'retry q'))
+                                  L('메인으로 q', 'to main q') if battle_now['won'] and not battle_now.get('pts') else L('다시 준비 q', 'retry q'))
                        if k >= len(ev) else L('돌아가기 q', 'back q'), 'back')
             if k < len(ev):
                 fxv = _lang.get('battle_fx', 'auto')
@@ -4073,7 +4073,8 @@ def main(scr):
         elif act == 'back' and view == 'fight' and battle_now['k'] < len(battle_now['ev']):
             battle_now['k'] = len(battle_now['ev'])  # 먼저 끝까지 보여 주고, 한 번 더 누르면 나간다
         elif act == 'back' and view == 'fight' and battle_now['won'] and not battle_now.get('tower') and not battle_now.get('pts'):
-            break  # 이겼으면 다시 준비할 일이 없으니 포켓몬 모드를 닫고 허브로 — 지면 준비 화면으로(아래)
+            scr.timeout(2000)  # 배틀 화면이 줄여 둔 갱신 주기를 되돌린다
+            view, top, sel, msg = 'main', 0, 0, ''  # 이기면 다시 준비할 일이 없으니 포켓몬 메인 화면으로(2026-11-27 사용자 — 전엔 모드를 닫고 허브로) · 지면 준비 화면으로(아래)
         elif act == 'back':
             if view == 'fight':
                 scr.timeout(2000)
