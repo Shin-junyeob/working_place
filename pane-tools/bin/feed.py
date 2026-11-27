@@ -23,6 +23,8 @@ from memo import WATCH, cw, focus_reporting, getkey, pane_title, put, title_name
 
 JOBS = os.path.expanduser('~/.claude/jobs')
 TASKS = os.path.expanduser('~/.claude/tasks')  # Claude Code 의 작업 목록 — 세션마다 <sessionId>/<번호>.json
+PROJECTS = os.path.expanduser('~/.claude/projects')  # 세션 대화 기록 <폴더>/<sessionId>.jsonl
+BG_FRESH = 6 * 3600  # 이보다 오래전에 띄우고 끝 알림이 없는 백그라운드 작업은 버려진 것으로 본다
 PIDS = os.path.expanduser('~/.claude/sessions')  # 떠 있는 Claude 프로세스마다 <pid>.json({sessionId, procStart, …})
 LABEL = re.compile(r'^\s*(\d{1,3}(?:-\d{1,3})*)[.)]?\s+')  # 제목 앞 번호 '2. ' · '1-1 ' — 한 칸 세 자리까지(날짜 '2026-11-26' 은 아니다)
 DUE = re.compile(r'\s*\(~(\d{1,2}:\d\d)(?:,\s*([^)]*))?\)')  # 제목에 적은 예상 시각 '(~14:30)' · '(~17:00, 사용자 확인)'
@@ -78,6 +80,8 @@ def sessions(folder=JOBS, busy=None):
         name, tl = d.get('name') or j, os.path.join(folder, j, 'timeline.jsonl')
         last = last_row(tl)
         st = group(d, last, name in busy or d.get('sessionId') in busy)
+        if st == 'blocked' and folder == JOBS and bg_pending(d.get('sessionId')):
+            st = 'working'  # 담당을 띄워 두고 턴만 끝낸 것 — 사용자 입력을 기다리는 게 아니다
         try:
             ev = _read(tl)
         except OSError:
@@ -115,6 +119,43 @@ def awake(folder=PIDS, proc='/proc'):
         if str(d.get('procStart')) == start and d.get('sessionId'):
             out[d['sessionId']] = out.get(d['sessionId']) or d.get('status') == 'busy'  # 같은 세션 프로세스가 둘이면 하나라도 busy
     return out
+
+
+_bg = {}  # 대화 기록 경로 → (읽은 바이트, {띄운 tool_use id: 시각}, {끝 알림이 온 id})
+
+
+def bg_pending(sid, projects=PROJECTS, now=None):
+    """세션이 띄운 백그라운드 작업(run_in_background) 중 끝 알림(<task-notification> 의 <tool-use-id>)이 아직 없는 것의 수.
+    Claude Code 는 담당을 띄워 두고 턴만 끝낸 세션도 입력 대기(blocked·waiting)로 분류해서, 이걸로 가려낸다(2026-11-27 KNK_ERP).
+    대화 기록은 수십 MB 라 처음엔 끝 4MB 만, 그다음엔 늘어난 만큼만 읽고, 두 낱말이 없는 줄은 풀지 않는다."""
+    found = glob.glob(os.path.join(projects, '*', sid + '.jsonl')) if re.fullmatch(r'[\w-]+', sid or '') else []
+    if not found:
+        return 0
+    path, size = found[0], os.path.getsize(found[0])
+    done, launched, finished = _bg.get(path, (max(0, size - 4_000_000), {}, set()))
+    if size < done:  # 새로 쓰인 파일
+        done, launched, finished = 0, {}, set()
+    if size > done:
+        with open(path, 'rb') as f:
+            f.seek(done)
+            chunk = f.read()
+        cut = chunk.rfind(b'\n') + 1  # 쓰는 도중인 마지막 줄은 다음에(처음 읽은 첫 줄은 중간부터라 풀리지 않아 버려진다)
+        for line in chunk[:cut].splitlines():
+            if b'<tool-use-id>' in line:
+                finished.update(x.decode() for x in re.findall(rb'<tool-use-id>([\w-]+)</tool-use-id>', line))
+            if re.search(rb'"run_in_background":"?true', line):  # 세션에 따라 글자 "true" 로 보낸다(KNK_ERP)
+                try:
+                    r = json.loads(line)
+                    at = datetime.fromisoformat(r['timestamp'].replace('Z', '+00:00')).timestamp()
+                except (ValueError, KeyError, AttributeError):
+                    continue
+                for b in (r.get('message') or {}).get('content') or []:
+                    if isinstance(b, dict) and b.get('type') == 'tool_use' and (b.get('input') or {}).get('run_in_background') in (True, 'true'):
+                        launched[b.get('id')] = at
+        done += cut
+    _bg[path] = (done, launched, finished)
+    now = now or time.time()
+    return sum(1 for i, at in launched.items() if i not in finished and now - at < BG_FRESH)
 
 
 def tasks(sid, folder=TASKS):
@@ -453,6 +494,21 @@ def selftest():
             json.dump({'pid': os.getpid(), 'procStart': me, 'sessionId': 'S1', 'status': 'busy'}, f)
         assert awake(pd) == {'S1': True}
     assert awake(d, proc=d) is None  # /proc 이 없는 곳(macOS)
+    # 백그라운드 작업: 띄운 것 중 끝 알림이 없는 것만 센다 · 오래된 것(BG_FRESH)은 버려진 것 · 늘어난 줄만 더 읽는다
+    pj = tempfile.mkdtemp()
+    os.makedirs(os.path.join(pj, 'p'))
+    now_iso = lambda ago: datetime.fromtimestamp(time.time() - ago).astimezone().isoformat()  # noqa: E731
+    launch = lambda i, ago: json.dumps({'type': 'assistant', 'timestamp': now_iso(ago), 'message': {'content': [  # noqa: E731
+        {'type': 'tool_use', 'id': i, 'name': 'Agent', 'input': {'prompt': 'x', 'run_in_background': True}}]}}, separators=(',', ':'))
+    bgl = os.path.join(pj, 'p', 'S7.jsonl')
+    with open(bgl, 'w') as f:
+        f.write('\n'.join([launch('t1', 60), launch('t2', 30).replace(':true}', ':"true"}'), launch('old', BG_FRESH + 60),
+                           json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'id': 't3', 'input': {'run_in_background': False}}]}})]) + '\n')
+    assert bg_pending('S7', pj) == 2 and bg_pending('없음', pj) == bg_pending('../p', pj) == 0
+    with open(bgl, 'a') as f:
+        f.write(json.dumps({'type': 'user', 'message': {'content': '<task-notification> <task-id>a</task-id> <tool-use-id>t1</tool-use-id> '
+                                                                   '<status>completed</status></task-notification>'}}) + '\n')
+    assert bg_pending('S7', pj) == 1
     # 작업 목록: 제목 앞 번호 순(1, 1-1, 2, 10) · 번호가 없으면 작업 번호 · 날짜는 번호로 보지 않는다 · 예상 시각은 떼고 due 로
     # · 진행 중은 activeForm · 모르는 상태와 이상한 id 는 뺀다
     td = tempfile.mkdtemp()
